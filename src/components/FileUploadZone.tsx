@@ -5,6 +5,7 @@ interface FileUploadZoneProps {
   onFileLoaded: (buffer: ArrayBuffer) => void;
   fileName: string | null;
   onClear: () => void;
+  onFileName: (name: string) => void;
 }
 
 export default function FileUploadZone({ onFileLoaded, fileName, onClear }: FileUploadZoneProps) {

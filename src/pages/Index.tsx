@@ -111,15 +111,11 @@ const Index = () => {
       <h1 className="text-xl font-bold text-foreground">P4-PH4 주간 출퇴근 현황</h1>
 
       <FileUploadZone
-        onFileLoaded={(buf) => {
-          handleFileLoaded(buf);
-        }}
+        onFileLoaded={handleFileLoaded}
         fileName={fileName}
         onClear={() => { setData(null); setFileName(null); }}
+        onFileName={setFileName}
       />
-
-      {/* Wrap input change to capture filename */}
-      {!fileName && !data && null}
 
       {data && (
         <>
