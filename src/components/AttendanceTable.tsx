@@ -65,6 +65,7 @@ function calcWeeklyAnomaly(emp: Employee, weekDates: Date[]): WeeklyAnomaly {
 
 export default function AttendanceTable({
   employees,
+  anomalyMap,
   weekDates,
   dataYear,
   dataMonth,
