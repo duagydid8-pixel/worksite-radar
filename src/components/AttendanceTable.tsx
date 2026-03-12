@@ -33,16 +33,16 @@ function formatDateHeader(date: Date): string {
 interface WeeklyAnomaly {
   미타각: number;
   지각: number;
-  결근: number;
+  미기록: number;
 }
 
 function calcWeeklyAnomaly(emp: Employee, weekDates: Date[]): WeeklyAnomaly {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  let 미타각 = 0, 지각 = 0, 결근 = 0;
+  let 미타각 = 0, 지각 = 0, 미기록 = 0;
 
   weekDates.forEach((wd, i) => {
-    if (i >= 5) return; // skip Sat/Sun
+    if (i >= 5) return;
     const dn = wd.getDate();
     const dd = emp.dailyRecords[dn];
     const cellDate = new Date(wd);
@@ -53,17 +53,19 @@ function calcWeeklyAnomaly(emp: Employee, weekDates: Date[]): WeeklyAnomaly {
     if (isPast || isToday) {
       if (!dd || (!dd.punchIn && !dd.punchOut)) {
         미타각++;
-      } else if (dd.punchIn && isLate(dd.punchIn)) {
-        지각++;
+      } else {
+        if (dd.punchIn && isLate(dd.punchIn)) 지각++;
+        if (dd.punchIn && !dd.punchOut) 미기록++;
       }
     }
   });
 
-  return { 미타각, 지각, 결근 };
+  return { 미타각, 지각, 미기록 };
 }
 
 export default function AttendanceTable({
   employees,
+  anomalyMap,
   weekDates,
   dataYear,
   dataMonth,
@@ -139,10 +141,14 @@ export default function AttendanceTable({
 
   const renderAnomalyBadges = (emp: Employee) => {
     const a = calcWeeklyAnomaly(emp, weekDates);
+    const anomaly = anomalyMap.get(emp.name);
     const badges: { label: string; value: number; cls: string }[] = [];
     if (a.미타각 > 0) badges.push({ label: "미타각", value: a.미타각, cls: "bg-warning/15 text-warning border-warning/30" });
     if (a.지각 > 0) badges.push({ label: "지각", value: a.지각, cls: "bg-yellow-400/10 text-yellow-400 border-yellow-400/25" });
-    if (a.결근 > 0) badges.push({ label: "결근", value: a.결근, cls: "bg-destructive/10 text-destructive border-destructive/25" });
+    if (a.미기록 > 0) badges.push({ label: "미기록", value: a.미기록, cls: "bg-orange-400/10 text-orange-400 border-orange-400/25" });
+    if (anomaly && anomaly.연차 > 0) badges.push({ label: "연차", value: anomaly.연차, cls: "bg-teal-400/10 text-teal-400 border-teal-400/25" });
+    if (anomaly && anomaly.반차 > 0) badges.push({ label: "반차", value: anomaly.반차, cls: "bg-purple-400/10 text-purple-400 border-purple-400/25" });
+    if (anomaly && anomaly.결근 > 0) badges.push({ label: "결근", value: anomaly.결근, cls: "bg-destructive/10 text-destructive border-destructive/25" });
 
     if (badges.length === 0) {
       return <span className="text-muted-foreground text-[10px]">이상없음</span>;
