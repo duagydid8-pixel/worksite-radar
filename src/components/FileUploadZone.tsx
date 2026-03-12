@@ -12,12 +12,13 @@ export default function FileUploadZone({ onFileLoaded, fileName, onClear, onFile
   const [isDragging, setIsDragging] = useState(false);
 
   const handleFile = useCallback((file: File) => {
+    onFileName(file.name);
     const reader = new FileReader();
     reader.onload = (e) => {
       if (e.target?.result) onFileLoaded(e.target.result as ArrayBuffer);
     };
     reader.readAsArrayBuffer(file);
-  }, [onFileLoaded]);
+  }, [onFileLoaded, onFileName]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
