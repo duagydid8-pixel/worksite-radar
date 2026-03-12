@@ -33,16 +33,16 @@ function formatDateHeader(date: Date): string {
 interface WeeklyAnomaly {
   미타각: number;
   지각: number;
-  결근: number;
+  미기록: number;
 }
 
 function calcWeeklyAnomaly(emp: Employee, weekDates: Date[]): WeeklyAnomaly {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  let 미타각 = 0, 지각 = 0, 결근 = 0;
+  let 미타각 = 0, 지각 = 0, 미기록 = 0;
 
   weekDates.forEach((wd, i) => {
-    if (i >= 5) return; // skip Sat/Sun
+    if (i >= 5) return;
     const dn = wd.getDate();
     const dd = emp.dailyRecords[dn];
     const cellDate = new Date(wd);
@@ -53,13 +53,14 @@ function calcWeeklyAnomaly(emp: Employee, weekDates: Date[]): WeeklyAnomaly {
     if (isPast || isToday) {
       if (!dd || (!dd.punchIn && !dd.punchOut)) {
         미타각++;
-      } else if (dd.punchIn && isLate(dd.punchIn)) {
-        지각++;
+      } else {
+        if (dd.punchIn && isLate(dd.punchIn)) 지각++;
+        if (dd.punchIn && !dd.punchOut) 미기록++;
       }
     }
   });
 
-  return { 미타각, 지각, 결근 };
+  return { 미타각, 지각, 미기록 };
 }
 
 export default function AttendanceTable({
