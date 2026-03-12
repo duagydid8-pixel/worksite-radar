@@ -8,7 +8,7 @@ interface FileUploadZoneProps {
   onFileName: (name: string) => void;
 }
 
-export default function FileUploadZone({ onFileLoaded, fileName, onClear }: FileUploadZoneProps) {
+export default function FileUploadZone({ onFileLoaded, fileName, onClear, onFileName }: FileUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
 
   const handleFile = useCallback((file: File) => {
