@@ -184,10 +184,12 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     }
   }
 
-  // === 4. Parse XERP 기록 sheet (태화_F) ===
+  // === 4. Parse XERP 기록 sheet (한성_F + 태화_F) ===
+  const xerpHanseongEmployees: Employee[] = [];
   const taehwaEmployees: Employee[] = [];
   let dataYear = 2026;
   let dataMonth = 3;
+  const xerpHanseongNames = new Set<string>(); // track 한성_F names from XERP
 
   const xerpSheet = wb.Sheets["XERP 기록"];
   if (xerpSheet) {
@@ -199,7 +201,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
       const team = String(row[2] || "").trim();
       if (!team || team === "태화_W") continue;
-      if (team !== "태화_F") continue;
+      if (team !== "태화_F" && team !== "한성_F") continue;
 
       const name = String(row[3] || "").trim();
       if (!name) continue;
@@ -222,7 +224,8 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       dataYear = empYear;
       dataMonth = empMonth;
 
-      const jobTitle = String(row[4] || "").trim();
+      // For 한성_F: use job title from 한성 sheet, for 태화_F: use XERP col[4]
+      const jobTitle = team === "한성_F" ? (hanseongNames.get(name) || String(row[4] || "").trim()) : String(row[4] || "").trim();
       const totalDays = typeof row[7] === "number" ? row[7] : parseInt(row[7]) || 0;
 
       const dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null }> = {};
@@ -248,15 +251,28 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
         }
       }
 
-      taehwaEmployees.push({
-        team: "태화_F",
-        name,
-        jobTitle,
-        totalDays,
-        dataYear: empYear,
-        dataMonth: empMonth,
-        dailyRecords,
-      });
+      if (team === "한성_F") {
+        xerpHanseongNames.add(name);
+        xerpHanseongEmployees.push({
+          team: "한성_F",
+          name,
+          jobTitle,
+          totalDays,
+          dataYear: empYear,
+          dataMonth: empMonth,
+          dailyRecords,
+        });
+      } else {
+        taehwaEmployees.push({
+          team: "태화_F",
+          name,
+          jobTitle,
+          totalDays,
+          dataYear: empYear,
+          dataMonth: empMonth,
+          dailyRecords,
+        });
+      }
     }
   }
 
@@ -279,13 +295,22 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     }
   }
 
-  // Determine dataYear/dataMonth from 한성 employees if available
-  if (hanseongEmployees.length > 0) {
-    dataYear = hanseongEmployees[0].dataYear;
-    dataMonth = hanseongEmployees[0].dataMonth;
+  // === 6. Merge 한성_F: XERP takes priority over 지문 기록 for same name ===
+  // Remove 지문 기록 employees that already exist in XERP 한성_F
+  const filteredFingerEmployees = hanseongEmployees.filter(
+    (emp) => !xerpHanseongNames.has(emp.name)
+  );
+
+  // Determine dataYear/dataMonth
+  if (xerpHanseongEmployees.length > 0) {
+    dataYear = xerpHanseongEmployees[0].dataYear;
+    dataMonth = xerpHanseongEmployees[0].dataMonth;
+  } else if (filteredFingerEmployees.length > 0) {
+    dataYear = filteredFingerEmployees[0].dataYear;
+    dataMonth = filteredFingerEmployees[0].dataMonth;
   }
 
-  const employees = [...hanseongEmployees, ...taehwaEmployees];
+  const employees = [...xerpHanseongEmployees, ...filteredFingerEmployees, ...taehwaEmployees];
 
   return { employees, anomalies, annualLeaveMap, dataMonth, dataYear };
 }
