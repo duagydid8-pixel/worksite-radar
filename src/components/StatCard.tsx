@@ -1,15 +1,13 @@
 interface StatCardProps {
   label: string;
   value: number;
-  variant?: "default" | "warning" | "danger" | "yellow" | "teal";
+  variant?: "default" | "yellow" | "teal";
   icon?: string;
 }
 
 export default function StatCard({ label, value, variant = "default", icon }: StatCardProps) {
   const valueClass =
-    variant === "warning" ? "text-warning"
-    : variant === "danger" ? "text-destructive"
-    : variant === "yellow" ? "text-yellow-400"
+    variant === "yellow" ? "text-yellow-400"
     : variant === "teal" ? "text-secondary"
     : "text-foreground";
 

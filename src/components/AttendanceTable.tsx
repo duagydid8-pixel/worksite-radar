@@ -2,20 +2,10 @@ import type { Employee, AnomalyRecord } from "@/lib/parseExcel";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
-const JOB_MAP: Record<string, string> = {
-  "공사관리자": "공사",
-  "품질관리자": "품질",
-  "안전관리자": "안전",
-  "설계관리자": "설계",
-  "공무관리자": "공무",
-  "차량운행": "차량",
-  "배관공": "배관",
-  "보통인부": "보통",
-};
-
 interface AttendanceTableProps {
   employees: Employee[];
   anomalyMap: Map<string, AnomalyRecord>;
+  annualLeaveMap: Record<string, Record<string, boolean>>;
   weekDates: Date[];
   dataYear: number;
   dataMonth: number;
@@ -30,42 +20,34 @@ function formatDateHeader(date: Date): string {
   return `${date.getMonth() + 1}/${date.getDate()}(${DAY_NAMES[date.getDay()]})`;
 }
 
-interface WeeklyAnomaly {
-  미타각: number;
-  지각: number;
-  미기록: number;
-}
-
-function calcWeeklyAnomaly(emp: Employee, weekDates: Date[]): WeeklyAnomaly {
+function calcWeeklyLate(emp: Employee, weekDates: Date[], annualLeaveMap: Record<string, Record<string, boolean>>): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  let 미타각 = 0, 지각 = 0, 미기록 = 0;
+  let count = 0;
 
   weekDates.forEach((wd, i) => {
-    if (i >= 5) return;
-    const dn = wd.getDate();
-    const dd = emp.dailyRecords[dn];
+    if (i >= 5) return; // weekdays only
     const cellDate = new Date(wd);
     cellDate.setHours(0, 0, 0, 0);
-    const isPast = cellDate < today;
-    const isToday = cellDate.getTime() === today.getTime();
+    if (cellDate > today) return;
 
-    if (isPast || isToday) {
-      if (!dd || (!dd.punchIn && !dd.punchOut)) {
-        미타각++;
-      } else {
-        if (dd.punchIn && isLate(dd.punchIn)) 지각++;
-        if (dd.punchIn && !dd.punchOut) 미기록++;
-      }
-    }
+    const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
+    const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
+    
+    // Skip 연차 days
+    if (annualLeaveMap[emp.name]?.[leaveKey]) return;
+
+    const rec = emp.dailyRecords[key];
+    if (rec?.punchIn && isLate(rec.punchIn)) count++;
   });
 
-  return { 미타각, 지각, 미기록 };
+  return count;
 }
 
 export default function AttendanceTable({
   employees,
   anomalyMap,
+  annualLeaveMap,
   weekDates,
   dataYear,
   dataMonth,
@@ -74,20 +56,24 @@ export default function AttendanceTable({
   today.setHours(0, 0, 0, 0);
 
   const renderCell = (emp: Employee, date: Date, dayIndex: number) => {
-    const dayOfMonth = date.getDate();
+    const year = date.getFullYear();
     const month = date.getMonth() + 1;
-    const isWeekend = dayIndex >= 5; // 5=Sat, 6=Sun
+    const day = date.getDate();
+    const isWeekend = dayIndex >= 5;
+    const key = `${year}-${month}-${day}`;
+    const leaveKey = `${year}|${month}|${day}`;
 
-    if (month !== dataMonth) return <td key={dayIndex} className="px-2 py-1.5 text-center"></td>;
-
-    const record = emp.dailyRecords[dayOfMonth];
     const cellDate = new Date(date);
     cellDate.setHours(0, 0, 0, 0);
     const isFuture = cellDate > today;
+    const isToday = cellDate.getTime() === today.getTime();
 
     if (isFuture) return <td key={dayIndex} className="px-2 py-1.5 text-center"></td>;
 
-    // Weekend handling
+    const record = emp.dailyRecords[key];
+    const hasLeave = annualLeaveMap[emp.name]?.[leaveKey];
+
+    // Weekend
     if (isWeekend) {
       if (record && (record.punchIn || record.punchOut)) {
         return (
@@ -99,15 +85,29 @@ export default function AttendanceTable({
           </td>
         );
       }
+      return <td key={dayIndex} className="px-2 py-1.5 text-center"></td>;
+    }
+
+    // 연차 check
+    if (hasLeave && (!record || !record.punchIn)) {
       return (
         <td key={dayIndex} className="px-2 py-1.5 text-center">
-          <span className="text-muted-foreground text-[10px]">휴무</span>
+          <span className="inline-block text-[10px] font-bold text-green-400 bg-green-400/10 border border-green-400/25 rounded px-1.5 py-0.5">
+            연차
+          </span>
         </td>
       );
     }
 
-    // Weekday with no record
+    // No record
     if (!record || (!record.punchIn && !record.punchOut)) {
+      // Today with no record → blank
+      if (isToday) return <td key={dayIndex} className="px-2 py-1.5 text-center"></td>;
+      
+      // 한성_F → blank
+      if (emp.team === "한성_F") return <td key={dayIndex} className="px-2 py-1.5 text-center"></td>;
+      
+      // 태화_F past weekday → 미출근
       return (
         <td key={dayIndex} className="px-2 py-1.5 text-center">
           <span className="inline-block text-[10px] font-bold text-destructive bg-destructive/10 border border-destructive/25 rounded px-1.5 py-0.5">
@@ -131,24 +131,21 @@ export default function AttendanceTable({
           ) : (
             <span className="text-blue-300">{pIn || ""}</span>
           )}
-          <span className={pOut ? "text-blue-200/70" : "text-warning font-semibold"}>
-            {pOut || "↑미기록"}
-          </span>
+          {pOut ? (
+            <span className="text-blue-200/70">{pOut}</span>
+          ) : emp.team === "태화_F" ? (
+            <span className="text-warning font-semibold">↑미기록</span>
+          ) : null}
         </div>
       </td>
     );
   };
 
   const renderAnomalyBadges = (emp: Employee) => {
-    const a = calcWeeklyAnomaly(emp, weekDates);
-    const anomaly = anomalyMap.get(emp.name);
+    const lateCount = calcWeeklyLate(emp, weekDates, annualLeaveMap);
     const badges: { label: string; value: number; cls: string }[] = [];
-    if (a.미타각 > 0) badges.push({ label: "미타각", value: a.미타각, cls: "bg-warning/15 text-warning border-warning/30" });
-    if (a.지각 > 0) badges.push({ label: "지각", value: a.지각, cls: "bg-yellow-400/10 text-yellow-400 border-yellow-400/25" });
-    if (a.미기록 > 0) badges.push({ label: "미기록", value: a.미기록, cls: "bg-orange-400/10 text-orange-400 border-orange-400/25" });
-    if (anomaly && anomaly.연차 > 0) badges.push({ label: "연차", value: anomaly.연차, cls: "bg-teal-400/10 text-teal-400 border-teal-400/25" });
-    if (anomaly && anomaly.반차 > 0) badges.push({ label: "반차", value: anomaly.반차, cls: "bg-purple-400/10 text-purple-400 border-purple-400/25" });
-    if (anomaly && anomaly.결근 > 0) badges.push({ label: "결근", value: anomaly.결근, cls: "bg-destructive/10 text-destructive border-destructive/25" });
+
+    if (lateCount > 0) badges.push({ label: "지각", value: lateCount, cls: "bg-yellow-400/10 text-yellow-400 border-yellow-400/25" });
 
     if (badges.length === 0) {
       return <span className="text-muted-foreground text-[10px]">이상없음</span>;
@@ -165,8 +162,7 @@ export default function AttendanceTable({
     );
   };
 
-  // Group by team
-  const teamOrder = ["한성_F", "태화_F"];
+  const teamOrder: ("한성_F" | "태화_F")[] = ["한성_F", "태화_F"];
   const teamMeta: Record<string, { cls: string; label: string; icon: string }> = {
     "한성_F": { cls: "bg-primary/10 border-primary/25 text-primary", label: "한성크린텍 — 관리자 (F)", icon: "🔷" },
     "태화_F": { cls: "bg-secondary/10 border-secondary/20 text-secondary", label: "태화 (협력사) — 관리자 (F)", icon: "🔶" },
@@ -183,17 +179,14 @@ export default function AttendanceTable({
       {teamOrder.map((team) => {
         const emps = groups[team];
         if (!emps || emps.length === 0) return null;
-        const meta = teamMeta[team] || { cls: "bg-muted text-foreground", label: team, icon: "⚪" };
+        const meta = teamMeta[team];
 
         return (
           <div key={team}>
-            {/* Team header */}
             <div className={`flex items-center gap-2 px-3 py-2 rounded-t-lg border text-xs font-bold ${meta.cls}`}>
               <div className={`w-2 h-2 rounded-full ${team === "한성_F" ? "bg-primary" : "bg-secondary"}`} />
               {meta.icon} {meta.label} — {emps.length}명
             </div>
-
-            {/* Table */}
             <div className="border border-t-0 border-border rounded-b-lg overflow-x-auto">
               <table className="w-full text-[11px]">
                 <thead>
@@ -210,25 +203,16 @@ export default function AttendanceTable({
                         </th>
                       );
                     })}
-                    <th className="px-2 py-1.5 text-center whitespace-nowrap">출역<br />일수</th>
                     <th className="px-2 py-1.5 text-left whitespace-nowrap">이상사항(이번주)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {emps.map((emp, idx) => (
-                    <tr
-                      key={`${emp.name}-${idx}`}
-                      className="border-b border-border/40 hover:bg-primary/[0.03]"
-                    >
+                    <tr key={`${emp.name}-${idx}`} className="border-b border-border/40 hover:bg-primary/[0.03]">
                       <td className="px-2 py-1.5 text-center text-muted-foreground text-[10px]">{idx + 1}</td>
                       <td className="px-2 py-1.5 text-center font-bold text-xs whitespace-nowrap">{emp.name}</td>
-                      <td className="px-2 py-1.5 text-center text-muted-foreground text-[10px]">
-                        {JOB_MAP[emp.jobTitle] || emp.jobTitle}
-                      </td>
+                      <td className="px-2 py-1.5 text-center text-muted-foreground text-[10px]">{emp.jobTitle}</td>
                       {weekDates.map((d, i) => renderCell(emp, d, i))}
-                      <td className="px-2 py-1.5 text-center font-bold text-primary">
-                        {emp.totalDays || "-"}
-                      </td>
                       <td className="px-2 py-1.5 text-left">{renderAnomalyBadges(emp)}</td>
                     </tr>
                   ))}
@@ -243,7 +227,7 @@ export default function AttendanceTable({
         <div className="py-16 text-center">
           <div className="text-4xl mb-4">🔍</div>
           <h2 className="text-sm font-semibold text-muted-foreground mb-2">해당 월 데이터가 없습니다</h2>
-          <p className="text-xs text-muted-foreground">해당 월 XERP 데이터가 파일에 없거나 날짜 범위를 확인해주세요</p>
+          <p className="text-xs text-muted-foreground">날짜 범위를 확인해주세요</p>
         </div>
       )}
     </div>
