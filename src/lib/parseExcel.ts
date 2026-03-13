@@ -184,10 +184,12 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     }
   }
 
-  // === 4. Parse XERP 기록 sheet (태화_F) ===
+  // === 4. Parse XERP 기록 sheet (한성_F + 태화_F) ===
+  const xerpHanseongEmployees: Employee[] = [];
   const taehwaEmployees: Employee[] = [];
   let dataYear = 2026;
   let dataMonth = 3;
+  const xerpHanseongNames = new Set<string>(); // track 한성_F names from XERP
 
   const xerpSheet = wb.Sheets["XERP 기록"];
   if (xerpSheet) {
@@ -199,7 +201,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
       const team = String(row[2] || "").trim();
       if (!team || team === "태화_W") continue;
-      if (team !== "태화_F") continue;
+      if (team !== "태화_F" && team !== "한성_F") continue;
 
       const name = String(row[3] || "").trim();
       if (!name) continue;
@@ -222,7 +224,8 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       dataYear = empYear;
       dataMonth = empMonth;
 
-      const jobTitle = String(row[4] || "").trim();
+      // For 한성_F: use job title from 한성 sheet, for 태화_F: use XERP col[4]
+      const jobTitle = team === "한성_F" ? (hanseongNames.get(name) || String(row[4] || "").trim()) : String(row[4] || "").trim();
       const totalDays = typeof row[7] === "number" ? row[7] : parseInt(row[7]) || 0;
 
       const dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null }> = {};
