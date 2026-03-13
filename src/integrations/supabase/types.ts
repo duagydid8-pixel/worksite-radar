@@ -14,7 +14,126 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      anomaly_data: {
+        Row: {
+          bansa: number
+          created_at: string
+          gyeol: number
+          id: string
+          jigak: number
+          mita: number
+          month: number
+          name: string
+          year: number
+          yeoncha: number
+        }
+        Insert: {
+          bansa?: number
+          created_at?: string
+          gyeol?: number
+          id?: string
+          jigak?: number
+          mita?: number
+          month: number
+          name: string
+          year: number
+          yeoncha?: number
+        }
+        Update: {
+          bansa?: number
+          created_at?: string
+          gyeol?: number
+          id?: string
+          jigak?: number
+          mita?: number
+          month?: number
+          name?: string
+          year?: number
+          yeoncha?: number
+        }
+        Relationships: []
+      }
+      attendance_data: {
+        Row: {
+          created_at: string
+          days_json: Json
+          id: string
+          job: string
+          month: number
+          name: string
+          team: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          days_json?: Json
+          id?: string
+          job?: string
+          month: number
+          name: string
+          team: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          days_json?: Json
+          id?: string
+          job?: string
+          month?: number
+          name?: string
+          team?: string
+          year?: number
+        }
+        Relationships: []
+      }
+      upload_metadata: {
+        Row: {
+          file_name: string | null
+          id: string
+          record_count: number
+          uploaded_at: string
+        }
+        Insert: {
+          file_name?: string | null
+          id?: string
+          record_count?: number
+          uploaded_at?: string
+        }
+        Update: {
+          file_name?: string | null
+          id?: string
+          record_count?: number
+          uploaded_at?: string
+        }
+        Relationships: []
+      }
+      yeoncha_data: {
+        Row: {
+          created_at: string
+          day: number
+          id: string
+          month: number
+          name: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          day: number
+          id?: string
+          month: number
+          name: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          day?: number
+          id?: string
+          month?: number
+          name?: string
+          year?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
