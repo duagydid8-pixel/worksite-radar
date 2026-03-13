@@ -1,9 +1,11 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import FileUploadZone from "@/components/FileUploadZone";
 import StatCard from "@/components/StatCard";
 import AttendanceTable from "@/components/AttendanceTable";
 import { parseExcelFile, type ParsedData, type Employee } from "@/lib/parseExcel";
+import { saveToSupabase, fetchFromSupabase } from "@/lib/supabaseSync";
 import { toast } from "sonner";
+import { Upload, CloudUpload, Loader2 } from "lucide-react";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -34,11 +36,42 @@ function isLate(timeStr: string): boolean {
   return h > 6 || (h === 6 && m > 30);
 }
 
+function formatUploadTime(isoStr: string): string {
+  const d = new Date(isoStr);
+  const y = d.getFullYear();
+  const mo = d.getMonth() + 1;
+  const day = d.getDate();
+  const h = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${y}년 ${mo}월 ${day}일 ${h}:${mi}`;
+}
+
 const Index = () => {
   const [data, setData] = useState<ParsedData | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("전체");
+  const [lastUploadedAt, setLastUploadedAt] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [pendingBuffer, setPendingBuffer] = useState<ArrayBuffer | null>(null);
+
+  // On mount, fetch from Supabase
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await fetchFromSupabase();
+        if (result) {
+          setData(result.data);
+          setLastUploadedAt(result.uploadedAt);
+        }
+      } catch {
+        // silently fail, user can upload manually
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, []);
 
   const monday = useMemo(() => getMonday(new Date(selectedDate)), [selectedDate]);
 
@@ -54,11 +87,30 @@ const Index = () => {
     try {
       const parsed = parseExcelFile(buffer);
       setData(parsed);
-      toast.success(`${parsed.employees.length}명의 데이터를 불러왔습니다.`);
+      setPendingBuffer(buffer);
+      toast.success(`${parsed.employees.length}명의 데이터를 불러왔습니다. "업로드 & 저장" 버튼을 눌러 저장하세요.`);
     } catch (err: any) {
       toast.error(err.message || "파일 파싱 오류");
     }
   }, []);
+
+  const handleSaveToCloud = useCallback(async () => {
+    if (!data || !fileName) {
+      toast.error("먼저 엑셀 파일을 업로드하세요.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await saveToSupabase(data, fileName);
+      setLastUploadedAt(new Date().toISOString());
+      setPendingBuffer(null);
+      toast.success("데이터가 클라우드에 저장되었습니다!");
+    } catch (err: any) {
+      toast.error(`저장 실패: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [data, fileName]);
 
   const filteredEmployees = useMemo(() => {
     if (!data) return [];
@@ -83,7 +135,6 @@ const Index = () => {
     return map;
   }, [data]);
 
-  // Monthly stats: 지각 and 연차 counts for the displayed month (weekdays, up to today)
   const stats = useMemo(() => {
     const total = filteredEmployees.length;
     let 지각 = 0;
@@ -93,8 +144,6 @@ const Index = () => {
     today.setHours(0, 0, 0, 0);
     const weekMonth = monday.getMonth() + 1;
     const weekYear = monday.getFullYear();
-
-    // Determine days in month
     const daysInMonth = new Date(weekYear, weekMonth, 0).getDate();
 
     for (const emp of filteredEmployees) {
@@ -106,12 +155,12 @@ const Index = () => {
         dateObj.setHours(0, 0, 0, 0);
         if (dateObj > today) break;
         const dow = dateObj.getDay();
-        if (dow === 0 || dow === 6) continue; // weekdays only
+        if (dow === 0 || dow === 6) continue;
 
         const leaveKey = `${weekYear}|${weekMonth}|${d}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) {
           empLeave++;
-          continue; // skip 지각 count for 연차 days
+          continue;
         }
 
         const key = `${weekYear}-${weekMonth}-${d}`;
@@ -132,20 +181,58 @@ const Index = () => {
     { label: "태화", value: "태화" },
   ];
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 text-primary animate-spin" />
+          <p className="text-sm text-muted-foreground">데이터 로딩 중...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      <div className="border-b border-border bg-card/50 px-6 py-4">
-        <h1 className="text-base font-bold text-foreground">📋 P4-PH4 초순수 현장 — 주간 근태보고</h1>
-        <p className="text-[11px] text-muted-foreground mt-0.5">평택 한성크린텍 · XERP / 지문 기록 기반 자동집계</p>
+      <div className="border-b border-border bg-card/50 px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-base font-bold text-foreground">📋 P4-PH4 초순수 현장 — 주간 근태보고</h1>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            평택 한성크린텍 · XERP / 지문 기록 기반 자동집계
+            {lastUploadedAt && (
+              <span className="ml-3 text-secondary">
+                📤 최종 업데이트: {formatUploadTime(lastUploadedAt)}
+              </span>
+            )}
+          </p>
+        </div>
       </div>
 
       <div className="p-4 md:p-6 max-w-[1500px] mx-auto space-y-3">
-        <FileUploadZone
-          onFileLoaded={handleFileLoaded}
-          fileName={fileName}
-          onClear={() => { setData(null); setFileName(null); }}
-          onFileName={setFileName}
-        />
+        <div className="flex items-center gap-3">
+          <div className="flex-1">
+            <FileUploadZone
+              onFileLoaded={handleFileLoaded}
+              fileName={fileName}
+              onClear={() => { setData(null); setFileName(null); setPendingBuffer(null); }}
+              onFileName={setFileName}
+            />
+          </div>
+          {fileName && data && (
+            <button
+              onClick={handleSaveToCloud}
+              disabled={isSaving}
+              className="flex items-center gap-2 px-5 py-3 rounded-lg bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CloudUpload className="h-4 w-4" />
+              )}
+              {isSaving ? "저장 중..." : "업로드 & 저장"}
+            </button>
+          )}
+        </div>
 
         {data && (
           <>
@@ -204,6 +291,11 @@ const Index = () => {
               <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">XERP 기록</code> +{" "}
               <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">지문 기록</code> 시트가 포함된 엑셀 파일
             </p>
+            {lastUploadedAt && (
+              <p className="text-xs text-muted-foreground mt-4">
+                💡 저장된 데이터가 없습니다. 새 파일을 업로드하세요.
+              </p>
+            )}
           </div>
         )}
       </div>
