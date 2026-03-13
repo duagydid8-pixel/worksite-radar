@@ -251,15 +251,28 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
         }
       }
 
-      taehwaEmployees.push({
-        team: "태화_F",
-        name,
-        jobTitle,
-        totalDays,
-        dataYear: empYear,
-        dataMonth: empMonth,
-        dailyRecords,
-      });
+      if (team === "한성_F") {
+        xerpHanseongNames.add(name);
+        xerpHanseongEmployees.push({
+          team: "한성_F",
+          name,
+          jobTitle,
+          totalDays,
+          dataYear: empYear,
+          dataMonth: empMonth,
+          dailyRecords,
+        });
+      } else {
+        taehwaEmployees.push({
+          team: "태화_F",
+          name,
+          jobTitle,
+          totalDays,
+          dataYear: empYear,
+          dataMonth: empMonth,
+          dailyRecords,
+        });
+      }
     }
   }
 
@@ -282,13 +295,22 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     }
   }
 
-  // Determine dataYear/dataMonth from 한성 employees if available
-  if (hanseongEmployees.length > 0) {
-    dataYear = hanseongEmployees[0].dataYear;
-    dataMonth = hanseongEmployees[0].dataMonth;
+  // === 6. Merge 한성_F: XERP takes priority over 지문 기록 for same name ===
+  // Remove 지문 기록 employees that already exist in XERP 한성_F
+  const filteredFingerEmployees = hanseongEmployees.filter(
+    (emp) => !xerpHanseongNames.has(emp.name)
+  );
+
+  // Determine dataYear/dataMonth
+  if (xerpHanseongEmployees.length > 0) {
+    dataYear = xerpHanseongEmployees[0].dataYear;
+    dataMonth = xerpHanseongEmployees[0].dataMonth;
+  } else if (filteredFingerEmployees.length > 0) {
+    dataYear = filteredFingerEmployees[0].dataYear;
+    dataMonth = filteredFingerEmployees[0].dataMonth;
   }
 
-  const employees = [...hanseongEmployees, ...taehwaEmployees];
+  const employees = [...xerpHanseongEmployees, ...filteredFingerEmployees, ...taehwaEmployees];
 
   return { employees, anomalies, annualLeaveMap, dataMonth, dataYear };
 }
