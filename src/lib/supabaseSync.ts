@@ -1,0 +1,149 @@
+import { supabase } from "@/integrations/supabase/client";
+import type { ParsedData, Employee, AnomalyRecord } from "./parseExcel";
+
+export async function saveToSupabase(data: ParsedData, fileName: string): Promise<void> {
+  const { dataYear, dataMonth } = data;
+
+  // Clear existing data for this year/month
+  await Promise.all([
+    supabase.from("attendance_data").delete().eq("year", dataYear).eq("month", dataMonth),
+    supabase.from("anomaly_data").delete().eq("year", dataYear).eq("month", dataMonth),
+    supabase.from("yeoncha_data").delete().eq("year", dataYear).eq("month", dataMonth),
+  ]);
+
+  // Insert attendance data
+  if (data.employees.length > 0) {
+    const rows = data.employees.map((emp) => ({
+      name: emp.name,
+      team: emp.team,
+      job: emp.jobTitle,
+      year: emp.dataYear,
+      month: emp.dataMonth,
+      days_json: emp.dailyRecords,
+    }));
+    // Insert in batches of 50
+    for (let i = 0; i < rows.length; i += 50) {
+      const { error } = await supabase.from("attendance_data").upsert(rows.slice(i, i + 50), {
+        onConflict: "name,team,year,month",
+      });
+      if (error) throw new Error(`attendance_data insert error: ${error.message}`);
+    }
+  }
+
+  // Insert anomaly data
+  if (data.anomalies.length > 0) {
+    const anomalyRows = data.anomalies.map((a) => ({
+      name: a.name,
+      year: dataYear,
+      month: dataMonth,
+      mita: 0,
+      jigak: a.지각,
+      gyeol: a.결근,
+      bansa: a.반차,
+      yeoncha: a.연차,
+    }));
+    const { error } = await supabase.from("anomaly_data").upsert(anomalyRows, {
+      onConflict: "name,year,month",
+    });
+    if (error) throw new Error(`anomaly_data insert error: ${error.message}`);
+  }
+
+  // Insert yeoncha data
+  const yeonchaRows: { name: string; year: number; month: number; day: number }[] = [];
+  for (const [name, dates] of Object.entries(data.annualLeaveMap)) {
+    for (const key of Object.keys(dates)) {
+      const [y, m, d] = key.split("|").map(Number);
+      yeonchaRows.push({ name, year: y, month: m, day: d });
+    }
+  }
+  if (yeonchaRows.length > 0) {
+    for (let i = 0; i < yeonchaRows.length; i += 50) {
+      const { error } = await supabase.from("yeoncha_data").upsert(yeonchaRows.slice(i, i + 50), {
+        onConflict: "name,year,month,day",
+      });
+      if (error) throw new Error(`yeoncha_data insert error: ${error.message}`);
+    }
+  }
+
+  // Save upload metadata
+  const { error: metaError } = await supabase.from("upload_metadata").insert({
+    file_name: fileName,
+    record_count: data.employees.length,
+  });
+  if (metaError) throw new Error(`upload_metadata insert error: ${metaError.message}`);
+}
+
+export async function fetchFromSupabase(): Promise<{ data: ParsedData; uploadedAt: string } | null> {
+  // Get latest upload metadata
+  const { data: meta } = await supabase
+    .from("upload_metadata")
+    .select("*")
+    .order("uploaded_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!meta) return null;
+
+  // Fetch all data
+  const [attRes, anomRes, yeonRes] = await Promise.all([
+    supabase.from("attendance_data").select("*"),
+    supabase.from("anomaly_data").select("*"),
+    supabase.from("yeoncha_data").select("*"),
+  ]);
+
+  if (!attRes.data?.length) return null;
+
+  // Reconstruct employees
+  const employees: Employee[] = (attRes.data || []).map((row: any) => ({
+    team: row.team as "한성_F" | "태화_F",
+    name: row.name,
+    jobTitle: row.job,
+    totalDays: Object.keys(row.days_json || {}).length,
+    dataYear: row.year,
+    dataMonth: row.month,
+    dailyRecords: row.days_json || {},
+  }));
+
+  // Sort: 한성_F first, then 태화_F
+  employees.sort((a, b) => {
+    if (a.team === b.team) return 0;
+    return a.team === "한성_F" ? -1 : 1;
+  });
+
+  // Reconstruct anomalies
+  const anomalies: AnomalyRecord[] = (anomRes.data || []).map((row: any) => ({
+    name: row.name,
+    지각: row.jigak,
+    결근: row.gyeol,
+    반차: row.bansa,
+    연차: row.yeoncha,
+  }));
+
+  // Reconstruct annualLeaveMap
+  const annualLeaveMap: Record<string, Record<string, boolean>> = {};
+  for (const row of yeonRes.data || []) {
+    const r = row as any;
+    const key = `${r.year}|${r.month}|${r.day}`;
+    if (!annualLeaveMap[r.name]) annualLeaveMap[r.name] = {};
+    annualLeaveMap[r.name][key] = true;
+  }
+
+  // Determine dataYear/dataMonth from first employee
+  const dataYear = employees[0]?.dataYear || new Date().getFullYear();
+  const dataMonth = employees[0]?.dataMonth || new Date().getMonth() + 1;
+
+  return {
+    data: { employees, anomalies, annualLeaveMap, dataYear, dataMonth },
+    uploadedAt: meta.uploaded_at,
+  };
+}
+
+export async function fetchLastUploadTime(): Promise<string | null> {
+  const { data } = await supabase
+    .from("upload_metadata")
+    .select("uploaded_at")
+    .order("uploaded_at", { ascending: false })
+    .limit(1)
+    .single();
+  return data?.uploaded_at || null;
+}
