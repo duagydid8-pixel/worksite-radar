@@ -383,25 +383,35 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
         const dt = new Date(Math.round((monthVal - 25569) * 86400 * 1000));
         year = dt.getUTCFullYear();
         month = dt.getUTCMonth() + 1;
-        day = dt.getUTCDate(); // 시리얼에서 일도 추출
-      } else if (typeof monthVal === "string" && monthVal.trim()) {
-        // "2026-03", "2026년 3월", "2026/03" 등
-        const match = monthVal.match(/(\d{4})[^\d]+(\d{1,2})/);
-        if (match) { year = parseInt(match[1]); month = parseInt(match[2]); }
-        else {
-          const mOnly = monthVal.match(/\d{1,2}/);
-          if (mOnly) month = parseInt(mOnly[0]);
-        }
+        day = dt.getUTCDate();
       } else if (typeof monthVal === "number" && monthVal >= 1 && monthVal <= 12) {
         month = monthVal;
+      } else if (typeof monthVal === "string" && monthVal.trim()) {
+        const s = monthVal.trim();
+        // 전체 날짜: "2026-03-03", "2026.03.03", "2026년 3월 3일" 등
+        const fullDate = s.match(/(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})/);
+        if (fullDate) {
+          year = parseInt(fullDate[1]);
+          month = parseInt(fullDate[2]);
+          day = parseInt(fullDate[3]); // B열에서 일까지 추출
+        } else {
+          // 연월: "2026-03", "2026년 3월"
+          const yearMonth = s.match(/(\d{4})[^\d]+(\d{1,2})/);
+          if (yearMonth) { year = parseInt(yearMonth[1]); month = parseInt(yearMonth[2]); }
+          else {
+            // 월만: "3", "3월"
+            const mOnly = s.match(/(\d{1,2})/);
+            if (mOnly) month = parseInt(mOnly[1]);
+          }
+        }
       }
 
-      // C열 day가 유효하면 우선 사용 (B열 시리얼에서 추출한 day 덮어쓰기)
+      // C열 day가 유효한 숫자면 덮어쓰기
       if (typeof dayVal === "number" && dayVal >= 1 && dayVal <= 31) {
         day = dayVal;
       } else if (typeof dayVal === "string" && dayVal.trim()) {
         const parsed = parseInt(dayVal);
-        if (parsed >= 1 && parsed <= 31) day = parsed;
+        if (!isNaN(parsed) && parsed >= 1 && parsed <= 31) day = parsed;
       }
 
       if (month < 1 || month > 12 || day < 1 || day > 31) continue;
