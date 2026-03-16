@@ -18,12 +18,29 @@ export interface AnomalyRecord {
   연차: number;
 }
 
+export interface LeaveEmployee {
+  name: string;
+  dept: string;
+  hireDate: string; // "YYYY-MM-DD"
+}
+
+export interface LeaveDetail {
+  year: number;
+  month: number;
+  day: number;
+  name: string;
+  days: number;
+  reason: string;
+}
+
 export interface ParsedData {
   employees: Employee[];
   anomalies: AnomalyRecord[];
   annualLeaveMap: Record<string, Record<string, boolean>>; // name -> "YYYY|M|D" -> true
   dataMonth: number;
   dataYear: number;
+  leaveEmployees: LeaveEmployee[];
+  leaveDetails: LeaveDetail[];
 }
 
 function extractTime(val: any): string | null {
@@ -312,5 +329,87 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
   const employees = [...xerpHanseongEmployees, ...filteredFingerEmployees, ...taehwaEmployees];
 
-  return { employees, anomalies, annualLeaveMap, dataMonth, dataYear };
+  // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일) ===
+  const leaveEmployees: LeaveEmployee[] = [];
+  const leaveEmpSheet = wb.Sheets["연차_현채직"];
+  if (leaveEmpSheet) {
+    const rows: any[][] = XLSX.utils.sheet_to_json(leaveEmpSheet, { header: 1, defval: "" });
+    for (let i = 7; i < rows.length; i++) { // 8행부터 (0-indexed: 7)
+      const r = rows[i];
+      const name = String(r[2] || "").trim(); // C열 (index 2)
+      if (!name) continue;
+      const dept = String(r[3] || "").trim(); // D열 (index 3)
+      // E열 (index 4) = 입사일: Excel serial 또는 문자열
+      let hireDate = "";
+      const hireDateVal = r[4];
+      if (typeof hireDateVal === "number" && hireDateVal > 0) {
+        const dt = new Date(Math.round((hireDateVal - 25569) * 86400 * 1000));
+        const y = dt.getUTCFullYear();
+        const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+        const d = String(dt.getUTCDate()).padStart(2, "0");
+        hireDate = `${y}-${m}-${d}`;
+      } else if (typeof hireDateVal === "string") {
+        const match = hireDateVal.match(/(\d{4})[.\-\/년](\d{1,2})[.\-\/월](\d{1,2})/);
+        if (match) {
+          hireDate = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+        }
+      }
+      leaveEmployees.push({ name, dept, hireDate });
+    }
+  }
+
+  // === 8. Parse 연차_상세 sheet (연차 사용 내역) ===
+  const leaveDetails: LeaveDetail[] = [];
+  const leaveDetailSheet = wb.Sheets["연차_상세"];
+  if (leaveDetailSheet) {
+    const rows: any[][] = XLSX.utils.sheet_to_json(leaveDetailSheet, { header: 1, defval: "" });
+    for (let i = 3; i < rows.length; i++) { // 4행부터 (0-indexed: 3)
+      const r = rows[i];
+      const name = String(r[4] || "").trim(); // E열 (index 4)
+      if (!name) continue;
+
+      // B열 (index 1) = 사용월, C열 (index 2) = 사용일
+      const monthVal = r[1];
+      const dayVal = r[2];
+      let year = dataYear, month = 1, day = 1;
+
+      if (typeof monthVal === "number" && monthVal > 1000) {
+        // Excel date serial
+        const dt = new Date(Math.round((monthVal - 25569) * 86400 * 1000));
+        year = dt.getUTCFullYear();
+        month = dt.getUTCMonth() + 1;
+      } else if (typeof monthVal === "string") {
+        // "2026-03", "2026년 3월", "2026/03" 등
+        const match = monthVal.match(/(\d{4})[^\d]+(\d{1,2})/);
+        if (match) { year = parseInt(match[1]); month = parseInt(match[2]); }
+        else {
+          // 월만 있는 경우 (e.g. "3")
+          const mOnly = monthVal.match(/^(\d{1,2})$/);
+          if (mOnly) month = parseInt(mOnly[1]);
+        }
+      } else if (typeof monthVal === "number") {
+        month = monthVal;
+      }
+
+      if (typeof dayVal === "number") {
+        day = dayVal;
+      } else if (typeof dayVal === "string") {
+        day = parseInt(dayVal) || 1;
+      }
+
+      const daysUsed = typeof r[5] === "number" ? r[5] : parseFloat(String(r[5])) || 1; // F열 (index 5)
+      const reason = String(r[6] || "").trim(); // G열 (index 6)
+
+      if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+      leaveDetails.push({ year, month, day, name, days: daysUsed, reason });
+    }
+  }
+  // 날짜순 정렬
+  leaveDetails.sort((a, b) => {
+    if (a.year !== b.year) return a.year - b.year;
+    if (a.month !== b.month) return a.month - b.month;
+    return a.day - b.day;
+  });
+
+  return { employees, anomalies, annualLeaveMap, dataMonth, dataYear, leaveEmployees, leaveDetails };
 }

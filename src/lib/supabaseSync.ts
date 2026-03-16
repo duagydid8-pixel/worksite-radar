@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { ParsedData, Employee, AnomalyRecord } from "./parseExcel";
+import type { ParsedData, Employee, AnomalyRecord, LeaveEmployee, LeaveDetail } from "./parseExcel";
 
 export async function saveToSupabase(data: ParsedData, fileName: string): Promise<void> {
   const { dataYear, dataMonth } = data;
@@ -133,7 +133,7 @@ export async function fetchFromSupabase(): Promise<{ data: ParsedData; uploadedA
   const dataMonth = employees[0]?.dataMonth || new Date().getMonth() + 1;
 
   return {
-    data: { employees, anomalies, annualLeaveMap, dataYear, dataMonth },
+    data: { employees, anomalies, annualLeaveMap, dataYear, dataMonth, leaveEmployees: [], leaveDetails: [] },
     uploadedAt: meta.uploaded_at,
   };
 }

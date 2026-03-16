@@ -301,8 +301,8 @@ const Index = () => {
 
         {data && activeTab === "연차관리" && (
           <AnnualLeavePanel
-            employees={data.employees}
-            annualLeaveMap={data.annualLeaveMap}
+            leaveEmployees={data.leaveEmployees}
+            leaveDetails={data.leaveDetails}
           />
         )}
 
