@@ -155,7 +155,7 @@ const Index = () => {
         dateObj.setHours(0, 0, 0, 0);
         if (dateObj > today) break;
         const dow = dateObj.getDay();
-        if (dow === 0 || dow === 6) continue;
+        if (dow === 0) continue; // Sunday only
 
         const leaveKey = `${weekYear}|${weekMonth}|${d}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) {

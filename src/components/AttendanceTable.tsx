@@ -26,7 +26,7 @@ function calcWeeklyLate(emp: Employee, weekDates: Date[], annualLeaveMap: Record
   let count = 0;
 
   weekDates.forEach((wd, i) => {
-    if (i >= 5) return; // weekdays only
+    if (i >= 6) return; // Mon–Sat only (exclude Sunday)
     const cellDate = new Date(wd);
     cellDate.setHours(0, 0, 0, 0);
     if (cellDate > today) return;
@@ -59,7 +59,7 @@ export default function AttendanceTable({
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const day = date.getDate();
-    const isWeekend = dayIndex >= 5;
+    const isWeekend = dayIndex >= 6; // Sunday only
     const key = `${year}-${month}-${day}`;
     const leaveKey = `${year}|${month}|${day}`;
 
