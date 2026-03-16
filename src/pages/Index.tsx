@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import FileUploadZone from "@/components/FileUploadZone";
 import StatCard from "@/components/StatCard";
 import AttendanceTable from "@/components/AttendanceTable";
+import AnnualLeavePanel from "@/components/AnnualLeavePanel";
 import { parseExcelFile, type ParsedData, type Employee } from "@/lib/parseExcel";
 import { saveToSupabase, fetchFromSupabase } from "@/lib/supabaseSync";
 import { toast } from "sonner";
@@ -30,6 +31,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
+type ActiveTab = "근태보고" | "연차관리";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -55,6 +57,7 @@ const Index = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingBuffer, setPendingBuffer] = useState<ArrayBuffer | null>(null);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("근태보고");
 
   // On mount, fetch from Supabase
   useEffect(() => {
@@ -194,9 +197,9 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="border-b border-border bg-card/50 px-6 py-4 flex items-center justify-between">
+      <div className="border-b border-border bg-card/50 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-base font-bold text-foreground">📋 P4-PH4 초순수 현장 — 주간 근태보고</h1>
+          <h1 className="text-base font-bold text-foreground">📋 P4-PH4 초순수 현장 — 근태관리</h1>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             평택 한성크린텍 · XERP / 지문 기록 기반 자동집계
             {lastUploadedAt && (
@@ -205,6 +208,21 @@ const Index = () => {
               </span>
             )}
           </p>
+        </div>
+        <div className="flex gap-1.5">
+          {(["근태보고", "연차관리"] as ActiveTab[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+                activeTab === tab
+                  ? "bg-primary border-primary text-white"
+                  : "bg-muted border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab === "근태보고" ? "📊 근태보고" : "📅 연차관리"}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -234,7 +252,7 @@ const Index = () => {
           )}
         </div>
 
-        {data && (
+        {data && activeTab === "근태보고" && (
           <>
             <div className="flex flex-wrap items-center gap-3 bg-card border border-border rounded-lg px-4 py-2.5">
               <span className="text-[11px] font-bold text-muted-foreground bg-muted px-2.5 py-1 rounded">📅 보고기준일</span>
@@ -279,6 +297,13 @@ const Index = () => {
               dataMonth={data.dataMonth}
             />
           </>
+        )}
+
+        {data && activeTab === "연차관리" && (
+          <AnnualLeavePanel
+            employees={data.employees}
+            annualLeaveMap={data.annualLeaveMap}
+          />
         )}
 
         {!data && (
