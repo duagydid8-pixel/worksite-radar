@@ -363,44 +363,53 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   const leaveDetailSheet = wb.Sheets["연차_상세"];
   if (leaveDetailSheet) {
     const rows: any[][] = XLSX.utils.sheet_to_json(leaveDetailSheet, { header: 1, defval: "" });
+    let lastName = ""; // 병합 셀 대비: 마지막 이름 유지
     for (let i = 3; i < rows.length; i++) { // 4행부터 (0-indexed: 3)
       const r = rows[i];
-      const name = String(r[4] || "").trim(); // E열 (index 4)
+
+      // E열 (index 4) = 이름: 병합 셀이면 빈 값이므로 마지막 이름 이어받음
+      const rawName = String(r[4] || "").trim();
+      if (rawName) lastName = rawName;
+      const name = lastName;
       if (!name) continue;
 
       // B열 (index 1) = 사용월, C열 (index 2) = 사용일
       const monthVal = r[1];
       const dayVal = r[2];
-      let year = dataYear, month = 1, day = 1;
+      let year = dataYear, month = 0, day = 0;
 
       if (typeof monthVal === "number" && monthVal > 1000) {
-        // Excel date serial
+        // Excel 날짜 시리얼: 연·월·일 모두 추출
         const dt = new Date(Math.round((monthVal - 25569) * 86400 * 1000));
         year = dt.getUTCFullYear();
         month = dt.getUTCMonth() + 1;
-      } else if (typeof monthVal === "string") {
+        day = dt.getUTCDate(); // 시리얼에서 일도 추출
+      } else if (typeof monthVal === "string" && monthVal.trim()) {
         // "2026-03", "2026년 3월", "2026/03" 등
         const match = monthVal.match(/(\d{4})[^\d]+(\d{1,2})/);
         if (match) { year = parseInt(match[1]); month = parseInt(match[2]); }
         else {
-          // 월만 있는 경우 (e.g. "3")
-          const mOnly = monthVal.match(/^(\d{1,2})$/);
-          if (mOnly) month = parseInt(mOnly[1]);
+          const mOnly = monthVal.match(/\d{1,2}/);
+          if (mOnly) month = parseInt(mOnly[0]);
         }
-      } else if (typeof monthVal === "number") {
+      } else if (typeof monthVal === "number" && monthVal >= 1 && monthVal <= 12) {
         month = monthVal;
       }
 
-      if (typeof dayVal === "number") {
+      // C열 day가 유효하면 우선 사용 (B열 시리얼에서 추출한 day 덮어쓰기)
+      if (typeof dayVal === "number" && dayVal >= 1 && dayVal <= 31) {
         day = dayVal;
-      } else if (typeof dayVal === "string") {
-        day = parseInt(dayVal) || 1;
+      } else if (typeof dayVal === "string" && dayVal.trim()) {
+        const parsed = parseInt(dayVal);
+        if (parsed >= 1 && parsed <= 31) day = parsed;
       }
 
-      const daysUsed = typeof r[5] === "number" ? r[5] : parseFloat(String(r[5])) || 1; // F열 (index 5)
-      const reason = String(r[6] || "").trim(); // G열 (index 6)
-
       if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+
+      const daysRaw = r[5]; // F열 (index 5) = 사용일수
+      const daysUsed = typeof daysRaw === "number" ? daysRaw : parseFloat(String(daysRaw)) || 1;
+      const reason = String(r[6] || "").trim(); // G열 (index 6) = 사유
+
       leaveDetails.push({ year, month, day, name, days: daysUsed, reason });
     }
   }
