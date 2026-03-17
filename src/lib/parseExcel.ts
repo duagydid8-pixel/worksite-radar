@@ -415,12 +415,27 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
         }
       }
 
-      // C열 day가 유효한 숫자면 덮어쓰기
-      if (typeof dayVal === "number" && dayVal >= 1 && dayVal <= 31) {
-        day = dayVal;
+      // C열: 날짜 시리얼(>31), 일 숫자(1~31), 날짜 문자열 모두 처리
+      if (typeof dayVal === "number") {
+        if (dayVal >= 1 && dayVal <= 31) {
+          day = dayVal;
+        } else if (dayVal > 31) {
+          // Excel 날짜 시리얼 → 일(day) 추출
+          const dt = new Date(Math.round((dayVal - 25569) * 86400 * 1000));
+          year = dt.getUTCFullYear();
+          month = dt.getUTCMonth() + 1;
+          day = dt.getUTCDate();
+        }
       } else if (typeof dayVal === "string" && dayVal.trim()) {
-        const parsed = parseInt(dayVal);
-        if (!isNaN(parsed) && parsed >= 1 && parsed <= 31) day = parsed;
+        const fullDate = dayVal.match(/(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})/);
+        if (fullDate) {
+          year = parseInt(fullDate[1]);
+          month = parseInt(fullDate[2]);
+          day = parseInt(fullDate[3]);
+        } else {
+          const parsed = parseInt(dayVal);
+          if (!isNaN(parsed) && parsed >= 1 && parsed <= 31) day = parsed;
+        }
       }
 
       if (month < 1 || month > 12 || day < 1 || day > 31) continue;
