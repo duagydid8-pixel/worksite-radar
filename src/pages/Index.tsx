@@ -238,10 +238,10 @@ const Index = () => {
           <img src="/logo.png" alt="회사 로고" className="h-14 w-auto object-contain shrink-0 cursor-pointer" onClick={() => window.location.reload()} />
           <div className="w-px h-8 bg-border shrink-0" />
           <div>
-            <h1 className="text-sm font-bold text-foreground leading-tight">
+            <h1 className="text-base font-bold text-foreground leading-tight">
               P4-PH4 초순수 현장 — 근태관리
             </h1>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               평택 한성크린텍 · XERP / 지문 기록 기반 자동집계
               {lastUploadedAt && (
                 <span className="ml-3 text-secondary">
