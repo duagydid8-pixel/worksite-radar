@@ -69,14 +69,14 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails, rowOrde
   return (
     <div className="space-y-4">
       {/* 요약 카드 */}
-      <div className="flex gap-2.5 flex-wrap">
+      <div className="grid grid-cols-4 gap-2.5">
         {[
           { label: "총 인원", value: leaveEmployees.length, unit: "명", color: "text-foreground" },
           { label: "총 발생연차", value: totalAccrued, unit: "일", color: "text-primary" },
           { label: "총 사용일수", value: totalUsed, unit: "일", color: "text-[#854f0b]" },
           { label: "총 잔여일수", value: totalRemaining, unit: "일", color: "text-secondary" },
         ].map((c) => (
-          <div key={c.label} className="bg-card border border-border rounded-xl px-4 py-3 min-w-[110px]">
+          <div key={c.label} className="bg-card border border-border rounded-xl px-4 py-3">
             <p className="text-[10px] text-muted-foreground mb-1">{c.label}</p>
             <p className={`text-2xl font-bold ${c.color}`}>
               {c.value}

@@ -36,7 +36,7 @@ export default function StatCard({ label, value, variant = "default", unit }: St
   const bg = variantBg[variant];
 
   return (
-    <div className={`flex-1 min-w-[110px] rounded-xl border px-4 py-3 ${bg} ${style.card}`}>
+    <div className={`rounded-xl border px-3 py-3 ${bg} ${style.card}`}>
       <p className="text-[10px] text-muted-foreground font-medium mb-1">{label}</p>
       <p className={`text-2xl font-bold tabular-nums leading-none ${style.value}`}>
         {value}
