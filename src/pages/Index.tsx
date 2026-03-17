@@ -161,7 +161,6 @@ const Index = () => {
       let empLate = false;
       let empUncheck = false;
       let empLeave = false;
-      let empAbsent = false;
 
       for (let i = 0; i < 6; i++) {
         const wd = weekDates[i];
