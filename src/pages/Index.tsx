@@ -155,13 +155,11 @@ const Index = () => {
     let lateEmps = 0;
     let uncheckEmps = 0;
     let leaveEmps = 0;
-    let absentEmps = 0;
 
     for (const emp of filteredEmployees) {
       let empLate = false;
       let empUncheck = false;
       let empLeave = false;
-      let empAbsent = false;
 
       for (let i = 0; i < 6; i++) {
         const wd = weekDates[i];
@@ -170,7 +168,7 @@ const Index = () => {
         cellDate.setHours(0, 0, 0, 0);
         if (cellDate > today) continue;
         const dow = wd.getDay();
-        if (dow === 0 || dow === 6) continue; // 토·일 제외
+        if (dow === 0 || dow === 6) continue;
 
         const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { empLeave = true; continue; }
@@ -179,16 +177,14 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) empLate = true;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
-        if (emp.team === "태화_F" && (!rec || !rec.punchIn)) empAbsent = true;
       }
 
       if (empLate) lateEmps++;
       if (empUncheck) uncheckEmps++;
       if (empLeave) leaveEmps++;
-      if (empAbsent) absentEmps++;
     }
 
-    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps, absent: absentEmps };
+    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps };
   }, [filteredEmployees, weekDates, data]);
 
   // 이번달 stats
@@ -201,7 +197,6 @@ const Index = () => {
     let lateTotal = 0;
     let uncheckTotal = 0;
     let leaveTotal = 0;
-    let absentTotal = 0;
 
     for (const emp of filteredEmployees) {
       for (let d = 1; d <= daysInMonth; d++) {
@@ -209,7 +204,7 @@ const Index = () => {
         dateObj.setHours(0, 0, 0, 0);
         if (dateObj > today) break;
         const dow = dateObj.getDay();
-        if (dow === 0 || dow === 6) continue; // 토·일 제외
+        if (dow === 0 || dow === 6) continue;
 
         const leaveKey = `${weekYear}|${weekMonth}|${d}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { leaveTotal++; continue; }
@@ -218,11 +213,10 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
-        if (emp.team === "태화_F" && (!rec || !rec.punchIn)) absentTotal++;
       }
     }
 
-    return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal, absent: absentTotal };
+    return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
   }, [filteredEmployees, data, monday]);
 
   if (isLoading) {
@@ -244,10 +238,10 @@ const Index = () => {
           <img src="/logo.png" alt="회사 로고" className="h-14 w-auto object-contain shrink-0 cursor-pointer" onClick={() => window.location.reload()} />
           <div className="w-px h-8 bg-border shrink-0" />
           <div>
-            <h1 className="text-sm font-bold text-foreground leading-tight">
+            <h1 className="text-base font-bold text-foreground leading-tight">
               P4-PH4 초순수 현장 — 근태관리
             </h1>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               평택 한성크린텍 · XERP / 지문 기록 기반 자동집계
               {lastUploadedAt && (
                 <span className="ml-3 text-secondary">
@@ -262,7 +256,7 @@ const Index = () => {
             <button
               key={tab}
               onClick={() => { setActiveTab(tab); setSearchQuery(""); }}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors border ${
                 activeTab === tab
                   ? "bg-primary border-primary text-white"
                   : "bg-muted border-border text-muted-foreground hover:text-foreground"
@@ -301,7 +295,7 @@ const Index = () => {
           <>
             {/* Date / filter bar */}
             <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-2.5 shadow-sm">
-              <span className="text-[11px] font-semibold text-muted-foreground">보고기준일</span>
+              <span className="text-xs font-semibold text-muted-foreground">보고기준일</span>
               <input
                 type="date"
                 value={selectedDate}
@@ -316,7 +310,7 @@ const Index = () => {
                   <button
                     key={v}
                     onClick={() => setTeamFilter(v)}
-                    className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-colors border ${
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
                       teamFilter === v
                         ? "bg-primary border-primary text-white"
                         : "bg-muted border-border text-muted-foreground hover:text-foreground"
@@ -361,24 +355,22 @@ const Index = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* 이번주 */}
               <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
-                <p className="text-[11px] font-bold text-muted-foreground mb-2">이번주</p>
-                <div className="grid grid-cols-5 gap-2">
+                <p className="text-xs font-bold text-muted-foreground mb-2">이번주</p>
+                <div className="grid grid-cols-4 gap-2">
                   <StatCard label="총 인원" value={weekStats.total} unit="명" />
                   <StatCard label="지각" value={weekStats.late} unit="명" variant="late" />
                   <StatCard label="미체크" value={weekStats.uncheck} unit="명" variant="uncheck" />
                   <StatCard label="연차" value={weekStats.leave} unit="명" variant="leave" />
-                  <StatCard label="결근" value={weekStats.absent} unit="명" variant="uncheck" />
                 </div>
               </div>
               {/* 이번달 */}
               <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
-                <p className="text-[11px] font-bold text-muted-foreground mb-2">이번달</p>
-                <div className="grid grid-cols-5 gap-2">
+                <p className="text-xs font-bold text-muted-foreground mb-2">이번달</p>
+                <div className="grid grid-cols-4 gap-2">
                   <StatCard label="총 인원" value={monthStats.total} unit="명" />
                   <StatCard label="지각" value={monthStats.late} unit="건" variant="late" />
                   <StatCard label="미체크" value={monthStats.uncheck} unit="건" variant="uncheck" />
                   <StatCard label="연차" value={monthStats.leave} unit="일" variant="leave" />
-                  <StatCard label="결근" value={monthStats.absent} unit="일" variant="uncheck" />
                 </div>
               </div>
             </div>

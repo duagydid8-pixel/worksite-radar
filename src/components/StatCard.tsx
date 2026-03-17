@@ -37,10 +37,10 @@ export default function StatCard({ label, value, variant = "default", unit }: St
 
   return (
     <div className={`rounded-xl border px-3 py-3 ${bg} ${style.card}`}>
-      <p className="text-[10px] text-muted-foreground font-medium mb-1">{label}</p>
+      <p className="text-xs text-muted-foreground font-medium mb-1">{label}</p>
       <p className={`text-2xl font-bold tabular-nums leading-none ${style.value}`}>
         {value}
-        {unit && <span className="text-xs font-normal text-muted-foreground ml-0.5">{unit}</span>}
+        {unit && <span className="text-sm font-normal text-muted-foreground ml-0.5">{unit}</span>}
       </p>
     </div>
   );
