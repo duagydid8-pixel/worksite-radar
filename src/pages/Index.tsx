@@ -155,12 +155,13 @@ const Index = () => {
     let lateEmps = 0;
     let uncheckEmps = 0;
     let leaveEmps = 0;
-    let absentEmps = 0; // kept for future use
+    let absentEmps = 0;
 
     for (const emp of filteredEmployees) {
       let empLate = false;
       let empUncheck = false;
       let empLeave = false;
+      let empAbsent = false;
 
       for (let i = 0; i < 6; i++) {
         const wd = weekDates[i];
@@ -169,7 +170,7 @@ const Index = () => {
         cellDate.setHours(0, 0, 0, 0);
         if (cellDate > today) continue;
         const dow = wd.getDay();
-        if (dow === 0) continue;
+        if (dow === 0 || dow === 6) continue; // 토·일 제외
 
         const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { empLeave = true; continue; }
@@ -178,14 +179,16 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) empLate = true;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
+        if (emp.team === "태화_F" && (!rec || !rec.punchIn)) empAbsent = true;
       }
 
       if (empLate) lateEmps++;
       if (empUncheck) uncheckEmps++;
       if (empLeave) leaveEmps++;
+      if (empAbsent) absentEmps++;
     }
 
-    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps };
+    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps, absent: absentEmps };
   }, [filteredEmployees, weekDates, data]);
 
   // 이번달 stats
@@ -198,6 +201,7 @@ const Index = () => {
     let lateTotal = 0;
     let uncheckTotal = 0;
     let leaveTotal = 0;
+    let absentTotal = 0;
 
     for (const emp of filteredEmployees) {
       for (let d = 1; d <= daysInMonth; d++) {
@@ -214,10 +218,11 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
+        if (emp.team === "태화_F" && (!rec || !rec.punchIn)) absentTotal++;
       }
     }
 
-    return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
+    return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal, absent: absentTotal };
   }, [filteredEmployees, data, monday]);
 
   if (isLoading) {
@@ -357,21 +362,23 @@ const Index = () => {
               {/* 이번주 */}
               <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
                 <p className="text-[11px] font-bold text-muted-foreground mb-2">이번주</p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   <StatCard label="총 인원" value={weekStats.total} unit="명" />
                   <StatCard label="지각" value={weekStats.late} unit="명" variant="late" />
                   <StatCard label="미체크" value={weekStats.uncheck} unit="명" variant="uncheck" />
                   <StatCard label="연차" value={weekStats.leave} unit="명" variant="leave" />
+                  <StatCard label="결근" value={weekStats.absent} unit="명" variant="uncheck" />
                 </div>
               </div>
               {/* 이번달 */}
               <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
                 <p className="text-[11px] font-bold text-muted-foreground mb-2">이번달</p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   <StatCard label="총 인원" value={monthStats.total} unit="명" />
                   <StatCard label="지각" value={monthStats.late} unit="건" variant="late" />
                   <StatCard label="미체크" value={monthStats.uncheck} unit="건" variant="uncheck" />
                   <StatCard label="연차" value={monthStats.leave} unit="일" variant="leave" />
+                  <StatCard label="결근" value={monthStats.absent} unit="일" variant="uncheck" />
                 </div>
               </div>
             </div>
