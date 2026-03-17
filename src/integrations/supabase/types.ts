@@ -121,25 +121,34 @@ export type Database = {
       }
       leave_employees: {
         Row: {
+          accrued: number
           created_at: string
           dept: string
           hire_date: string
           id: string
           name: string
+          remaining: number
+          total_used: number
         }
         Insert: {
+          accrued?: number
           created_at?: string
           dept?: string
           hire_date?: string
           id?: string
           name: string
+          remaining?: number
+          total_used?: number
         }
         Update: {
+          accrued?: number
           created_at?: string
           dept?: string
           hire_date?: string
           id?: string
           name?: string
+          remaining?: number
+          total_used?: number
         }
         Relationships: []
       }

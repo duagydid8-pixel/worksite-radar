@@ -1,14 +1,16 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { ParsedData, Employee, AnomalyRecord } from "./parseExcel";
+import type { ParsedData, Employee, AnomalyRecord, LeaveEmployee, LeaveDetail } from "./parseExcel";
 
 export async function saveToSupabase(data: ParsedData, fileName: string): Promise<void> {
   const { dataYear, dataMonth } = data;
 
-  // Clear existing data for this year/month
+  // Clear existing data for this year/month + leave tables (전체 교체)
   await Promise.all([
     supabase.from("attendance_data").delete().eq("year", dataYear).eq("month", dataMonth),
     supabase.from("anomaly_data").delete().eq("year", dataYear).eq("month", dataMonth),
     supabase.from("yeoncha_data").delete().eq("year", dataYear).eq("month", dataMonth),
+    supabase.from("leave_employees").delete().neq("id", "00000000-0000-0000-0000-000000000000"),
+    supabase.from("leave_details").delete().neq("id", "00000000-0000-0000-0000-000000000000"),
   ]);
 
   // Insert attendance data
@@ -65,6 +67,42 @@ export async function saveToSupabase(data: ParsedData, fileName: string): Promis
     }
   }
 
+  // Insert leave_employees (연차_현채직)
+  if (data.leaveEmployees.length > 0) {
+    const leaveEmpRows = data.leaveEmployees.map((e) => ({
+      name: e.name,
+      dept: e.dept || "",
+      hire_date: e.hireDate || "",
+      accrued: e.totalUsed + e.remaining,
+      total_used: e.totalUsed,
+      remaining: e.remaining,
+    }));
+    for (let i = 0; i < leaveEmpRows.length; i += 50) {
+      const { error } = await supabase.from("leave_employees").upsert(leaveEmpRows.slice(i, i + 50), {
+        onConflict: "name",
+      });
+      if (error) throw new Error(`leave_employees insert error: ${error.message}`);
+    }
+  }
+
+  // Insert leave_details (연차_상세)
+  if (data.leaveDetails.length > 0) {
+    const leaveDetailRows = data.leaveDetails.map((d) => ({
+      name: d.name,
+      year: d.year,
+      month: d.month,
+      day: d.day,
+      days: d.days,
+      reason: d.reason || "",
+    }));
+    for (let i = 0; i < leaveDetailRows.length; i += 50) {
+      const { error } = await supabase.from("leave_details").upsert(leaveDetailRows.slice(i, i + 50), {
+        onConflict: "name,year,month,day",
+      });
+      if (error) throw new Error(`leave_details insert error: ${error.message}`);
+    }
+  }
+
   // Save upload metadata
   const { error: metaError } = await supabase.from("upload_metadata").insert({
     file_name: fileName,
@@ -85,10 +123,12 @@ export async function fetchFromSupabase(): Promise<{ data: ParsedData; uploadedA
   if (!meta) return null;
 
   // Fetch all data
-  const [attRes, anomRes, yeonRes] = await Promise.all([
+  const [attRes, anomRes, yeonRes, leaveEmpRes, leaveDetailRes] = await Promise.all([
     supabase.from("attendance_data").select("*"),
     supabase.from("anomaly_data").select("*"),
     supabase.from("yeoncha_data").select("*"),
+    supabase.from("leave_employees").select("*"),
+    supabase.from("leave_details").select("*").order("year").order("month").order("day"),
   ]);
 
   if (!attRes.data?.length) return null;
@@ -128,13 +168,31 @@ export async function fetchFromSupabase(): Promise<{ data: ParsedData; uploadedA
     annualLeaveMap[r.name][key] = true;
   }
 
+  // Reconstruct leaveEmployees
+  const leaveEmployees: LeaveEmployee[] = (leaveEmpRes.data || []).map((row: any) => ({
+    name: row.name,
+    dept: row.dept,
+    hireDate: row.hire_date,
+    totalUsed: Number(row.total_used),
+    remaining: Number(row.remaining),
+  }));
+
+  // Reconstruct leaveDetails (날짜순 정렬은 쿼리에서 처리됨)
+  const leaveDetails: LeaveDetail[] = (leaveDetailRes.data || []).map((row: any) => ({
+    year: row.year,
+    month: row.month,
+    day: row.day,
+    name: row.name,
+    days: Number(row.days),
+    reason: row.reason,
+  }));
+
   // Determine dataYear/dataMonth from first employee
   const dataYear = employees[0]?.dataYear || new Date().getFullYear();
   const dataMonth = employees[0]?.dataMonth || new Date().getMonth() + 1;
 
-  // leaveEmployees·leaveDetails는 엑셀 업로드 시에만 채워짐 (Supabase 미저장)
   return {
-    data: { employees, anomalies, annualLeaveMap, dataYear, dataMonth, leaveEmployees: [], leaveDetails: [] },
+    data: { employees, anomalies, annualLeaveMap, dataYear, dataMonth, leaveEmployees, leaveDetails },
     uploadedAt: meta.uploaded_at,
   };
 }
