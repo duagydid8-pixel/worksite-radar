@@ -240,7 +240,8 @@ const Index = () => {
       {/* Header */}
       <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between gap-4 flex-wrap shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-1 h-10 rounded-full bg-primary shrink-0" />
+          <img src="/logo.png" alt="회사 로고" className="h-10 w-auto object-contain shrink-0" />
+          <div className="w-px h-8 bg-border shrink-0" />
           <div>
             <h1 className="text-sm font-bold text-foreground leading-tight">
               P4-PH4 초순수 현장 — 근태관리
