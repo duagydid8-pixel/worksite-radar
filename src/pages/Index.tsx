@@ -155,13 +155,11 @@ const Index = () => {
     let lateEmps = 0;
     let uncheckEmps = 0;
     let leaveEmps = 0;
-    let absentEmps = 0;
 
     for (const emp of filteredEmployees) {
       let empLate = false;
       let empUncheck = false;
       let empLeave = false;
-      let empAbsent = false;
 
       for (let i = 0; i < 6; i++) {
         const wd = weekDates[i];
@@ -170,7 +168,7 @@ const Index = () => {
         cellDate.setHours(0, 0, 0, 0);
         if (cellDate > today) continue;
         const dow = wd.getDay();
-        if (dow === 0 || dow === 6) continue; // 토·일 제외
+        if (dow === 0 || dow === 6) continue;
 
         const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { empLeave = true; continue; }
@@ -179,16 +177,14 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) empLate = true;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
-        if (emp.team === "태화_F" && (!rec || !rec.punchIn)) empAbsent = true;
       }
 
       if (empLate) lateEmps++;
       if (empUncheck) uncheckEmps++;
       if (empLeave) leaveEmps++;
-      if (empAbsent) absentEmps++;
     }
 
-    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps, absent: absentEmps };
+    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps };
   }, [filteredEmployees, weekDates, data]);
 
   // 이번달 stats
