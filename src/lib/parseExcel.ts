@@ -90,6 +90,7 @@ function pickLatestSheet(wb: XLSX.WorkBook, keyword: string, exclude?: string): 
 
 export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   const wb = XLSX.read(buffer, { type: "array" });
+  console.log("[parseExcel] Sheet names:", wb.SheetNames);
 
   // === 1. Parse 한성 sheet (name list + job titles) ===
   let hSheetName = pickLatestSheet(wb, "P4한성", "누계");
