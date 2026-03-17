@@ -362,12 +362,11 @@ const Index = () => {
               {/* 이번주 */}
               <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
                 <p className="text-[11px] font-bold text-muted-foreground mb-2">이번주</p>
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   <StatCard label="총 인원" value={weekStats.total} unit="명" />
                   <StatCard label="지각" value={weekStats.late} unit="명" variant="late" />
                   <StatCard label="미체크" value={weekStats.uncheck} unit="명" variant="uncheck" />
                   <StatCard label="연차" value={weekStats.leave} unit="명" variant="leave" />
-                  <StatCard label="결근" value={weekStats.absent} unit="명" variant="uncheck" />
                 </div>
               </div>
               {/* 이번달 */}
