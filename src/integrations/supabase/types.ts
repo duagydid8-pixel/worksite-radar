@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      leave_employees: {
+        Row: {
+          created_at: string
+          dept: string
+          hire_date: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          dept?: string
+          hire_date?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          dept?: string
+          hire_date?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      leave_details: {
+        Row: {
+          created_at: string
+          day: number
+          days: number
+          id: string
+          month: number
+          name: string
+          reason: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          day: number
+          days?: number
+          id?: string
+          month: number
+          name: string
+          reason?: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          day?: number
+          days?: number
+          id?: string
+          month?: number
+          name?: string
+          reason?: string
+          year?: number
+        }
+        Relationships: []
+      }
       anomaly_data: {
         Row: {
           bansa: number
