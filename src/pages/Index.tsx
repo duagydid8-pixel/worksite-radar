@@ -310,7 +310,7 @@ const Index = () => {
                   <button
                     key={v}
                     onClick={() => setTeamFilter(v)}
-                    className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-colors border ${
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
                       teamFilter === v
                         ? "bg-primary border-primary text-white"
                         : "bg-muted border-border text-muted-foreground hover:text-foreground"
