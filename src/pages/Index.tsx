@@ -6,7 +6,7 @@ import AnnualLeavePanel from "@/components/AnnualLeavePanel";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveToSupabase, fetchFromSupabase, saveRowOrder, fetchRowOrder } from "@/lib/supabaseSync";
 import { toast } from "sonner";
-import { CloudUpload, Loader2 } from "lucide-react";
+import { CloudUpload, Loader2, Search, X } from "lucide-react";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -56,6 +56,7 @@ const Index = () => {
   const [pendingBuffer, setPendingBuffer] = useState<ArrayBuffer | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("근태보고");
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -134,8 +135,10 @@ const Index = () => {
     if (emps.length === 0) emps = data.employees;
     if (teamFilter === "한성") return emps.filter((e) => e.team === "한성_F");
     if (teamFilter === "태화") return emps.filter((e) => e.team === "태화_F");
-    return [...emps.filter((e) => e.team === "한성_F"), ...emps.filter((e) => e.team === "태화_F")];
-  }, [data, teamFilter, monday]);
+    const sorted = [...emps.filter((e) => e.team === "한성_F"), ...emps.filter((e) => e.team === "태화_F")];
+    if (!searchQuery.trim()) return sorted;
+    return sorted.filter((e) => e.name.includes(searchQuery.trim()));
+  }, [data, teamFilter, monday, searchQuery]);
 
   const anomalyMap = useMemo(() => {
     if (!data) return new Map();
@@ -244,7 +247,7 @@ const Index = () => {
           {(["근태보고", "연차관리"] as ActiveTab[]).map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => { setActiveTab(tab); setSearchQuery(""); }}
               className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
                 activeTab === tab
                   ? "bg-primary border-primary text-white"
@@ -311,6 +314,26 @@ const Index = () => {
               </div>
             </div>
 
+            {/* 검색창 */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="이름으로 검색..."
+                className="w-full bg-white border border-border rounded-xl pl-9 pr-9 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
             {/* Stats: 이번주 + 이번달 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* 이번주 */}
@@ -333,16 +356,26 @@ const Index = () => {
               </div>
             </div>
 
-            <AttendanceTable
-              employees={filteredEmployees}
-              anomalyMap={anomalyMap}
-              annualLeaveMap={data.annualLeaveMap}
-              weekDates={weekDates}
-              dataYear={data.dataYear}
-              dataMonth={data.dataMonth}
-              rowOrders={rowOrders}
-              onOrderChange={handleOrderChange}
-            />
+            {filteredEmployees.length === 0 && searchQuery ? (
+              <div className="py-12 text-center bg-white border border-border rounded-xl">
+                <Search className="h-8 w-8 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="text-sm font-semibold text-muted-foreground">검색 결과가 없습니다</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  <span className="font-medium text-foreground">"{searchQuery}"</span>에 해당하는 직원이 없습니다
+                </p>
+              </div>
+            ) : (
+              <AttendanceTable
+                employees={filteredEmployees}
+                anomalyMap={anomalyMap}
+                annualLeaveMap={data.annualLeaveMap}
+                weekDates={weekDates}
+                dataYear={data.dataYear}
+                dataMonth={data.dataMonth}
+                rowOrders={rowOrders}
+                onOrderChange={handleOrderChange}
+              />
+            )}
           </>
         )}
 

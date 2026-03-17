@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from "react";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Search, X } from "lucide-react";
 import type { LeaveEmployee, LeaveDetail } from "@/lib/parseExcel";
 import {
   Dialog,
@@ -36,9 +36,14 @@ function applyOrder(emps: LeaveEmployee[], order: string[]): LeaveEmployee[] {
 export default function AnnualLeavePanel({ leaveEmployees, leaveDetails, rowOrder, onOrderChange }: Props) {
   const [modalName, setModalName] = useState<string | null>(null);
   const [localOrder, setLocalOrder] = useState<string[]>(rowOrder);
+  const [searchQuery, setSearchQuery] = useState("");
   const dragRef = useRef<number | null>(null);
 
   const orderedEmps = useMemo(() => applyOrder(leaveEmployees, localOrder), [leaveEmployees, localOrder]);
+  const displayEmps = useMemo(
+    () => searchQuery.trim() ? orderedEmps.filter((e) => e.name.includes(searchQuery.trim())) : orderedEmps,
+    [orderedEmps, searchQuery]
+  );
 
   const totalUsed = useMemo(() => leaveEmployees.reduce((sum, e) => sum + e.totalUsed, 0), [leaveEmployees]);
   const totalRemaining = useMemo(() => leaveEmployees.reduce((sum, e) => sum + e.remaining, 0), [leaveEmployees]);
@@ -81,6 +86,26 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails, rowOrde
         ))}
       </div>
 
+      {/* 검색창 */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="이름으로 검색..."
+          className="w-full bg-white border border-border rounded-xl pl-9 pr-9 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
       {/* 직원별 연차 현황 */}
       <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
         <div className="px-4 py-3 border-b border-border flex items-center gap-2">
@@ -91,6 +116,14 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails, rowOrde
         {noData ? (
           <div className="py-10 text-center text-xs text-muted-foreground">
             연차_현채직 시트 데이터가 없습니다. 엑셀 파일을 업로드하세요.
+          </div>
+        ) : displayEmps.length === 0 ? (
+          <div className="py-10 text-center">
+            <Search className="h-7 w-7 text-muted-foreground/40 mx-auto mb-2" />
+            <p className="text-xs font-semibold text-muted-foreground">검색 결과가 없습니다</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              <span className="font-medium text-foreground">"{searchQuery}"</span>에 해당하는 직원이 없습니다
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -107,7 +140,7 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails, rowOrde
                 </tr>
               </thead>
               <tbody>
-                {orderedEmps.map((emp, idx) => {
+                {displayEmps.map((emp, idx) => {
                   const accrued = emp.totalUsed + emp.remaining;
                   return (
                     <tr
