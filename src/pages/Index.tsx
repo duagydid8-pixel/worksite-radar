@@ -183,7 +183,6 @@ const Index = () => {
       if (empLate) lateEmps++;
       if (empUncheck) uncheckEmps++;
       if (empLeave) leaveEmps++;
-      if (empAbsent) absentEmps++;
     }
 
     return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps };
