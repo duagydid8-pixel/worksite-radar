@@ -256,7 +256,7 @@ const Index = () => {
             <button
               key={tab}
               onClick={() => { setActiveTab(tab); setSearchQuery(""); }}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors border ${
                 activeTab === tab
                   ? "bg-primary border-primary text-white"
                   : "bg-muted border-border text-muted-foreground hover:text-foreground"
