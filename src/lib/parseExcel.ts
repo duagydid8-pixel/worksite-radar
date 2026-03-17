@@ -361,7 +361,8 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
   // === 8. Parse 연차_상세 sheet (연차 사용 내역) ===
   const leaveDetails: LeaveDetail[] = [];
-  const leaveDetailSheet = wb.Sheets["연차_상세"];
+  const leaveDetailSheetName = wb.SheetNames.find(s => s.includes("상세") || s.includes("연차_상세"));
+  const leaveDetailSheet = leaveDetailSheetName ? wb.Sheets[leaveDetailSheetName] : null;
   if (leaveDetailSheet) {
     const rows: any[][] = XLSX.utils.sheet_to_json(leaveDetailSheet, { header: 1, defval: "" });
     let lastName = ""; // 병합 셀 대비: 마지막 이름 유지
