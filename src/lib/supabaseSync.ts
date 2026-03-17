@@ -198,14 +198,14 @@ export async function fetchFromSupabase(): Promise<{ data: ParsedData; uploadedA
 }
 
 export async function saveRowOrder(context: string, names: string[]): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("row_order")
     .upsert({ context, names }, { onConflict: "context" });
   if (error) throw new Error(`row_order upsert error: ${error.message}`);
 }
 
 export async function fetchRowOrder(context: string): Promise<string[]> {
-  const { data } = await supabase
+  const { data } = await (supabase as any)
     .from("row_order")
     .select("names")
     .eq("context", context)
