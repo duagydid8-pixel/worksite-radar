@@ -214,7 +214,6 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
-        if (emp.team === "태화_F" && (!rec || !rec.punchIn)) absentTotal++;
       }
     }
 
