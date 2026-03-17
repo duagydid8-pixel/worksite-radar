@@ -155,7 +155,7 @@ const Index = () => {
     let lateEmps = 0;
     let uncheckEmps = 0;
     let leaveEmps = 0;
-    let absentEmps = 0;
+    let absentEmps = 0; // kept for future use
 
     for (const emp of filteredEmployees) {
       let empLate = false;
