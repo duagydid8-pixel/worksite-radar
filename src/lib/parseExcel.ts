@@ -331,7 +331,8 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
   // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일) ===
   const leaveEmployees: LeaveEmployee[] = [];
-  const leaveEmpSheet = wb.Sheets["연차_현채직"];
+  const leaveEmpSheetName = wb.SheetNames.find(s => s.includes("현채직") || s.includes("현재직"));
+  const leaveEmpSheet = leaveEmpSheetName ? wb.Sheets[leaveEmpSheetName] : null;
   if (leaveEmpSheet) {
     const rows: any[][] = XLSX.utils.sheet_to_json(leaveEmpSheet, { header: 1, defval: "" });
     for (let i = 7; i < rows.length; i++) { // 8행부터 (0-indexed: 7)
