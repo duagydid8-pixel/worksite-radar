@@ -90,6 +90,7 @@ function pickLatestSheet(wb: XLSX.WorkBook, keyword: string, exclude?: string): 
 
 export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   const wb = XLSX.read(buffer, { type: "array" });
+  console.log("[parseExcel] Sheet names:", wb.SheetNames);
 
   // === 1. Parse 한성 sheet (name list + job titles) ===
   let hSheetName = pickLatestSheet(wb, "P4한성", "누계");
@@ -331,7 +332,8 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
   // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일) ===
   const leaveEmployees: LeaveEmployee[] = [];
-  const leaveEmpSheet = wb.Sheets["연차_현채직"];
+  const leaveEmpSheetName = wb.SheetNames.find(s => s.includes("현채직") || s.includes("현재직"));
+  const leaveEmpSheet = leaveEmpSheetName ? wb.Sheets[leaveEmpSheetName] : null;
   if (leaveEmpSheet) {
     const rows: any[][] = XLSX.utils.sheet_to_json(leaveEmpSheet, { header: 1, defval: "" });
     for (let i = 7; i < rows.length; i++) { // 8행부터 (0-indexed: 7)
@@ -360,7 +362,8 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
   // === 8. Parse 연차_상세 sheet (연차 사용 내역) ===
   const leaveDetails: LeaveDetail[] = [];
-  const leaveDetailSheet = wb.Sheets["연차_상세"];
+  const leaveDetailSheetName = wb.SheetNames.find(s => s.includes("상세") || s.includes("연차_상세"));
+  const leaveDetailSheet = leaveDetailSheetName ? wb.Sheets[leaveDetailSheetName] : null;
   if (leaveDetailSheet) {
     const rows: any[][] = XLSX.utils.sheet_to_json(leaveDetailSheet, { header: 1, defval: "" });
     let lastName = ""; // 병합 셀 대비: 마지막 이름 유지
