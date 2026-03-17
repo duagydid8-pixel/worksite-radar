@@ -222,7 +222,7 @@ const Index = () => {
       }
     }
 
-    return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal, absent: absentTotal };
+    return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
   }, [filteredEmployees, data, monday]);
 
   if (isLoading) {
