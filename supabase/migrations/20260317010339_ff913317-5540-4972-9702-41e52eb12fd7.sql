@@ -1,0 +1,4 @@
+ALTER TABLE public.leave_employees
+ADD COLUMN IF NOT EXISTS accrued numeric NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS total_used numeric NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS remaining numeric NOT NULL DEFAULT 0;
