@@ -21,7 +21,9 @@ export interface AnomalyRecord {
 export interface LeaveEmployee {
   name: string;
   dept: string;
-  hireDate: string; // "YYYY-MM-DD"
+  hireDate: string;   // "YYYY-MM-DD"
+  totalUsed: number;  // AL열: 총사용일수
+  remaining: number;  // AM열: 잔여일수
 }
 
 export interface LeaveDetail {
@@ -330,7 +332,8 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
   const employees = [...xerpHanseongEmployees, ...filteredFingerEmployees, ...taehwaEmployees];
 
-  // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일) ===
+  // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일 + 사용/잔여일수) ===
+  // C열=성명, D열=부서, E열=입사일, Z~AK열=1~12월 사용일수, AL열=총사용일수, AM열=잔여일수
   const leaveEmployees: LeaveEmployee[] = [];
   const leaveEmpSheetName = wb.SheetNames.find(s => s.includes("현채직") || s.includes("현재직"));
   const leaveEmpSheet = leaveEmpSheetName ? wb.Sheets[leaveEmpSheetName] : null;
@@ -356,7 +359,10 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
           hireDate = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
         }
       }
-      leaveEmployees.push({ name, dept, hireDate });
+      // AL열 (index 37) = 총사용일수, AM열 (index 38) = 잔여일수
+      const totalUsed = typeof r[37] === "number" ? r[37] : parseFloat(String(r[37])) || 0;
+      const remaining = typeof r[38] === "number" ? r[38] : parseFloat(String(r[38])) || 0;
+      leaveEmployees.push({ name, dept, hireDate, totalUsed, remaining });
     }
   }
 

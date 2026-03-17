@@ -12,24 +12,6 @@ interface Props {
   leaveDetails: LeaveDetail[];
 }
 
-// 입사일 이후 지난 매월 1일 횟수 = 발생연차
-function calcAccruedLeaves(hireDate: string): number {
-  if (!hireDate) return 0;
-  const hire = new Date(hireDate);
-  hire.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = new Date(hire.getFullYear(), hire.getMonth() + 1, 1);
-  if (start > today) return 0;
-  let count = 0;
-  const d = new Date(start);
-  while (d <= today) {
-    count++;
-    d.setMonth(d.getMonth() + 1);
-  }
-  return count;
-}
-
 function padZ(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -37,22 +19,16 @@ function padZ(n: number) {
 export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props) {
   const [modalName, setModalName] = useState<string | null>(null);
 
-  const usedMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const d of leaveDetails) {
-      map[d.name] = (map[d.name] || 0) + d.days;
-    }
-    return map;
-  }, [leaveDetails]);
-
-  const totalAccrued = useMemo(
-    () => leaveEmployees.reduce((sum, e) => sum + calcAccruedLeaves(e.hireDate), 0),
+  // 시트에서 읽은 총사용일수·잔여일수를 직접 합산
+  const totalUsed = useMemo(
+    () => leaveEmployees.reduce((sum, e) => sum + e.totalUsed, 0),
     [leaveEmployees]
   );
-  const totalUsed = useMemo(
-    () => leaveEmployees.reduce((sum, e) => sum + (usedMap[e.name] || 0), 0),
-    [leaveEmployees, usedMap]
+  const totalRemaining = useMemo(
+    () => leaveEmployees.reduce((sum, e) => sum + e.remaining, 0),
+    [leaveEmployees]
   );
+  const totalAccrued = totalUsed + totalRemaining;
 
   // 모달에 표시할 직원 정보
   const modalEmp = useMemo(
@@ -91,7 +67,7 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
         <div className="bg-card border border-border rounded-lg px-4 py-3 min-w-[120px]">
           <p className="text-[10px] text-muted-foreground mb-1">총 잔여일수</p>
           <p className="text-xl font-bold text-secondary">
-            {totalAccrued - totalUsed}<span className="text-xs font-normal text-muted-foreground ml-1">일</span>
+            {totalRemaining}<span className="text-xs font-normal text-muted-foreground ml-1">일</span>
           </p>
         </div>
       </div>
@@ -121,10 +97,7 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
               </thead>
               <tbody>
                 {leaveEmployees.map((emp) => {
-                  const accrued = calcAccruedLeaves(emp.hireDate);
-                  const used = usedMap[emp.name] || 0;
-                  const remaining = accrued - used;
-
+                  const accrued = emp.totalUsed + emp.remaining;
                   return (
                     <tr key={emp.name} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-2.5">
@@ -141,25 +114,23 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <span className={`font-bold ${accrued > 0 ? "text-primary" : "text-muted-foreground"}`}>
-                          {emp.hireDate ? accrued : "-"}
+                          {accrued}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <span className={`font-bold ${used > 0 ? "text-warning" : "text-muted-foreground"}`}>
-                          {used}
+                        <span className={`font-bold ${emp.totalUsed > 0 ? "text-warning" : "text-muted-foreground"}`}>
+                          {emp.totalUsed}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <span className={`font-bold ${
-                          !emp.hireDate
-                            ? "text-muted-foreground"
-                            : remaining < 0
+                          emp.remaining < 0
                             ? "text-destructive"
-                            : remaining > 0
+                            : emp.remaining > 0
                             ? "text-secondary"
                             : "text-muted-foreground"
                         }`}>
-                          {emp.hireDate ? remaining : "-"}
+                          {emp.remaining}
                         </span>
                       </td>
                     </tr>
@@ -234,9 +205,9 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
           {modalEmp && (
             <div className="flex gap-2 flex-wrap pt-1">
               {[
-                { label: "발생연차", value: modalEmp.hireDate ? calcAccruedLeaves(modalEmp.hireDate) : "-", cls: "text-primary" },
-                { label: "사용일수", value: usedMap[modalEmp.name] || 0, cls: "text-warning" },
-                { label: "잔여일수", value: modalEmp.hireDate ? calcAccruedLeaves(modalEmp.hireDate) - (usedMap[modalEmp.name] || 0) : "-", cls: "text-secondary" },
+                { label: "발생연차", value: modalEmp.totalUsed + modalEmp.remaining, cls: "text-primary" },
+                { label: "사용일수", value: modalEmp.totalUsed, cls: "text-warning" },
+                { label: "잔여일수", value: modalEmp.remaining, cls: modalEmp.remaining < 0 ? "text-destructive" : "text-secondary" },
               ].map((s) => (
                 <div key={s.label} className="bg-muted/50 border border-border rounded-lg px-3 py-2 flex-1 min-w-[80px] text-center">
                   <p className="text-[10px] text-muted-foreground mb-0.5">{s.label}</p>
