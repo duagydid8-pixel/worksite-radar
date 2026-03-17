@@ -178,7 +178,6 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) empLate = true;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
-        if (emp.team === "태화_F" && dow !== 6 && (!rec || !rec.punchIn)) empAbsent = true;
       }
 
       if (empLate) lateEmps++;
