@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from "react";
-import { GripVertical, Search, X } from "lucide-react";
+import { GripVertical, Search, X, Download } from "lucide-react";
+import { exportLeaveExcel } from "@/lib/exportExcel";
 import type { LeaveEmployee, LeaveDetail } from "@/lib/parseExcel";
 import {
   Dialog,
@@ -86,24 +87,33 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails, rowOrde
         ))}
       </div>
 
-      {/* 검색창 */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="이름으로 검색..."
-          className="w-full bg-white border border-border rounded-xl pl-9 pr-9 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-        />
-        {searchQuery && (
-          <button
-            onClick={() => setSearchQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+      {/* 검색창 + 다운로드 버튼 */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="이름으로 검색..."
+            className="w-full bg-white border border-border rounded-xl pl-9 pr-9 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={() => exportLeaveExcel(leaveEmployees, leaveDetails)}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors shrink-0"
+        >
+          <Download className="h-4 w-4 text-muted-foreground" />
+          엑셀 다운로드
+        </button>
       </div>
 
       {/* 직원별 연차 현황 */}
