@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import { GripVertical } from "lucide-react";
 import type { LeaveEmployee, LeaveDetail } from "@/lib/parseExcel";
 import {
   Dialog,
@@ -10,35 +11,53 @@ import {
 interface Props {
   leaveEmployees: LeaveEmployee[];
   leaveDetails: LeaveDetail[];
+  rowOrder: string[];
+  onOrderChange: (context: string, names: string[]) => void;
 }
 
 function padZ(n: number) {
   return String(n).padStart(2, "0");
 }
 
-export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props) {
-  const [modalName, setModalName] = useState<string | null>(null);
+function applyOrder(emps: LeaveEmployee[], order: string[]): LeaveEmployee[] {
+  if (!order.length) return emps;
+  const map = new Map(emps.map((e) => [e.name, e]));
+  const result: LeaveEmployee[] = [];
+  for (const name of order) {
+    const e = map.get(name);
+    if (e) result.push(e);
+  }
+  for (const e of emps) {
+    if (!order.includes(e.name)) result.push(e);
+  }
+  return result;
+}
 
-  // 시트에서 읽은 총사용일수·잔여일수를 직접 합산
-  const totalUsed = useMemo(
-    () => leaveEmployees.reduce((sum, e) => sum + e.totalUsed, 0),
-    [leaveEmployees]
-  );
-  const totalRemaining = useMemo(
-    () => leaveEmployees.reduce((sum, e) => sum + e.remaining, 0),
-    [leaveEmployees]
-  );
+export default function AnnualLeavePanel({ leaveEmployees, leaveDetails, rowOrder, onOrderChange }: Props) {
+  const [modalName, setModalName] = useState<string | null>(null);
+  const [localOrder, setLocalOrder] = useState<string[]>(rowOrder);
+  const dragRef = useRef<number | null>(null);
+
+  const orderedEmps = useMemo(() => applyOrder(leaveEmployees, localOrder), [leaveEmployees, localOrder]);
+
+  const totalUsed = useMemo(() => leaveEmployees.reduce((sum, e) => sum + e.totalUsed, 0), [leaveEmployees]);
+  const totalRemaining = useMemo(() => leaveEmployees.reduce((sum, e) => sum + e.remaining, 0), [leaveEmployees]);
   const totalAccrued = totalUsed + totalRemaining;
 
-  // 모달에 표시할 직원 정보
-  const modalEmp = useMemo(
-    () => leaveEmployees.find((e) => e.name === modalName) ?? null,
-    [leaveEmployees, modalName]
-  );
-  const modalDetails = useMemo(
-    () => leaveDetails.filter((d) => d.name === modalName),
-    [leaveDetails, modalName]
-  );
+  const modalEmp = useMemo(() => leaveEmployees.find((e) => e.name === modalName) ?? null, [leaveEmployees, modalName]);
+  const modalDetails = useMemo(() => leaveDetails.filter((d) => d.name === modalName), [leaveDetails, modalName]);
+
+  const handleDragStart = (idx: number) => { dragRef.current = idx; };
+  const handleDrop = (targetIdx: number) => {
+    const srcIdx = dragRef.current;
+    if (srcIdx == null || srcIdx === targetIdx) return;
+    const names = orderedEmps.map((e) => e.name);
+    const [moved] = names.splice(srcIdx, 1);
+    names.splice(targetIdx, 0, moved);
+    setLocalOrder(names);
+    onOrderChange("leave", names);
+    dragRef.current = null;
+  };
 
   const noData = leaveEmployees.length === 0;
 
@@ -46,37 +65,28 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
     <div className="space-y-4">
       {/* 요약 카드 */}
       <div className="flex gap-2.5 flex-wrap">
-        <div className="bg-card border border-border rounded-lg px-4 py-3 min-w-[120px]">
-          <p className="text-[10px] text-muted-foreground mb-1">총 인원</p>
-          <p className="text-xl font-bold text-foreground">
-            {leaveEmployees.length}<span className="text-xs font-normal text-muted-foreground ml-1">명</span>
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-lg px-4 py-3 min-w-[120px]">
-          <p className="text-[10px] text-muted-foreground mb-1">총 발생연차</p>
-          <p className="text-xl font-bold text-primary">
-            {totalAccrued}<span className="text-xs font-normal text-muted-foreground ml-1">일</span>
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-lg px-4 py-3 min-w-[120px]">
-          <p className="text-[10px] text-muted-foreground mb-1">총 사용일수</p>
-          <p className="text-xl font-bold text-warning">
-            {totalUsed}<span className="text-xs font-normal text-muted-foreground ml-1">일</span>
-          </p>
-        </div>
-        <div className="bg-card border border-border rounded-lg px-4 py-3 min-w-[120px]">
-          <p className="text-[10px] text-muted-foreground mb-1">총 잔여일수</p>
-          <p className="text-xl font-bold text-secondary">
-            {totalRemaining}<span className="text-xs font-normal text-muted-foreground ml-1">일</span>
-          </p>
-        </div>
+        {[
+          { label: "총 인원", value: leaveEmployees.length, unit: "명", color: "text-foreground" },
+          { label: "총 발생연차", value: totalAccrued, unit: "일", color: "text-primary" },
+          { label: "총 사용일수", value: totalUsed, unit: "일", color: "text-[#854f0b]" },
+          { label: "총 잔여일수", value: totalRemaining, unit: "일", color: "text-secondary" },
+        ].map((c) => (
+          <div key={c.label} className="bg-card border border-border rounded-xl px-4 py-3 min-w-[110px]">
+            <p className="text-[10px] text-muted-foreground mb-1">{c.label}</p>
+            <p className={`text-2xl font-bold ${c.color}`}>
+              {c.value}
+              <span className="text-xs font-normal text-muted-foreground ml-0.5">{c.unit}</span>
+            </p>
+          </div>
+        ))}
       </div>
 
       {/* 직원별 연차 현황 */}
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
         <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+          <div className="w-1 h-5 rounded-full bg-primary" />
           <span className="text-sm font-bold text-foreground">직원별 연차 현황</span>
-          <span className="text-[10px] text-muted-foreground">이름 클릭 시 상세 내역 팝업</span>
+          <span className="text-[10px] text-muted-foreground ml-1">이름 클릭 시 상세 내역</span>
         </div>
         {noData ? (
           <div className="py-10 text-center text-xs text-muted-foreground">
@@ -86,20 +96,31 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-muted/50 border-b border-border">
-                  <th className="px-4 py-2.5 text-left text-muted-foreground font-semibold">성명</th>
-                  <th className="px-4 py-2.5 text-left text-muted-foreground font-semibold">부서</th>
-                  <th className="px-4 py-2.5 text-center text-muted-foreground font-semibold">입사일</th>
-                  <th className="px-4 py-2.5 text-center text-muted-foreground font-semibold">발생연차</th>
-                  <th className="px-4 py-2.5 text-center text-muted-foreground font-semibold">사용일수</th>
-                  <th className="px-4 py-2.5 text-center text-muted-foreground font-semibold">잔여일수</th>
+                <tr className="bg-muted/30 border-b border-border text-muted-foreground font-semibold">
+                  <th className="w-6 px-2 py-2.5" />
+                  <th className="px-4 py-2.5 text-left">성명</th>
+                  <th className="px-4 py-2.5 text-left">부서</th>
+                  <th className="px-4 py-2.5 text-center">입사일</th>
+                  <th className="px-4 py-2.5 text-center">발생연차</th>
+                  <th className="px-4 py-2.5 text-center">사용일수</th>
+                  <th className="px-4 py-2.5 text-center">잔여일수</th>
                 </tr>
               </thead>
               <tbody>
-                {leaveEmployees.map((emp) => {
+                {orderedEmps.map((emp, idx) => {
                   const accrued = emp.totalUsed + emp.remaining;
                   return (
-                    <tr key={emp.name} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                    <tr
+                      key={emp.name}
+                      draggable
+                      onDragStart={() => handleDragStart(idx)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleDrop(idx)}
+                      className="border-b border-border/50 hover:bg-muted/20 transition-colors"
+                    >
+                      <td className="px-1 py-2.5 text-center">
+                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 cursor-grab mx-auto" />
+                      </td>
                       <td className="px-4 py-2.5">
                         <button
                           onClick={() => setModalName(emp.name)}
@@ -118,18 +139,15 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <span className={`font-bold ${emp.totalUsed > 0 ? "text-warning" : "text-muted-foreground"}`}>
-                          {emp.totalUsed}
+                        <span
+                          className="font-bold"
+                          style={{ color: emp.totalUsed > 0 ? "#854f0b" : undefined }}
+                        >
+                          {emp.totalUsed > 0 ? emp.totalUsed : <span className="text-muted-foreground">{emp.totalUsed}</span>}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <span className={`font-bold ${
-                          emp.remaining < 0
-                            ? "text-destructive"
-                            : emp.remaining > 0
-                            ? "text-secondary"
-                            : "text-muted-foreground"
-                        }`}>
+                        <span className={`font-bold ${emp.remaining < 0 ? "text-destructive" : emp.remaining > 0 ? "text-secondary" : "text-muted-foreground"}`}>
                           {emp.remaining}
                         </span>
                       </td>
@@ -143,26 +161,25 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
       </div>
 
       {/* 전체 연차 사용 내역 */}
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
+      <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
         <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+          <div className="w-1 h-5 rounded-full bg-secondary" />
           <span className="text-sm font-bold text-foreground">연차 사용 내역 전체</span>
-          <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded">
+          <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded ml-1">
             총 {leaveDetails.length}건
           </span>
         </div>
         {leaveDetails.length === 0 ? (
-          <div className="py-10 text-center text-xs text-muted-foreground">
-            연차 사용 내역이 없습니다.
-          </div>
+          <div className="py-10 text-center text-xs text-muted-foreground">연차 사용 내역이 없습니다.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-muted/50 border-b border-border">
-                  <th className="px-4 py-2.5 text-left text-muted-foreground font-semibold">날짜</th>
-                  <th className="px-4 py-2.5 text-left text-muted-foreground font-semibold">이름</th>
-                  <th className="px-4 py-2.5 text-center text-muted-foreground font-semibold">사용일수</th>
-                  <th className="px-4 py-2.5 text-left text-muted-foreground font-semibold">사유</th>
+                <tr className="bg-muted/30 border-b border-border text-muted-foreground font-semibold">
+                  <th className="px-4 py-2.5 text-left">날짜</th>
+                  <th className="px-4 py-2.5 text-left">이름</th>
+                  <th className="px-4 py-2.5 text-center">사용일수</th>
+                  <th className="px-4 py-2.5 text-left">사유</th>
                 </tr>
               </thead>
               <tbody>
@@ -180,7 +197,7 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
                       </button>
                     </td>
                     <td className="px-4 py-2 text-center">
-                      <span className="text-warning font-bold">{item.days}</span>
+                      <span className="font-bold" style={{ color: "#854f0b" }}>{item.days}</span>
                     </td>
                     <td className="px-4 py-2 text-muted-foreground">{item.reason || "-"}</td>
                   </tr>
@@ -201,23 +218,23 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
             </DialogTitle>
           </DialogHeader>
 
-          {/* 요약 */}
           {modalEmp && (
             <div className="flex gap-2 flex-wrap pt-1">
               {[
                 { label: "발생연차", value: modalEmp.totalUsed + modalEmp.remaining, cls: "text-primary" },
-                { label: "사용일수", value: modalEmp.totalUsed, cls: "text-warning" },
+                { label: "사용일수", value: modalEmp.totalUsed, style: { color: "#854f0b" } },
                 { label: "잔여일수", value: modalEmp.remaining, cls: modalEmp.remaining < 0 ? "text-destructive" : "text-secondary" },
               ].map((s) => (
-                <div key={s.label} className="bg-muted/50 border border-border rounded-lg px-3 py-2 flex-1 min-w-[80px] text-center">
+                <div key={s.label} className="bg-muted/50 border border-border rounded-xl px-3 py-2 flex-1 min-w-[80px] text-center">
                   <p className="text-[10px] text-muted-foreground mb-0.5">{s.label}</p>
-                  <p className={`text-lg font-bold ${s.cls}`}>{s.value}</p>
+                  <p className={`text-lg font-bold ${"cls" in s ? s.cls : ""}`} style={"style" in s ? s.style : undefined}>
+                    {s.value}
+                  </p>
                 </div>
               ))}
             </div>
           )}
 
-          {/* 상세 내역 */}
           {modalDetails.length === 0 ? (
             <p className="py-6 text-center text-xs text-muted-foreground">사용 내역이 없습니다.</p>
           ) : (
@@ -237,7 +254,7 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails }: Props
                         {item.year}-{padZ(item.month)}-{padZ(item.day)}
                       </td>
                       <td className="px-3 py-2 text-center">
-                        <span className="text-warning font-bold">{item.days}</span>
+                        <span className="font-bold" style={{ color: "#854f0b" }}>{item.days}</span>
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">{item.reason || "-"}</td>
                     </tr>

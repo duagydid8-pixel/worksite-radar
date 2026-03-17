@@ -3,10 +3,10 @@ import FileUploadZone from "@/components/FileUploadZone";
 import StatCard from "@/components/StatCard";
 import AttendanceTable from "@/components/AttendanceTable";
 import AnnualLeavePanel from "@/components/AnnualLeavePanel";
-import { parseExcelFile, type ParsedData, type Employee } from "@/lib/parseExcel";
-import { saveToSupabase, fetchFromSupabase } from "@/lib/supabaseSync";
+import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
+import { saveToSupabase, fetchFromSupabase, saveRowOrder, fetchRowOrder } from "@/lib/supabaseSync";
 import { toast } from "sonner";
-import { Upload, CloudUpload, Loader2 } from "lucide-react";
+import { CloudUpload, Loader2 } from "lucide-react";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -40,13 +40,10 @@ function isLate(timeStr: string): boolean {
 
 function formatUploadTime(isoStr: string): string {
   const d = new Date(isoStr);
-  const y = d.getFullYear();
-  const mo = d.getMonth() + 1;
-  const day = d.getDate();
-  const h = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${y}년 ${mo}월 ${day}일 ${h}:${mi}`;
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+
+const ROW_ORDER_CONTEXTS = ["attendance_한성_F", "attendance_태화_F", "leave"];
 
 const Index = () => {
   const [data, setData] = useState<ParsedData | null>(null);
@@ -58,18 +55,26 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [pendingBuffer, setPendingBuffer] = useState<ArrayBuffer | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("근태보고");
+  const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
 
-  // On mount, fetch from Supabase
   useEffect(() => {
     (async () => {
       try {
-        const result = await fetchFromSupabase();
+        const [result, ...orders] = await Promise.all([
+          fetchFromSupabase(),
+          ...ROW_ORDER_CONTEXTS.map((ctx) => fetchRowOrder(ctx).then((names) => ({ ctx, names }))),
+        ]);
         if (result) {
           setData(result.data);
           setLastUploadedAt(result.uploadedAt);
         }
+        const orderMap: Record<string, string[]> = {};
+        for (const o of orders as { ctx: string; names: string[] }[]) {
+          orderMap[o.ctx] = o.names;
+        }
+        setRowOrders(orderMap);
       } catch {
-        // silently fail, user can upload manually
+        // silently fail
       } finally {
         setIsLoading(false);
       }
@@ -78,13 +83,13 @@ const Index = () => {
 
   const monday = useMemo(() => getMonday(new Date(selectedDate)), [selectedDate]);
 
-  const weekDates = useMemo(() => {
-    return Array.from({ length: 7 }, (_, i) => {
+  const weekDates = useMemo(() =>
+    Array.from({ length: 7 }, (_, i) => {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
       return d;
-    });
-  }, [monday]);
+    }),
+  [monday]);
 
   const handleFileLoaded = useCallback((buffer: ArrayBuffer) => {
     try {
@@ -98,10 +103,7 @@ const Index = () => {
   }, []);
 
   const handleSaveToCloud = useCallback(async () => {
-    if (!data || !fileName) {
-      toast.error("먼저 엑셀 파일을 업로드하세요.");
-      return;
-    }
+    if (!data || !fileName) { toast.error("먼저 엑셀 파일을 업로드하세요."); return; }
     setIsSaving(true);
     try {
       await saveToSupabase(data, fileName);
@@ -115,20 +117,24 @@ const Index = () => {
     }
   }, [data, fileName]);
 
+  const handleOrderChange = useCallback(async (context: string, names: string[]) => {
+    setRowOrders((prev) => ({ ...prev, [context]: names }));
+    try {
+      await saveRowOrder(context, names);
+    } catch {
+      // silently fail
+    }
+  }, []);
+
   const filteredEmployees = useMemo(() => {
     if (!data) return [];
     const weekMonth = monday.getMonth() + 1;
     const weekYear = monday.getFullYear();
-
     let emps = data.employees.filter((e) => e.dataYear === weekYear && e.dataMonth === weekMonth);
     if (emps.length === 0) emps = data.employees;
-
     if (teamFilter === "한성") return emps.filter((e) => e.team === "한성_F");
     if (teamFilter === "태화") return emps.filter((e) => e.team === "태화_F");
-
-    const hanseong = emps.filter((e) => e.team === "한성_F");
-    const taehwa = emps.filter((e) => e.team === "태화_F");
-    return [...hanseong, ...taehwa];
+    return [...emps.filter((e) => e.team === "한성_F"), ...emps.filter((e) => e.team === "태화_F")];
   }, [data, teamFilter, monday]);
 
   const anomalyMap = useMemo(() => {
@@ -138,51 +144,70 @@ const Index = () => {
     return map;
   }, [data]);
 
-  const stats = useMemo(() => {
-    const total = filteredEmployees.length;
-    let 지각 = 0;
-    let 연차 = 0;
+  // 이번주 stats
+  const weekStats = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let lateEmps = 0;
+    let uncheckEmps = 0;
 
+    for (const emp of filteredEmployees) {
+      let empLate = false;
+      let empUncheck = false;
+
+      for (let i = 0; i < 6; i++) {
+        const wd = weekDates[i];
+        if (!wd) continue;
+        const cellDate = new Date(wd);
+        cellDate.setHours(0, 0, 0, 0);
+        if (cellDate > today) continue;
+        const dow = wd.getDay();
+        if (dow === 0) continue; // Sunday
+
+        const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
+        if (data?.annualLeaveMap[emp.name]?.[leaveKey]) continue;
+
+        const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
+        const rec = emp.dailyRecords[key];
+        if (rec?.punchIn && isLate(rec.punchIn)) empLate = true;
+        if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
+      }
+
+      if (empLate) lateEmps++;
+      if (empUncheck) uncheckEmps++;
+    }
+
+    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps };
+  }, [filteredEmployees, weekDates, data]);
+
+  // 이번달 stats
+  const monthStats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const weekMonth = monday.getMonth() + 1;
     const weekYear = monday.getFullYear();
     const daysInMonth = new Date(weekYear, weekMonth, 0).getDate();
+    let lateTotal = 0;
+    let leaveTotal = 0;
 
     for (const emp of filteredEmployees) {
-      let empLate = 0;
-      let empLeave = 0;
-
       for (let d = 1; d <= daysInMonth; d++) {
         const dateObj = new Date(weekYear, weekMonth - 1, d);
         dateObj.setHours(0, 0, 0, 0);
         if (dateObj > today) break;
-        const dow = dateObj.getDay();
-        if (dow === 0) continue; // Sunday only
+        if (dateObj.getDay() === 0) continue;
 
         const leaveKey = `${weekYear}|${weekMonth}|${d}`;
-        if (data?.annualLeaveMap[emp.name]?.[leaveKey]) {
-          empLeave++;
-          continue;
-        }
+        if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { leaveTotal++; continue; }
 
         const key = `${weekYear}-${weekMonth}-${d}`;
         const rec = emp.dailyRecords[key];
-        if (rec?.punchIn && isLate(rec.punchIn)) empLate++;
+        if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
       }
-
-      지각 += empLate;
-      연차 += empLeave;
     }
 
-    return { total, 지각, 연차 };
+    return { total: filteredEmployees.length, late: lateTotal, leave: leaveTotal };
   }, [filteredEmployees, data, monday]);
-
-  const filterButtons: { label: string; value: TeamFilter }[] = [
-    { label: "전체", value: "전체" },
-    { label: "한성", value: "한성" },
-    { label: "태화", value: "태화" },
-  ];
 
   if (isLoading) {
     return (
@@ -197,17 +222,23 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="border-b border-border bg-card/50 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-base font-bold text-foreground">📋 P4-PH4 초순수 현장 — 근태관리</h1>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            평택 한성크린텍 · XERP / 지문 기록 기반 자동집계
-            {lastUploadedAt && (
-              <span className="ml-3 text-secondary">
-                📤 최종 업데이트: {formatUploadTime(lastUploadedAt)}
-              </span>
-            )}
-          </p>
+      {/* Header */}
+      <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between gap-4 flex-wrap shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-1 h-10 rounded-full bg-primary shrink-0" />
+          <div>
+            <h1 className="text-sm font-bold text-foreground leading-tight">
+              P4-PH4 초순수 현장 — 근태관리
+            </h1>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              평택 한성크린텍 · XERP / 지문 기록 기반 자동집계
+              {lastUploadedAt && (
+                <span className="ml-3 text-secondary">
+                  최종 업데이트: {formatUploadTime(lastUploadedAt)}
+                </span>
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex gap-1.5">
           {(["근태보고", "연차관리"] as ActiveTab[]).map((tab) => (
@@ -220,13 +251,14 @@ const Index = () => {
                   : "bg-muted border-border text-muted-foreground hover:text-foreground"
               }`}
             >
-              {tab === "근태보고" ? "📊 근태보고" : "📅 연차관리"}
+              {tab}
             </button>
           ))}
         </div>
       </div>
 
       <div className="p-4 md:p-6 max-w-[1500px] mx-auto space-y-3">
+        {/* File upload + save */}
         <div className="flex items-center gap-3">
           <div className="flex-1">
             <FileUploadZone
@@ -240,13 +272,9 @@ const Index = () => {
             <button
               onClick={handleSaveToCloud}
               disabled={isSaving}
-              className="flex items-center gap-2 px-5 py-3 rounded-lg bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
             >
-              {isSaving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CloudUpload className="h-4 w-4" />
-              )}
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
               {isSaving ? "저장 중..." : "업로드 & 저장"}
             </button>
           )}
@@ -254,38 +282,55 @@ const Index = () => {
 
         {data && activeTab === "근태보고" && (
           <>
-            <div className="flex flex-wrap items-center gap-3 bg-card border border-border rounded-lg px-4 py-2.5">
-              <span className="text-[11px] font-bold text-muted-foreground bg-muted px-2.5 py-1 rounded">📅 보고기준일</span>
+            {/* Date / filter bar */}
+            <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-2.5 shadow-sm">
+              <span className="text-[11px] font-semibold text-muted-foreground">보고기준일</span>
               <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="bg-[#1a2f4a] border-[1.5px] border-primary text-primary text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20"
+                className="bg-white border border-border text-foreground text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               />
-              <div className="text-xs font-semibold text-secondary bg-secondary/10 border border-secondary/25 px-3 py-1.5 rounded-lg">
+              <div className="text-xs font-semibold text-secondary bg-secondary/10 border border-secondary/20 px-3 py-1.5 rounded-lg">
                 {formatWeekRange(monday)}
               </div>
               <div className="flex gap-1.5 ml-auto">
-                {filterButtons.map((btn) => (
+                {(["전체", "한성", "태화"] as TeamFilter[]).map((v) => (
                   <button
-                    key={btn.value}
-                    onClick={() => setTeamFilter(btn.value)}
+                    key={v}
+                    onClick={() => setTeamFilter(v)}
                     className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-colors border ${
-                      teamFilter === btn.value
-                        ? "bg-primary border-primary text-foreground"
+                      teamFilter === v
+                        ? "bg-primary border-primary text-white"
                         : "bg-muted border-border text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    {btn.label}
+                    {v}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="flex gap-2.5 flex-wrap">
-              <StatCard label="조회 인원" value={stats.total} icon="👥" />
-              <StatCard label="지각(이번달)" value={stats.지각} variant="yellow" icon="🕐" />
-              <StatCard label="연차(이번달)" value={stats.연차} variant="teal" icon="📅" />
+            {/* Stats: 이번주 + 이번달 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* 이번주 */}
+              <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
+                <p className="text-[11px] font-bold text-muted-foreground mb-2">이번주</p>
+                <div className="flex gap-2">
+                  <StatCard label="총 인원" value={weekStats.total} unit="명" />
+                  <StatCard label="지각" value={weekStats.late} unit="명" variant="late" />
+                  <StatCard label="미체크" value={weekStats.uncheck} unit="명" variant="uncheck" />
+                </div>
+              </div>
+              {/* 이번달 */}
+              <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
+                <p className="text-[11px] font-bold text-muted-foreground mb-2">이번달</p>
+                <div className="flex gap-2">
+                  <StatCard label="총 인원" value={monthStats.total} unit="명" />
+                  <StatCard label="지각 건수" value={monthStats.late} unit="건" variant="late" />
+                  <StatCard label="연차 일수" value={monthStats.leave} unit="일" variant="leave" />
+                </div>
+              </div>
             </div>
 
             <AttendanceTable
@@ -295,6 +340,8 @@ const Index = () => {
               weekDates={weekDates}
               dataYear={data.dataYear}
               dataMonth={data.dataMonth}
+              rowOrders={rowOrders}
+              onOrderChange={handleOrderChange}
             />
           </>
         )}
@@ -303,6 +350,8 @@ const Index = () => {
           <AnnualLeavePanel
             leaveEmployees={data.leaveEmployees}
             leaveDetails={data.leaveDetails}
+            rowOrder={rowOrders["leave"] || []}
+            onOrderChange={handleOrderChange}
           />
         )}
 
@@ -313,14 +362,9 @@ const Index = () => {
               Excel 파일을 업로드하면 근태 현황이 자동 표시됩니다
             </h2>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">XERP 기록</code> +{" "}
+              <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">XERP 기록</code>{" "}+{" "}
               <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">지문 기록</code> 시트가 포함된 엑셀 파일
             </p>
-            {lastUploadedAt && (
-              <p className="text-xs text-muted-foreground mt-4">
-                💡 저장된 데이터가 없습니다. 새 파일을 업로드하세요.
-              </p>
-            )}
           </div>
         )}
       </div>

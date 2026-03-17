@@ -1,23 +1,47 @@
 interface StatCardProps {
   label: string;
-  value: number;
-  variant?: "default" | "yellow" | "teal";
-  icon?: string;
+  value: number | string;
+  variant?: "default" | "late" | "uncheck" | "leave";
+  unit?: string;
 }
 
-export default function StatCard({ label, value, variant = "default", icon }: StatCardProps) {
-  const valueClass =
-    variant === "yellow" ? "text-yellow-400"
-    : variant === "teal" ? "text-secondary"
-    : "text-foreground";
+const variantStyles: Record<string, { card: string; value: string }> = {
+  default: {
+    card: "bg-card border-border",
+    value: "text-foreground",
+  },
+  late: {
+    card: "border-[#f5d9b8]",
+    value: "text-[#854f0b]",
+  },
+  uncheck: {
+    card: "border-[#f5c6c6]",
+    value: "text-[#a32d2d]",
+  },
+  leave: {
+    card: "border-[#c5d9f0]",
+    value: "text-[#185fa5]",
+  },
+};
+
+const variantBg: Record<string, string> = {
+  default: "bg-card",
+  late: "bg-[#faeeda]",
+  uncheck: "bg-[#fcebeb]",
+  leave: "bg-[#e6f1fb]",
+};
+
+export default function StatCard({ label, value, variant = "default", unit }: StatCardProps) {
+  const style = variantStyles[variant];
+  const bg = variantBg[variant];
 
   return (
-    <div className="flex-1 min-w-[100px] rounded-lg bg-card border border-border px-4 py-2.5 flex items-center gap-2.5">
-      {icon && <span className="text-base">{icon}</span>}
-      <div>
-        <p className={`text-lg font-bold tabular-nums leading-none ${valueClass}`}>{value}</p>
-        <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
-      </div>
+    <div className={`flex-1 min-w-[110px] rounded-xl border px-4 py-3 ${bg} ${style.card}`}>
+      <p className="text-[10px] text-muted-foreground font-medium mb-1">{label}</p>
+      <p className={`text-2xl font-bold tabular-nums leading-none ${style.value}`}>
+        {value}
+        {unit && <span className="text-xs font-normal text-muted-foreground ml-0.5">{unit}</span>}
+      </p>
     </div>
   );
 }

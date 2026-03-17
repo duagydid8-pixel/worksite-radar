@@ -197,6 +197,23 @@ export async function fetchFromSupabase(): Promise<{ data: ParsedData; uploadedA
   };
 }
 
+export async function saveRowOrder(context: string, names: string[]): Promise<void> {
+  const { error } = await supabase
+    .from("row_order")
+    .upsert({ context, names }, { onConflict: "context" });
+  if (error) throw new Error(`row_order upsert error: ${error.message}`);
+}
+
+export async function fetchRowOrder(context: string): Promise<string[]> {
+  const { data } = await supabase
+    .from("row_order")
+    .select("names")
+    .eq("context", context)
+    .single();
+  if (!data) return [];
+  return Array.isArray(data.names) ? (data.names as string[]) : [];
+}
+
 export async function fetchLastUploadTime(): Promise<string | null> {
   const { data } = await supabase
     .from("upload_metadata")

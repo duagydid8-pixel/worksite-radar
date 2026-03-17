@@ -173,6 +173,21 @@ export type Database = {
         }
         Relationships: []
       }
+      row_order: {
+        Row: {
+          context: string
+          names: Json
+        }
+        Insert: {
+          context: string
+          names?: Json
+        }
+        Update: {
+          context?: string
+          names?: Json
+        }
+        Relationships: []
+      }
       yeoncha_data: {
         Row: {
           created_at: string
