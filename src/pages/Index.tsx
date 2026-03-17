@@ -208,7 +208,8 @@ const Index = () => {
         const dateObj = new Date(weekYear, weekMonth - 1, d);
         dateObj.setHours(0, 0, 0, 0);
         if (dateObj > today) break;
-        if (dateObj.getDay() === 0) continue;
+        const dow = dateObj.getDay();
+        if (dow === 0 || dow === 6) continue; // 토·일 제외
 
         const leaveKey = `${weekYear}|${weekMonth}|${d}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { leaveTotal++; continue; }
@@ -217,7 +218,7 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
-        if (emp.team === "태화_F" && dateObj.getDay() !== 6 && (!rec || !rec.punchIn)) absentTotal++;
+        if (emp.team === "태화_F" && (!rec || !rec.punchIn)) absentTotal++;
       }
     }
 
