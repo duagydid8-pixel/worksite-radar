@@ -188,7 +188,7 @@ const Index = () => {
       if (empAbsent) absentEmps++;
     }
 
-    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps, absent: absentEmps };
+    return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps };
   }, [filteredEmployees, weekDates, data]);
 
   // 이번달 stats
