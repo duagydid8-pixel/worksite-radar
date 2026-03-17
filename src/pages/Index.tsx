@@ -198,7 +198,6 @@ const Index = () => {
     let lateTotal = 0;
     let uncheckTotal = 0;
     let leaveTotal = 0;
-    let absentTotal = 0;
 
     for (const emp of filteredEmployees) {
       for (let d = 1; d <= daysInMonth; d++) {
