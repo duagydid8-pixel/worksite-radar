@@ -197,7 +197,6 @@ const Index = () => {
     let lateTotal = 0;
     let uncheckTotal = 0;
     let leaveTotal = 0;
-    let absentTotal = 0;
 
     for (const emp of filteredEmployees) {
       for (let d = 1; d <= daysInMonth; d++) {
@@ -205,7 +204,7 @@ const Index = () => {
         dateObj.setHours(0, 0, 0, 0);
         if (dateObj > today) break;
         const dow = dateObj.getDay();
-        if (dow === 0 || dow === 6) continue; // 토·일 제외
+        if (dow === 0 || dow === 6) continue;
 
         const leaveKey = `${weekYear}|${weekMonth}|${d}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { leaveTotal++; continue; }
@@ -214,11 +213,10 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
         if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
-        if (emp.team === "태화_F" && (!rec || !rec.punchIn)) absentTotal++;
       }
     }
 
-    return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal, absent: absentTotal };
+    return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
   }, [filteredEmployees, data, monday]);
 
   if (isLoading) {
