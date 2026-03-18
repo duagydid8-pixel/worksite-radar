@@ -4,6 +4,7 @@ export interface Employee {
   team: "한성_F" | "태화_F";
   name: string;
   jobTitle: string;
+  rank: string;
   totalDays: number;
   dataYear: number;
   dataMonth: number;
@@ -98,7 +99,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   let hSheetName = pickLatestSheet(wb, "P4한성", "누계");
   if (!hSheetName) hSheetName = pickLatestSheet(wb, "한성", "누계");
 
-  const hanseongNames = new Map<string, string>(); // name -> jobTitle
+  const hanseongNames = new Map<string, { jobTitle: string; rank: string }>(); // name -> {jobTitle, rank}
   if (hSheetName) {
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[hSheetName], { header: 1, defval: "" });
     for (let i = 3; i < rows.length; i++) {
@@ -106,7 +107,8 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       const name = String(r[1] || "").trim();
       if (!name || name === "성명") continue;
       const jobTitle = String(r[2] || "").trim();
-      hanseongNames.set(name, jobTitle);
+      const rank = String(r[3] || "").trim();
+      hanseongNames.set(name, { jobTitle, rank });
     }
   }
 
@@ -168,10 +170,12 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       const dayKey = `${year}-${month}-${day}`;
 
       if (!empMap.has(name)) {
+        const info = hanseongNames.get(name);
         empMap.set(name, {
           team: "한성_F",
           name,
-          jobTitle: hanseongNames.get(name) || "",
+          jobTitle: info?.jobTitle || "",
+          rank: info?.rank || "",
           totalDays: 0,
           dataYear: year,
           dataMonth: month,
@@ -244,8 +248,10 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       dataYear = empYear;
       dataMonth = empMonth;
 
-      // For 한성_F: use job title from 한성 sheet, for 태화_F: use XERP col[4]
-      const jobTitle = team === "한성_F" ? (hanseongNames.get(name) || String(row[4] || "").trim()) : String(row[4] || "").trim();
+      // For 한성_F: use job title + rank from 한성 sheet, for 태화_F: use XERP col[4]
+      const hanseongInfo = hanseongNames.get(name);
+      const jobTitle = team === "한성_F" ? (hanseongInfo?.jobTitle || String(row[4] || "").trim()) : String(row[4] || "").trim();
+      const rank = team === "한성_F" ? (hanseongInfo?.rank || "") : "";
       const totalDays = typeof row[7] === "number" ? row[7] : parseInt(row[7]) || 0;
 
       const dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null }> = {};
@@ -277,6 +283,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
           team: "한성_F",
           name,
           jobTitle,
+          rank,
           totalDays,
           dataYear: empYear,
           dataMonth: empMonth,
@@ -287,6 +294,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
           team: "태화_F",
           name,
           jobTitle,
+          rank: "",
           totalDays,
           dataYear: empYear,
           dataMonth: empMonth,

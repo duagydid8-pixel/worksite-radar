@@ -239,6 +239,7 @@ export default function AttendanceTable({
   };
 
   const JOB_ORDER = ["소장", "공사", "안전", "품질", "공무", "설계", "차량"];
+  const RANK_ORDER = ["수석", "책임", "선임"];
 
   function normalizeJobTitle(title: string): string {
     return (title || "").replace("관리자", "").replace("운행", "").trim();
@@ -272,10 +273,16 @@ export default function AttendanceTable({
         if (!emps.length) return null;
         const meta = teamMeta[team];
 
-        // 직종별 정렬 (지정 순서 → 이름순)
-        const sortedEmps = [...emps].sort((a, b) =>
-          jobSortIndex(a.jobTitle) - jobSortIndex(b.jobTitle) || a.name.localeCompare(b.name, "ko")
-        );
+        // 직종 → 등급(한성만) → 이름 순 정렬
+        const sortedEmps = [...emps].sort((a, b) => {
+          const jobDiff = jobSortIndex(a.jobTitle) - jobSortIndex(b.jobTitle);
+          if (jobDiff !== 0) return jobDiff;
+          const rankA = RANK_ORDER.indexOf(a.rank);
+          const rankB = RANK_ORDER.indexOf(b.rank);
+          const rankDiff = (rankA === -1 ? RANK_ORDER.length : rankA) - (rankB === -1 ? RANK_ORDER.length : rankB);
+          if (rankDiff !== 0) return rankDiff;
+          return a.name.localeCompare(b.name, "ko");
+        });
         const colSpan = 4 + weekDates.length + 1;
 
         return (
