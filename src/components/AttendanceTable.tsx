@@ -238,6 +238,18 @@ export default function AttendanceTable({
     );
   };
 
+  const JOB_ORDER = ["소장", "공사", "안전", "품질", "공무", "설계", "차량"];
+
+  function normalizeJobTitle(title: string): string {
+    return (title || "").replace("관리자", "").trim();
+  }
+
+  function jobSortIndex(title: string): number {
+    const normalized = normalizeJobTitle(title);
+    const idx = JOB_ORDER.indexOf(normalized);
+    return idx === -1 ? JOB_ORDER.length : idx;
+  }
+
   const teamOrder: ("한성_F" | "태화_F")[] = ["한성_F", "태화_F"];
   const teamMeta = {
     "한성_F": {
@@ -260,9 +272,9 @@ export default function AttendanceTable({
         if (!emps.length) return null;
         const meta = teamMeta[team];
 
-        // 직종별 정렬
+        // 직종별 정렬 (지정 순서 → 이름순)
         const sortedEmps = [...emps].sort((a, b) =>
-          (a.jobTitle || "").localeCompare(b.jobTitle || "", "ko") || a.name.localeCompare(b.name, "ko")
+          jobSortIndex(a.jobTitle) - jobSortIndex(b.jobTitle) || a.name.localeCompare(b.name, "ko")
         );
         const colSpan = 4 + weekDates.length + 1;
 
@@ -302,14 +314,15 @@ export default function AttendanceTable({
                 </thead>
                 <tbody>
                   {sortedEmps.map((emp, idx) => {
-                    const prevJobTitle = idx > 0 ? sortedEmps[idx - 1].jobTitle : null;
-                    const isNewGroup = emp.jobTitle !== prevJobTitle;
+                    const curGroup = normalizeJobTitle(emp.jobTitle);
+                    const prevGroup = idx > 0 ? normalizeJobTitle(sortedEmps[idx - 1].jobTitle) : null;
+                    const isNewGroup = curGroup !== prevGroup;
                     return (
                       <>
                         {isNewGroup && (
-                          <tr key={`group-${emp.jobTitle}-${idx}`} className="bg-muted/50 border-b border-border/60">
+                          <tr key={`group-${curGroup}-${idx}`} className="bg-muted/50 border-b border-border/60">
                             <td colSpan={colSpan} className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wide">
-                              {emp.jobTitle || "직종 미지정"}
+                              {curGroup || "직종 미지정"}
                             </td>
                           </tr>
                         )}
