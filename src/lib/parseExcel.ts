@@ -110,31 +110,40 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     }
   }
 
-  // === 2. Parse 연차 sheet ===
+  // === 2. Parse 연차 sheet (A=소속, D=이름, E=날짜, 3행부터 데이터) ===
   const annualLeaveMap: Record<string, Record<string, boolean>> = {};
   const alSheet = wb.Sheets["연차"];
   if (alSheet) {
     const rows: any[][] = XLSX.utils.sheet_to_json(alSheet, { header: 1, defval: "" });
-    for (let i = 1; i < rows.length; i++) {
+    for (let i = 2; i < rows.length; i++) { // 3행(0-indexed: 2)부터 데이터
       const r = rows[i];
-      const name = String(r[3] || "").trim();
+      const name = String(r[3] || "").trim(); // D열 = 이름
       if (!name) continue;
-      const dateVal = r[4];
-      let y: number, m: number, d: number;
-      if (typeof dateVal === "number") {
+      const dateVal = r[4]; // E열 = 날짜
+      let y: number | null = null, m: number | null = null, d: number | null = null;
+      if (typeof dateVal === "number" && dateVal > 100) {
+        // Excel 날짜 시리얼
         const dt = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
         y = dt.getUTCFullYear();
         m = dt.getUTCMonth() + 1;
         d = dt.getUTCDate();
       } else if (typeof dateVal === "string") {
-        const match = dateVal.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-        if (!match) continue;
-        y = parseInt(match[1]);
-        m = parseInt(match[2]);
-        d = parseInt(match[3]);
+        const trimmed = dateVal.trim();
+        if (!trimmed) continue;
+        // "YYYY-MM-DD", "YYYY.MM.DD", "YYYY/MM/DD", "YYYY년 M월 D일" 등
+        const match = trimmed.match(/(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})/);
+        if (match) {
+          y = parseInt(match[1]);
+          m = parseInt(match[2]);
+          d = parseInt(match[3]);
+        } else {
+          continue;
+        }
       } else {
         continue;
       }
+      if (y === null || m === null || d === null) continue;
+      if (m < 1 || m > 12 || d < 1 || d > 31) continue;
       const key = `${y}|${m}|${d}`;
       if (!annualLeaveMap[name]) annualLeaveMap[name] = {};
       annualLeaveMap[name][key] = true;
