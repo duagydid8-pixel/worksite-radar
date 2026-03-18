@@ -8,7 +8,7 @@ export async function saveToSupabase(data: ParsedData, fileName: string): Promis
   await Promise.all([
     supabase.from("attendance_data").delete().eq("year", dataYear).eq("month", dataMonth),
     supabase.from("anomaly_data").delete().eq("year", dataYear).eq("month", dataMonth),
-    supabase.from("yeoncha_data").delete().eq("year", dataYear).eq("month", dataMonth),
+    supabase.from("yeoncha_data").delete().neq("id", "00000000-0000-0000-0000-000000000000"),
     supabase.from("leave_employees").delete().neq("id", "00000000-0000-0000-0000-000000000000"),
     supabase.from("leave_details").delete().neq("id", "00000000-0000-0000-0000-000000000000"),
   ]);

@@ -454,5 +454,12 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     return a.day - b.day;
   });
 
+  // === 9. 연차_상세 날짜도 annualLeaveMap에 병합 (근태 캘린더 연차 표시) ===
+  for (const detail of leaveDetails) {
+    const key = `${detail.year}|${detail.month}|${detail.day}`;
+    if (!annualLeaveMap[detail.name]) annualLeaveMap[detail.name] = {};
+    annualLeaveMap[detail.name][key] = true;
+  }
+
   return { employees, anomalies, annualLeaveMap, dataMonth, dataYear, leaveEmployees, leaveDetails };
 }
