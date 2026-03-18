@@ -181,25 +181,28 @@ export default function AttendanceTable({
   const renderAnomalyBadges = (emp: Employee) => {
     const today2 = new Date();
     today2.setHours(0, 0, 0, 0);
-    const weekMonth = weekDates[0]?.getMonth() + 1;
-    const weekYear = weekDates[0]?.getFullYear();
     let lateCount = 0;
+    let uncheckCount = 0;
+    let leaveCount = 0;
 
     weekDates.forEach((wd, i) => {
       if (i >= 6) return;
       const cellDate = new Date(wd);
       cellDate.setHours(0, 0, 0, 0);
       if (cellDate > today2) return;
+      const dow = wd.getDay();
+      if (dow === 0 || dow === 6) return;
 
       const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
-      if (annualLeaveMap[emp.name]?.[leaveKey]) return;
+      if (annualLeaveMap[emp.name]?.[leaveKey]) { leaveCount++; return; }
 
       const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
       const rec = emp.dailyRecords[key];
       if (rec?.punchIn && isLate(rec.punchIn)) lateCount++;
+      if (rec?.punchIn && !rec.punchOut) uncheckCount++;
     });
 
-    if (lateCount === 0) {
+    if (lateCount === 0 && uncheckCount === 0 && leaveCount === 0) {
       return <span className="text-muted-foreground text-[10px]">이상없음</span>;
     }
 
@@ -211,6 +214,22 @@ export default function AttendanceTable({
             style={{ background: "#faeeda", color: "#854f0b" }}
           >
             지각 {lateCount}
+          </span>
+        )}
+        {uncheckCount > 0 && (
+          <span
+            className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded"
+            style={{ background: "#fde8e8", color: "#991b1b" }}
+          >
+            미타각 {uncheckCount}
+          </span>
+        )}
+        {leaveCount > 0 && (
+          <span
+            className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded"
+            style={{ background: "#e8f4fd", color: "#1e40af" }}
+          >
+            연차 {leaveCount}
           </span>
         )}
       </div>
