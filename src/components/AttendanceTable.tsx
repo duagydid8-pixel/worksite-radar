@@ -260,6 +260,12 @@ export default function AttendanceTable({
         if (!emps.length) return null;
         const meta = teamMeta[team];
 
+        // 직종별 정렬
+        const sortedEmps = [...emps].sort((a, b) =>
+          (a.jobTitle || "").localeCompare(b.jobTitle || "", "ko") || a.name.localeCompare(b.name, "ko")
+        );
+        const colSpan = 4 + weekDates.length + 1;
+
         return (
           <div key={team} className="rounded-xl border border-border overflow-hidden bg-card shadow-sm">
             {/* team header */}
@@ -295,25 +301,38 @@ export default function AttendanceTable({
                   </tr>
                 </thead>
                 <tbody>
-                  {emps.map((emp, idx) => (
-                    <tr
-                      key={emp.name}
-                      draggable
-                      onDragStart={() => handleDragStart(team, idx)}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={() => handleDrop(team, idx)}
-                      className="border-b border-border/40 hover:bg-muted/20 transition-colors cursor-default"
-                    >
-                      <td className="px-1 py-1.5 text-center">
-                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 cursor-grab mx-auto" />
-                      </td>
-                      <td className="px-2 py-1.5 text-center text-muted-foreground text-[10px]">{idx + 1}</td>
-                      <td className="px-2 py-1.5 text-center font-bold text-xs whitespace-nowrap">{emp.name}</td>
-                      <td className="px-2 py-1.5 text-center text-muted-foreground text-[10px]">{emp.jobTitle}</td>
-                      {weekDates.map((d, i) => renderCell(emp, d, i))}
-                      <td className="px-2 py-1.5 text-left">{renderAnomalyBadges(emp)}</td>
-                    </tr>
-                  ))}
+                  {sortedEmps.map((emp, idx) => {
+                    const prevJobTitle = idx > 0 ? sortedEmps[idx - 1].jobTitle : null;
+                    const isNewGroup = emp.jobTitle !== prevJobTitle;
+                    return (
+                      <>
+                        {isNewGroup && (
+                          <tr key={`group-${emp.jobTitle}-${idx}`} className="bg-muted/50 border-b border-border/60">
+                            <td colSpan={colSpan} className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wide">
+                              {emp.jobTitle || "직종 미지정"}
+                            </td>
+                          </tr>
+                        )}
+                        <tr
+                          key={emp.name}
+                          draggable
+                          onDragStart={() => handleDragStart(team, idx)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={() => handleDrop(team, idx)}
+                          className="border-b border-border/40 hover:bg-muted/20 transition-colors cursor-default"
+                        >
+                          <td className="px-1 py-1.5 text-center">
+                            <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 cursor-grab mx-auto" />
+                          </td>
+                          <td className="px-2 py-1.5 text-center text-muted-foreground text-[10px]">{idx + 1}</td>
+                          <td className="px-2 py-1.5 text-center font-bold text-xs whitespace-nowrap">{emp.name}</td>
+                          <td className="px-2 py-1.5 text-center text-muted-foreground text-[10px]">{emp.jobTitle}</td>
+                          {weekDates.map((d, i) => renderCell(emp, d, i))}
+                          <td className="px-2 py-1.5 text-left">{renderAnomalyBadges(emp)}</td>
+                        </tr>
+                      </>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
