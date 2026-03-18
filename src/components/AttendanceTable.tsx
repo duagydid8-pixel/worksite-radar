@@ -123,7 +123,7 @@ export default function AttendanceTable({
       return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
     }
 
-    if (hasLeave) {
+    if (hasLeave && (!record || !record.punchIn)) {
       return (
         <td key={dayIndex} className="px-2 py-1.5 text-center">
           <span
