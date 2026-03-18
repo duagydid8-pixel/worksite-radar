@@ -60,6 +60,7 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
+    const timeout = setTimeout(() => setIsLoading(false), 8000);
     (async () => {
       try {
         const [result, ...orders] = await Promise.all([
@@ -78,6 +79,7 @@ const Index = () => {
       } catch {
         // silently fail
       } finally {
+        clearTimeout(timeout);
         setIsLoading(false);
       }
     })();
