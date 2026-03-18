@@ -455,10 +455,15 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   });
 
   // === 9. 연차_상세 날짜도 annualLeaveMap에 병합 (근태 캘린더 연차 표시) ===
+  // 연차 일수가 1일 이상이면 시작일부터 연속 날짜를 모두 표시
   for (const detail of leaveDetails) {
-    const key = `${detail.year}|${detail.month}|${detail.day}`;
     if (!annualLeaveMap[detail.name]) annualLeaveMap[detail.name] = {};
-    annualLeaveMap[detail.name][key] = true;
+    const totalDays = Math.ceil(detail.days); // 0.5일(반차) 등도 해당일 표시
+    for (let offset = 0; offset < totalDays; offset++) {
+      const dt = new Date(detail.year, detail.month - 1, detail.day + offset);
+      const key = `${dt.getFullYear()}|${dt.getMonth() + 1}|${dt.getDate()}`;
+      annualLeaveMap[detail.name][key] = true;
+    }
   }
 
   return { employees, anomalies, annualLeaveMap, dataMonth, dataYear, leaveEmployees, leaveDetails };
