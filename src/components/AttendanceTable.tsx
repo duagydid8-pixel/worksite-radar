@@ -241,12 +241,12 @@ export default function AttendanceTable({
   const JOB_ORDER = ["소장", "공사", "안전", "품질", "공무", "설계", "차량"];
 
   function normalizeJobTitle(title: string): string {
-    return (title || "").replace("관리자", "").trim();
+    return (title || "").replace("관리자", "").replace("운행", "").trim();
   }
 
   function jobSortIndex(title: string): number {
     const normalized = normalizeJobTitle(title);
-    const idx = JOB_ORDER.indexOf(normalized);
+    const idx = JOB_ORDER.findIndex((j) => normalized === j || normalized.includes(j));
     return idx === -1 ? JOB_ORDER.length : idx;
   }
 
