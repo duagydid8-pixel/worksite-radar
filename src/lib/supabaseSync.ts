@@ -21,7 +21,7 @@ export async function saveToSupabase(data: ParsedData, fileName: string): Promis
       job: emp.jobTitle,
       year: emp.dataYear,
       month: emp.dataMonth,
-      days_json: emp.dailyRecords,
+      days_json: { ...emp.dailyRecords, __rank: emp.rank || "" },
     }));
     // Insert in batches of 50
     for (let i = 0; i < rows.length; i += 50) {
@@ -134,15 +134,20 @@ export async function fetchFromSupabase(): Promise<{ data: ParsedData; uploadedA
   if (!attRes.data?.length) return null;
 
   // Reconstruct employees
-  const employees: Employee[] = (attRes.data || []).map((row: any) => ({
-    team: row.team as "한성_F" | "태화_F",
-    name: row.name,
-    jobTitle: row.job,
-    totalDays: Object.keys(row.days_json || {}).length,
-    dataYear: row.year,
-    dataMonth: row.month,
-    dailyRecords: row.days_json || {},
-  }));
+  const employees: Employee[] = (attRes.data || []).map((row: any) => {
+    const rawJson = row.days_json || {};
+    const { __rank, ...dailyRecords } = rawJson;
+    return {
+      team: row.team as "한성_F" | "태화_F",
+      name: row.name,
+      jobTitle: row.job,
+      rank: typeof __rank === "string" ? __rank : "",
+      totalDays: Object.keys(dailyRecords).length,
+      dataYear: row.year,
+      dataMonth: row.month,
+      dailyRecords,
+    };
+  });
 
   // Sort: 한성_F first, then 태화_F
   employees.sort((a, b) => {
