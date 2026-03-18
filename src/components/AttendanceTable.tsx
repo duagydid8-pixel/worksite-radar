@@ -199,7 +199,9 @@ export default function AttendanceTable({
       const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
       const rec = emp.dailyRecords[key];
       if (rec?.punchIn && isLate(rec.punchIn)) lateCount++;
-      if (rec?.punchIn && !rec.punchOut) uncheckCount++;
+      // 오늘은 아직 퇴근 전일 수 있으므로 미타각 제외
+      const isToday = cellDate.getTime() === today2.getTime();
+      if (!isToday && rec?.punchIn && !rec.punchOut) uncheckCount++;
     });
 
     if (lateCount === 0 && uncheckCount === 0 && leaveCount === 0) {

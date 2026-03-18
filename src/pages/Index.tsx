@@ -178,7 +178,8 @@ const Index = () => {
         const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) empLate = true;
-        if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
+        const isToday = cellDate.getTime() === today.getTime();
+        if (!isToday && emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
       }
 
       if (empLate) lateEmps++;
@@ -214,7 +215,8 @@ const Index = () => {
         const key = `${weekYear}-${weekMonth}-${d}`;
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
-        if (emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
+        const isToday = dateObj.getTime() === today.getTime();
+        if (!isToday && emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
       }
     }
 
