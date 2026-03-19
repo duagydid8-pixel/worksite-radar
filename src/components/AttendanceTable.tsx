@@ -170,7 +170,7 @@ export default function AttendanceTable({
           )}
           {pOut ? (
             <span className="text-slate-400">{pOut}</span>
-          ) : emp.team === "태화_F" ? (
+          ) : emp.team === "태화_F" && !isToday ? (
             <span className="font-semibold" style={{ color: "#854f0b" }}>↑미기록</span>
           ) : null}
         </div>
