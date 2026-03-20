@@ -183,6 +183,7 @@ export default function AttendanceTable({
     let lateCount = 0;
     let uncheckCount = 0;
     let leaveCount = 0;
+    let absentCount = 0;
 
     weekDates.forEach((wd, i) => {
       if (i >= 6) return;
@@ -197,18 +198,32 @@ export default function AttendanceTable({
 
       const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
       const rec = emp.dailyRecords[key];
+
+      if (!rec || (!rec.punchIn && !rec.punchOut)) {
+        const isToday2 = cellDate.getTime() === today2.getTime();
+        if (!isToday2) absentCount++;
+        return;
+      }
+
       if (rec?.punchIn && isLate(rec.punchIn)) lateCount++;
-      // 오늘은 아직 퇴근 전일 수 있으므로 미타각 제외
       const isToday = cellDate.getTime() === today2.getTime();
       if (!isToday && rec?.punchIn && !rec.punchOut && emp.team !== "한성_F") uncheckCount++;
     });
 
-    if (lateCount === 0 && uncheckCount === 0 && leaveCount === 0) {
+    if (lateCount === 0 && uncheckCount === 0 && leaveCount === 0 && absentCount === 0) {
       return <span className="text-muted-foreground text-[10px]">이상없음</span>;
     }
 
     return (
       <div className="flex flex-wrap gap-1">
+        {absentCount > 0 && (
+          <span
+            className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded"
+            style={{ background: "#fcebeb", color: "#a32d2d" }}
+          >
+            결근 {absentCount}
+          </span>
+        )}
         {lateCount > 0 && (
           <span
             className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded"
