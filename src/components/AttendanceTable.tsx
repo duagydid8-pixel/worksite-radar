@@ -138,14 +138,13 @@ export default function AttendanceTable({
 
     if (!record || (!record.punchIn && !record.punchOut)) {
       if (isToday) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
-      if (emp.team === "한성_F") return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
       return (
         <td key={dayIndex} className="px-2 py-1.5 text-center">
           <span
             className="inline-block text-[10px] font-bold rounded px-1.5 py-0.5"
             style={{ background: "#fcebeb", color: "#a32d2d" }}
           >
-            미출근
+            결근
           </span>
         </td>
       );
