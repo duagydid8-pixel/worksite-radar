@@ -201,7 +201,7 @@ export default function AttendanceTable({
       if (rec?.punchIn && isLate(rec.punchIn)) lateCount++;
       // 오늘은 아직 퇴근 전일 수 있으므로 미타각 제외
       const isToday = cellDate.getTime() === today2.getTime();
-      if (!isToday && rec?.punchIn && !rec.punchOut) uncheckCount++;
+      if (!isToday && rec?.punchIn && !rec.punchOut && emp.team !== "한성_F") uncheckCount++;
     });
 
     if (lateCount === 0 && uncheckCount === 0 && leaveCount === 0) {
