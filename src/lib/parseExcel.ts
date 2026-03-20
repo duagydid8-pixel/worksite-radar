@@ -260,8 +260,17 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       for (let d = 1; d <= 21; d++) {
         const inIdx = 8 + (d - 1) * 2;
         const outIdx = 9 + (d - 1) * 2;
-        const pIn = excelTimeToString(row[inIdx]);
-        const pOut = excelTimeToString(row[outIdx]);
+        const rawIn = row[inIdx];
+        const rawOut = row[outIdx];
+        // "연차" 텍스트 감지 → annualLeaveMap에 추가
+        if (typeof rawIn === "string" && rawIn.trim().includes("연차")) {
+          const leaveKey = `${empYear}|${empMonth}|${d}`;
+          if (!annualLeaveMap[name]) annualLeaveMap[name] = {};
+          annualLeaveMap[name][leaveKey] = true;
+          continue;
+        }
+        const pIn = excelTimeToString(rawIn);
+        const pOut = excelTimeToString(rawOut);
         if (pIn || pOut) {
           dailyRecords[`${empYear}-${empMonth}-${d}`] = { punchIn: pIn, punchOut: pOut };
         }
@@ -270,8 +279,17 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       for (let d = 23; d <= 31; d++) {
         const inIdx = 50 + (d - 23) * 2;
         const outIdx = 51 + (d - 23) * 2;
-        const pIn = excelTimeToString(row[inIdx]);
-        const pOut = excelTimeToString(row[outIdx]);
+        const rawIn = row[inIdx];
+        const rawOut = row[outIdx];
+        // "연차" 텍스트 감지 → annualLeaveMap에 추가
+        if (typeof rawIn === "string" && rawIn.trim().includes("연차")) {
+          const leaveKey = `${empYear}|${empMonth}|${d}`;
+          if (!annualLeaveMap[name]) annualLeaveMap[name] = {};
+          annualLeaveMap[name][leaveKey] = true;
+          continue;
+        }
+        const pIn = excelTimeToString(rawIn);
+        const pOut = excelTimeToString(rawOut);
         if (pIn || pOut) {
           dailyRecords[`${empYear}-${empMonth}-${d}`] = { punchIn: pIn, punchOut: pOut };
         }
