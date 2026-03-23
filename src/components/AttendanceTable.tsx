@@ -95,7 +95,8 @@ export default function AttendanceTable({
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const day = date.getDate();
-    const isWeekend = dayIndex >= 6;
+    const dow = date.getDay();
+    const isWeekend = dow === 0 || dow === 6;
     const key = `${year}-${month}-${day}`;
     const leaveKey = `${year}|${month}|${day}`;
 
