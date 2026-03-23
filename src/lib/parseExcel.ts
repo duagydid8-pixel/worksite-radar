@@ -275,10 +275,11 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
           dailyRecords[`${empYear}-${empMonth}-${d}`] = { punchIn: pIn, punchOut: pOut };
         }
       }
-      // Days 23~31
-      for (let d = 23; d <= 31; d++) {
-        const inIdx = 50 + (d - 23) * 2;
-        const outIdx = 51 + (d - 23) * 2;
+      // Days 22~31 (22일이 누락되어 있었고 23~31은 컬럼이 2칸씩 앞당겨져 있었음)
+      // 올바른 공식: inIdx = 8 + (d-1)*2  — 1~21과 동일한 연속 컬럼 레이아웃
+      for (let d = 22; d <= 31; d++) {
+        const inIdx = 8 + (d - 1) * 2;
+        const outIdx = 9 + (d - 1) * 2;
         const rawIn = row[inIdx];
         const rawOut = row[outIdx];
         // "연차" 텍스트 감지 → annualLeaveMap에 추가
