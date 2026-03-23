@@ -256,6 +256,23 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
       const dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null }> = {};
 
+      // DEBUG: 첫 번째 직원의 컬럼 구조 출력 (파싱 문제 진단용)
+      if (r === 2) {
+        console.log(`[XERP DEBUG] 첫 번째 직원 행 (row index ${r}):`, name, team);
+        console.log(`[XERP DEBUG] 전체 컬럼 수:`, row.length);
+        for (let ci = 0; ci < Math.min(row.length, 75); ci++) {
+          const v = row[ci];
+          if (v !== "" && v !== null && v !== undefined) {
+            console.log(`  col[${ci}] = ${JSON.stringify(v)}`);
+          }
+        }
+        // 특히 22~31일 근처 컬럼 (46~70) 강제 출력
+        console.log("[XERP DEBUG] 컬럼 46~70 상세:");
+        for (let ci = 46; ci <= 70 && ci < row.length; ci++) {
+          console.log(`  col[${ci}] = ${JSON.stringify(row[ci])}`);
+        }
+      }
+
       // Days 1~21
       for (let d = 1; d <= 21; d++) {
         const inIdx = 8 + (d - 1) * 2;

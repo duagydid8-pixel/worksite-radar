@@ -49,7 +49,10 @@ const ROW_ORDER_CONTEXTS = ["attendance_한성_F", "attendance_태화_F", "leave
 const Index = () => {
   const [data, setData] = useState<ParsedData | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("전체");
   const [lastUploadedAt, setLastUploadedAt] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
