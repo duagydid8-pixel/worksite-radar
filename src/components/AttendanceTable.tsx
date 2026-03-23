@@ -138,7 +138,7 @@ export default function AttendanceTable({
     }
 
     if (!record || (!record.punchIn && !record.punchOut)) {
-      if (isToday) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
+      if (isToday || isWeekend) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
       return (
         <td key={dayIndex} className="px-2 py-1.5 text-center">
           <span
@@ -186,13 +186,12 @@ export default function AttendanceTable({
     let leaveCount = 0;
     let absentCount = 0;
 
-    weekDates.forEach((wd, i) => {
-      if (i >= 6) return;
+    weekDates.forEach((wd) => {
+      const dow = wd.getDay();
+      if (dow === 0 || dow === 6) return;
       const cellDate = new Date(wd);
       cellDate.setHours(0, 0, 0, 0);
       if (cellDate > today2) return;
-      const dow = wd.getDay();
-      if (dow === 0 || dow === 6) return;
 
       const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
       if (annualLeaveMap[emp.name]?.[leaveKey]) { leaveCount++; return; }
