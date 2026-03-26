@@ -376,6 +376,23 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
   const employees = [...xerpHanseongEmployees, ...filteredFingerEmployees, ...taehwaEmployees];
 
+  // === 6b. Ensure all 한성 sheet names appear even with no attendance data ===
+  const allEmployeeNames = new Set(employees.map((e) => e.name));
+  for (const [name, info] of hanseongNames.entries()) {
+    if (!allEmployeeNames.has(name)) {
+      employees.push({
+        team: "한성_F",
+        name,
+        jobTitle: info.jobTitle,
+        rank: info.rank,
+        totalDays: 0,
+        dataYear,
+        dataMonth,
+        dailyRecords: {},
+      });
+    }
+  }
+
   // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일 + 사용/잔여일수) ===
   // C열=성명, D열=부서, E열=입사일, Z~AK열=1~12월 사용일수, AL열=총사용일수, AM열=잔여일수
   const leaveEmployees: LeaveEmployee[] = [];
