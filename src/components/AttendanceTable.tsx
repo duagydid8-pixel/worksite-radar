@@ -228,11 +228,11 @@ export default function AttendanceTable({
 
       if (!rec || (!rec.punchIn && !rec.punchOut)) {
         const isToday2 = cellDate.getTime() === today2.getTime();
-        if (!isToday2) absentCount++;
+        if (!isToday2 && emp.name !== "이형우") absentCount++;
         return;
       }
 
-      if (rec?.punchIn && isLate(rec.punchIn)) lateCount++;
+      if (rec?.punchIn && isLate(rec.punchIn) && emp.name !== "이형우") lateCount++;
       const isToday = cellDate.getTime() === today2.getTime();
       if (!isToday && rec?.punchIn && !rec.punchOut && emp.team !== "한성_F") uncheckCount++;
     });
