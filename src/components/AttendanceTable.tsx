@@ -108,10 +108,26 @@ export default function AttendanceTable({
     if (isFuture) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
 
     // 하드코딩 입사/퇴사 처리
-    if (emp.name === "윤기순" && (year > 2026 || (year === 2026 && month > 3) || (year === 2026 && month === 3 && day >= 27)))
+    const isAfterResign = emp.name === "윤기순" && (year > 2026 || (year === 2026 && month > 3) || (year === 2026 && month === 3 && day >= 27));
+    const isBeforeHire  = emp.name === "이형우" && (year < 2026 || (year === 2026 && month < 3) || (year === 2026 && month === 3 && day < 26));
+    const isHireDay     = emp.name === "이형우" && year === 2026 && month === 3 && day === 26;
+
+    if (isBeforeHire) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
+
+    if (isHireDay) return (
+      <td key={dayIndex} className="px-2 py-1.5 text-center">
+        <span className="inline-block text-[10px] font-bold rounded px-1.5 py-0.5" style={{ background: "#e6fbee", color: "#166534" }}>입사</span>
+      </td>
+    );
+
+    if (isAfterResign) {
+      if (!isWeekend && day === 27 && month === 3 && year === 2026) return (
+        <td key={dayIndex} className="px-2 py-1.5 text-center">
+          <span className="inline-block text-[10px] font-bold rounded px-1.5 py-0.5" style={{ background: "#f3f4f6", color: "#6b7280" }}>퇴사</span>
+        </td>
+      );
       return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
-    if (emp.name === "이형우" && (year < 2026 || (year === 2026 && month < 3) || (year === 2026 && month === 3 && day < 26)))
-      return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
+    }
 
     const record = emp.dailyRecords[key];
     const hasLeave = annualLeaveMap[emp.name]?.[leaveKey];
