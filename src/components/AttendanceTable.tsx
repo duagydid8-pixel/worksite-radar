@@ -121,7 +121,7 @@ export default function AttendanceTable({
     );
 
     if (isAfterResign) {
-      if (!isWeekend && day === 27 && month === 3 && year === 2026) return (
+      if (!isWeekend && year === 2026 && month === 3) return (
         <td key={dayIndex} className="px-2 py-1.5 text-center">
           <span className="inline-block text-[10px] font-bold rounded px-1.5 py-0.5" style={{ background: "#f3f4f6", color: "#6b7280" }}>퇴사</span>
         </td>
