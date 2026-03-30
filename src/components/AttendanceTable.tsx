@@ -107,6 +107,12 @@ export default function AttendanceTable({
 
     if (isFuture) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
 
+    // 하드코딩 입사/퇴사 처리
+    if (emp.name === "윤기순" && (year > 2026 || (year === 2026 && month > 3) || (year === 2026 && month === 3 && day >= 27)))
+      return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
+    if (emp.name === "이형우" && (year < 2026 || (year === 2026 && month < 3) || (year === 2026 && month === 3 && day < 26)))
+      return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
+
     const record = emp.dailyRecords[key];
     const hasLeave = annualLeaveMap[emp.name]?.[leaveKey];
 
@@ -192,6 +198,11 @@ export default function AttendanceTable({
       const cellDate = new Date(wd);
       cellDate.setHours(0, 0, 0, 0);
       if (cellDate > today2) return;
+
+      // 하드코딩 입사/퇴사 처리
+      const wy = wd.getFullYear(), wm = wd.getMonth() + 1, wd2 = wd.getDate();
+      if (emp.name === "윤기순" && (wy > 2026 || (wy === 2026 && wm > 3) || (wy === 2026 && wm === 3 && wd2 >= 27))) return;
+      if (emp.name === "이형우" && (wy < 2026 || (wy === 2026 && wm < 3) || (wy === 2026 && wm === 3 && wd2 < 26))) return;
 
       const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
       if (annualLeaveMap[emp.name]?.[leaveKey]) { leaveCount++; return; }
