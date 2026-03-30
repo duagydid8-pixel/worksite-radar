@@ -107,6 +107,11 @@ export default function AttendanceTable({
 
     if (isFuture) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
 
+    // 입사일 이전 또는 퇴사일 이후는 빈 칸
+    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (emp.hireDate && dateStr < emp.hireDate) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
+    if (emp.resignDate && dateStr > emp.resignDate) return <td key={dayIndex} className="px-2 py-1.5 text-center" />;
+
     const record = emp.dailyRecords[key];
     const hasLeave = annualLeaveMap[emp.name]?.[leaveKey];
 
@@ -192,6 +197,11 @@ export default function AttendanceTable({
       const cellDate = new Date(wd);
       cellDate.setHours(0, 0, 0, 0);
       if (cellDate > today2) return;
+
+      // 입사일 이전 또는 퇴사일 이후는 집계에서 제외
+      const wdStr = `${wd.getFullYear()}-${String(wd.getMonth() + 1).padStart(2, "0")}-${String(wd.getDate()).padStart(2, "0")}`;
+      if (emp.hireDate && wdStr < emp.hireDate) return;
+      if (emp.resignDate && wdStr > emp.resignDate) return;
 
       const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
       if (annualLeaveMap[emp.name]?.[leaveKey]) { leaveCount++; return; }

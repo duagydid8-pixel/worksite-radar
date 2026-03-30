@@ -9,6 +9,8 @@ export interface Employee {
   dataYear: number;
   dataMonth: number;
   dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null }>;
+  hireDate?: string;   // "YYYY-MM-DD"
+  resignDate?: string; // "YYYY-MM-DD"
 }
 
 export interface AnomalyRecord {
@@ -22,9 +24,10 @@ export interface AnomalyRecord {
 export interface LeaveEmployee {
   name: string;
   dept: string;
-  hireDate: string;   // "YYYY-MM-DD"
-  totalUsed: number;  // AL열: 총사용일수
-  remaining: number;  // AM열: 잔여일수
+  hireDate: string;    // "YYYY-MM-DD"
+  resignDate?: string; // "YYYY-MM-DD" (퇴사일, F열)
+  totalUsed: number;   // AL열: 총사용일수
+  remaining: number;   // AM열: 잔여일수
 }
 
 export interface LeaveDetail {
@@ -393,9 +396,23 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     }
   }
 
-  // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일 + 사용/잔여일수) ===
-  // C열=성명, D열=부서, E열=입사일, Z~AK열=1~12월 사용일수, AL열=총사용일수, AM열=잔여일수
+  // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일 + 퇴사일 + 사용/잔여일수) ===
+  // C열=성명, D열=부서, E열=입사일, F열=퇴사일(있을 경우), Z~AK열=1~12월 사용일수, AL열=총사용일수, AM열=잔여일수
   const leaveEmployees: LeaveEmployee[] = [];
+  const employeeMetaMap = new Map<string, { hireDate?: string; resignDate?: string }>();
+
+  function parseDateCell(val: any): string {
+    if (typeof val === "number" && val > 0) {
+      const dt = new Date(Math.round((val - 25569) * 86400 * 1000));
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+    }
+    if (typeof val === "string") {
+      const match = val.match(/(\d{4})[.\-\/년](\d{1,2})[.\-\/월](\d{1,2})/);
+      if (match) return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+    }
+    return "";
+  }
+
   const leaveEmpSheetName = wb.SheetNames.find(s => s.includes("현채직") || s.includes("현재직"));
   const leaveEmpSheet = leaveEmpSheetName ? wb.Sheets[leaveEmpSheetName] : null;
   if (leaveEmpSheet) {
@@ -405,25 +422,42 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       const name = String(r[2] || "").trim(); // C열 (index 2)
       if (!name) continue;
       const dept = String(r[3] || "").trim(); // D열 (index 3)
-      // E열 (index 4) = 입사일: Excel serial 또는 문자열
-      let hireDate = "";
-      const hireDateVal = r[4];
-      if (typeof hireDateVal === "number" && hireDateVal > 0) {
-        const dt = new Date(Math.round((hireDateVal - 25569) * 86400 * 1000));
-        const y = dt.getUTCFullYear();
-        const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
-        const d = String(dt.getUTCDate()).padStart(2, "0");
-        hireDate = `${y}-${m}-${d}`;
-      } else if (typeof hireDateVal === "string") {
-        const match = hireDateVal.match(/(\d{4})[.\-\/년](\d{1,2})[.\-\/월](\d{1,2})/);
-        if (match) {
-          hireDate = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
-        }
-      }
+
+      const hireDate = parseDateCell(r[4]); // E열 (index 4) = 입사일
+      const resignDate = parseDateCell(r[5]); // F열 (index 5) = 퇴사일 (있을 경우)
+
+      employeeMetaMap.set(name, { hireDate: hireDate || undefined, resignDate: resignDate || undefined });
+
       // AL열 (index 37) = 총사용일수, AM열 (index 38) = 잔여일수
       const totalUsed = typeof r[37] === "number" ? r[37] : parseFloat(String(r[37])) || 0;
       const remaining = typeof r[38] === "number" ? r[38] : parseFloat(String(r[38])) || 0;
-      leaveEmployees.push({ name, dept, hireDate, totalUsed, remaining });
+      leaveEmployees.push({ name, dept, hireDate, resignDate: resignDate || undefined, totalUsed, remaining });
+    }
+  }
+
+  // Also parse hire/resign dates from P4한성 sheet (r[4]=입사일, r[5]=퇴사일)
+  if (hSheetName) {
+    const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[hSheetName], { header: 1, defval: "" });
+    for (let i = 3; i < rows.length; i++) {
+      const r = rows[i];
+      const name = String(r[1] || "").trim();
+      if (!name || name === "성명") continue;
+      if (!employeeMetaMap.has(name)) {
+        const hireDate = parseDateCell(r[4]);
+        const resignDate = parseDateCell(r[5]);
+        if (hireDate || resignDate) {
+          employeeMetaMap.set(name, { hireDate: hireDate || undefined, resignDate: resignDate || undefined });
+        }
+      }
+    }
+  }
+
+  // Enrich employees with hireDate/resignDate from meta map
+  for (const emp of employees) {
+    const meta = employeeMetaMap.get(emp.name);
+    if (meta) {
+      if (meta.hireDate) emp.hireDate = meta.hireDate;
+      if (meta.resignDate) emp.resignDate = meta.resignDate;
     }
   }
 
