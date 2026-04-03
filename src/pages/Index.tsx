@@ -135,8 +135,7 @@ const Index = () => {
 
   const filteredEmployees = useMemo(() => {
     if (!data) return [];
-    const weekMonth = monday.getMonth() + 1;
-    const weekYear = monday.getFullYear();
+    const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
     let emps = data.employees.filter((e) => e.dataYear === weekYear && e.dataMonth === weekMonth);
     if (emps.length === 0) emps = data.employees;
     if (teamFilter === "한성") return emps.filter((e) => e.team === "한성_F");
@@ -144,7 +143,7 @@ const Index = () => {
     const sorted = [...emps.filter((e) => e.team === "한성_F"), ...emps.filter((e) => e.team === "태화_F")];
     if (!searchQuery.trim()) return sorted;
     return sorted.filter((e) => e.name.includes(searchQuery.trim()));
-  }, [data, teamFilter, monday, searchQuery]);
+  }, [data, teamFilter, monday, searchQuery, selectedDate]);
 
   const anomalyMap = useMemo(() => {
     if (!data) return new Map();
@@ -197,8 +196,7 @@ const Index = () => {
   const monthStats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const weekMonth = monday.getMonth() + 1;
-    const weekYear = monday.getFullYear();
+    const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
     const daysInMonth = new Date(weekYear, weekMonth, 0).getDate();
     let lateTotal = 0;
     let uncheckTotal = 0;
@@ -224,7 +222,7 @@ const Index = () => {
     }
 
     return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
-  }, [filteredEmployees, data, monday]);
+  }, [filteredEmployees, data, monday, selectedDate]);
 
   if (isLoading) {
     return (
