@@ -7,7 +7,7 @@ import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveToSupabase, fetchFromSupabase, saveRowOrder, fetchRowOrder } from "@/lib/supabaseSync";
 import { toast } from "sonner";
 import { CloudUpload, Loader2, Search, X, Download } from "lucide-react";
-import { exportAttendanceExcel } from "@/lib/exportExcel";
+import { exportAttendanceExcel, exportMonthlyExcel } from "@/lib/exportExcel";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -365,7 +365,7 @@ const Index = () => {
                 )}
               </div>
               <button
-                onClick={() => exportAttendanceExcel(filteredEmployees, data.annualLeaveMap, weekDates)}
+                onClick={() => exportMonthlyExcel(data.employees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth)}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors shrink-0"
               >
                 <Download className="h-4 w-4 text-muted-foreground" />
