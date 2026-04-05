@@ -138,6 +138,23 @@ const Index = () => {
     const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
     let emps = data.employees.filter((e) => e.dataYear === weekYear && e.dataMonth === weekMonth);
     if (emps.length === 0) emps = data.employees;
+
+    // 주가 두 달에 걸치는 경우(예: 3/30~4/5), 이전 달 dailyRecords 병합
+    const mondayYear = monday.getFullYear();
+    const mondayMonth = monday.getMonth() + 1;
+    if (mondayYear !== weekYear || mondayMonth !== weekMonth) {
+      const prevEmps = data.employees.filter(
+        (e) => e.dataYear === mondayYear && e.dataMonth === mondayMonth
+      );
+      if (prevEmps.length > 0) {
+        emps = emps.map((emp) => {
+          const prev = prevEmps.find((p) => p.name === emp.name && p.team === emp.team);
+          if (!prev) return emp;
+          return { ...emp, dailyRecords: { ...prev.dailyRecords, ...emp.dailyRecords } };
+        });
+      }
+    }
+
     if (teamFilter === "한성") return emps.filter((e) => e.team === "한성_F");
     if (teamFilter === "태화") return emps.filter((e) => e.team === "태화_F");
     const sorted = [...emps.filter((e) => e.team === "한성_F"), ...emps.filter((e) => e.team === "태화_F")];
