@@ -49,7 +49,7 @@ export default function FileUploadZone({ onFileLoaded, fileName, onClear, onFile
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={onDrop}
-      className={`relative flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors cursor-pointer ${
+      className={`relative flex flex-row items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 transition-colors cursor-pointer ${
         isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-primary/50"
       }`}
     >
@@ -59,10 +59,10 @@ export default function FileUploadZone({ onFileLoaded, fileName, onClear, onFile
         onChange={onInputChange}
         className="absolute inset-0 opacity-0 cursor-pointer"
       />
-      <Upload className="h-8 w-8 text-muted-foreground" />
-      <div className="text-center">
+      <Upload className="h-4 w-4 text-muted-foreground shrink-0" />
+      <div className="flex items-center gap-1">
         <p className="text-sm font-medium text-foreground">엑셀 파일을 드래그하거나 클릭하여 업로드</p>
-        <p className="text-xs text-muted-foreground mt-1">.xlsx 파일만 지원</p>
+        <p className="text-xs text-muted-foreground">(.xlsx)</p>
       </div>
     </div>
   );
