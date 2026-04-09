@@ -152,6 +152,80 @@ export type Database = {
         }
         Relationships: []
       }
+      org_members: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          is_leader: boolean
+          name: string
+          phone: string
+          photo_url: string
+          position: string
+          rank: string
+          sort_order: number
+          team_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string
+          id?: string
+          is_leader?: boolean
+          name: string
+          phone?: string
+          photo_url?: string
+          position?: string
+          rank?: string
+          sort_order?: number
+          team_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          is_leader?: boolean
+          name?: string
+          phone?: string
+          photo_url?: string
+          position?: string
+          rank?: string
+          sort_order?: number
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_members_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "org_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_teams: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       upload_metadata: {
         Row: {
           file_name: string | null
