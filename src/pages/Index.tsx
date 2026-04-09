@@ -4,10 +4,11 @@ import StatCard from "@/components/StatCard";
 import AttendanceTable from "@/components/AttendanceTable";
 import AnnualLeavePanel from "@/components/AnnualLeavePanel";
 import NewEmployeeList from "@/components/NewEmployeeList";
+import XerpPmisTable from "@/components/XerpPmisTable";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveToSupabase, fetchFromSupabase, saveRowOrder, fetchRowOrder } from "@/lib/supabaseSync";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Lock } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Lock, Database } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import AdminLoginButton, { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -35,7 +36,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "신규자명단" | "근태보고" | "연차관리" | "조직도";
+type ActiveTab = "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -61,6 +62,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "근태보고", label: "근태보고", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
   { key: "연차관리", label: "연차관리", icon: <CalendarDays className="h-4 w-4" />, adminOnly: false },
   { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
+  { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: false },
 ];
 
 const Index = () => {
@@ -490,6 +492,9 @@ const Index = () => {
 
             {/* 조직도 */}
             {activeTab === "조직도" && <OrgChart />}
+
+            {/* XERP & PMIS */}
+            {activeTab === "XERP&PMIS" && <XerpPmisTable isAdmin={isAdmin} />}
           </div>
         </main>
       </div>
