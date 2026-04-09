@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, X, Download, Upload, CalendarDays, Trash2 } from "lucide-react";
+import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
@@ -74,9 +74,37 @@ function formatLabel(dateStr: string): string {
   return `${y}년 ${Number(m)}월 ${Number(dd)}일`;
 }
 
+// 달력용: 해당 월의 날짜 배열 (null = 빈 칸 패딩)
+function buildCalendarDays(year: number, month: number): (number | null)[] {
+  const firstDay = new Date(year, month - 1, 1).getDay(); // 0=일
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const days: (number | null)[] = [];
+  for (let i = 0; i < firstDay; i++) days.push(null);
+  for (let d = 1; d <= daysInMonth; d++) days.push(d);
+  while (days.length % 7 !== 0) days.push(null);
+  return days;
+}
+
+// 특정 날짜에서 직원 레코드 검색
+function getEmpRecord(
+  dateMap: DateMap,
+  year: number, month: number, day: number,
+  emp: XerpPmisRow
+): XerpPmisRow | null {
+  const key = `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+  const rows = dateMap[key];
+  if (!rows?.length) return null;
+  if (emp.사번) {
+    const found = rows.find((r) => r.사번 === emp.사번);
+    if (found) return found;
+  }
+  return rows.find((r) => r.성명 === emp.성명) ?? null;
+}
+
 // ── 상수 ─────────────────────────────────────────────
 const STORAGE_KEY = "worksite_xerp_pmis";
 const TODAY = toDateStr();
+const DOW = ["일","월","화","수","목","금","토"];
 
 const cell = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-border/40 last:border-r-0";
 const cellNum = `${cell} tabular-nums`;
@@ -88,12 +116,166 @@ function loadDateMap(): DateMap {
     if (!saved) return {};
     const parsed = JSON.parse(saved);
     if (Array.isArray(parsed)) {
-      // 구버전: 단일 배열 → 오늘 날짜로 마이그레이션
       return parsed.length > 0 ? { [TODAY]: parsed } : {};
     }
     if (typeof parsed === "object" && parsed !== null) return parsed as DateMap;
     return {};
   } catch { return {}; }
+}
+
+// ── 달력 모달 컴포넌트 ─────────────────────────────────
+interface CalendarModalProps {
+  emp: XerpPmisRow;
+  year: number;
+  month: number;
+  dateMap: DateMap;
+  onPrev: () => void;
+  onNext: () => void;
+  onClose: () => void;
+}
+
+function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: CalendarModalProps) {
+  const days = buildCalendarDays(year, month);
+  const todayStr = toDateStr();
+  const [ty, tm, td] = todayStr.split("-").map(Number);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden">
+        {/* 모달 헤더 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
+          <div className="flex items-center gap-3">
+            <CalendarDays className="h-5 w-5 text-primary" />
+            <div>
+              <span className="font-bold text-foreground text-base">{emp.성명}</span>
+              {emp.팀명 && <span className="ml-2 text-xs text-muted-foreground">{emp.팀명}</span>}
+              {emp.직종 && <span className="ml-1 text-xs text-muted-foreground">· {emp.직종}</span>}
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+            <X className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+
+        {/* 월 네비게이션 */}
+        <div className="flex items-center justify-center gap-6 px-5 py-3 border-b border-border/60">
+          <button onClick={onPrev} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+            <ChevronLeft className="h-5 w-5 text-foreground" />
+          </button>
+          <span className="text-base font-bold text-foreground min-w-[110px] text-center">
+            {year}년 {month}월
+          </span>
+          <button onClick={onNext} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+            <ChevronRight className="h-5 w-5 text-foreground" />
+          </button>
+        </div>
+
+        {/* 달력 */}
+        <div className="p-4 overflow-auto">
+          {/* 요일 헤더 */}
+          <div className="grid grid-cols-7 mb-1">
+            {DOW.map((d, i) => (
+              <div
+                key={d}
+                className={`text-center text-xs font-bold py-1.5
+                  ${i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-muted-foreground"}`}
+              >
+                {d}
+              </div>
+            ))}
+          </div>
+
+          {/* 날짜 그리드 */}
+          <div className="grid grid-cols-7 gap-0.5">
+            {days.map((day, idx) => {
+              if (day === null) {
+                return <div key={`pad-${idx}`} className="min-h-[72px] rounded-lg bg-muted/20" />;
+              }
+
+              const rec = getEmpRecord(dateMap, year, month, day, emp);
+              const isToday = year === ty && month === tm && day === td;
+              const dow = (idx % 7); // 0=일, 6=토
+              const isSun = dow === 0;
+              const isSat = dow === 6;
+
+              // 표시할 시간 결정
+              const hasXerp = rec && (rec.xerp출근 || rec.xerp퇴근);
+              const inTime = hasXerp ? rec!.xerp출근 : (rec?.pmis출근 ?? "");
+              const outTime = hasXerp ? rec!.xerp퇴근 : (rec?.pmis퇴근 ?? "");
+              const isPmis = !hasXerp && rec && (inTime || outTime);
+
+              return (
+                <div
+                  key={day}
+                  className={`min-h-[72px] rounded-lg border p-1.5 flex flex-col gap-0.5
+                    ${isToday ? "border-primary bg-primary/5" : "border-border/40 bg-white"}
+                    ${rec ? "" : "opacity-60"}
+                  `}
+                >
+                  {/* 날짜 숫자 */}
+                  <div className={`text-xs font-bold leading-none mb-1
+                    ${isToday ? "text-primary" : isSun ? "text-red-500" : isSat ? "text-blue-500" : "text-foreground"}
+                  `}>
+                    {day}
+                  </div>
+
+                  {/* 출근 시간 */}
+                  {inTime ? (
+                    <div className={`text-[10px] font-semibold leading-tight tabular-nums
+                      ${isPmis ? "text-blue-400" : "text-blue-600"}`}
+                    >
+                      ▲ {inTime}
+                    </div>
+                  ) : rec ? (
+                    <div className="text-[10px] text-muted-foreground/50 leading-tight">▲ —</div>
+                  ) : null}
+
+                  {/* 퇴근 시간 */}
+                  {outTime ? (
+                    <div className={`text-[10px] font-semibold leading-tight tabular-nums
+                      ${isPmis ? "text-red-400" : "text-red-600"}`}
+                    >
+                      ▼ {outTime}
+                    </div>
+                  ) : rec ? (
+                    <div className="text-[10px] text-muted-foreground/50 leading-tight">▼ —</div>
+                  ) : null}
+
+                  {/* PMIS 표시 */}
+                  {isPmis && (
+                    <div className="text-[9px] text-muted-foreground/60 leading-tight mt-auto">PMIS</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 범례 */}
+        <div className="flex items-center gap-4 px-5 py-3 border-t border-border/60 bg-muted/20 text-[11px] text-muted-foreground flex-wrap">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" />
+            X-ERP 출근
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-600 inline-block" />
+            X-ERP 퇴근
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-400 inline-block" />
+            PMIS 출근 (대체)
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-400 inline-block" />
+            PMIS 퇴근 (대체)
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── 컴포넌트 ──────────────────────────────────────────
@@ -104,11 +286,33 @@ export default function XerpPmisTable({ isAdmin }: Props) {
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const map = loadDateMap();
     const dates = Object.keys(map).sort().reverse();
-    return dates[0] ?? TODAY; // 가장 최근 날짜, 없으면 오늘
+    return dates[0] ?? TODAY;
   });
   const [uploadDate, setUploadDate] = useState<string>(TODAY);
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 달력 모달 상태
+  const [calendarEmp, setCalendarEmp] = useState<XerpPmisRow | null>(null);
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth() + 1);
+
+  const openCalendar = (emp: XerpPmisRow) => {
+    const now = new Date();
+    setCalendarYear(now.getFullYear());
+    setCalendarMonth(now.getMonth() + 1);
+    setCalendarEmp(emp);
+  };
+
+  const prevMonth = () => {
+    if (calendarMonth === 1) { setCalendarYear((y) => y - 1); setCalendarMonth(12); }
+    else setCalendarMonth((m) => m - 1);
+  };
+
+  const nextMonth = () => {
+    if (calendarMonth === 12) { setCalendarYear((y) => y + 1); setCalendarMonth(1); }
+    else setCalendarMonth((m) => m + 1);
+  };
 
   // localStorage 동기화
   useEffect(() => {
@@ -145,8 +349,10 @@ export default function XerpPmisTable({ isAdmin }: Props) {
           toast.error("데이터를 찾을 수 없습니다. 헤더 행을 확인하세요.");
           return;
         }
-        setDateMap((prev) => ({ ...prev, [uploadDate]: imported }));
-        setSelectedDate(uploadDate); // 업로드한 날짜로 자동 전환
+        const newMap = { ...dateMap, [uploadDate]: imported };
+        setDateMap(newMap);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(newMap));
+        setSelectedDate(uploadDate);
         toast.success(`${formatLabel(uploadDate)} — ${imported.length}건 저장되었습니다.`);
       } catch {
         toast.error("파일을 읽는 중 오류가 발생했습니다.");
@@ -163,7 +369,6 @@ export default function XerpPmisTable({ isAdmin }: Props) {
       delete next[date];
       return next;
     });
-    // 삭제 후 선택 날짜 조정
     const remaining = Object.keys(dateMap).filter((d) => d !== date).sort().reverse();
     setSelectedDate(remaining[0] ?? TODAY);
     toast.success(`${formatLabel(date)} 데이터를 삭제했습니다.`);
@@ -225,7 +430,6 @@ export default function XerpPmisTable({ isAdmin }: Props) {
           </select>
         )}
 
-        {/* 선택 날짜 삭제 (관리자) */}
         {isAdmin && availableDates.length > 0 && (
           <button
             onClick={() => handleDeleteDate(selectedDate)}
@@ -240,7 +444,6 @@ export default function XerpPmisTable({ isAdmin }: Props) {
 
       {/* ── 툴바 ── */}
       <div className="flex flex-wrap items-center gap-3 shrink-0">
-        {/* 검색 */}
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input
@@ -257,7 +460,6 @@ export default function XerpPmisTable({ isAdmin }: Props) {
           )}
         </div>
 
-        {/* 업로드 날짜 + 버튼 (관리자 전용) */}
         {isAdmin && (
           <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-lg px-3 py-1.5">
             <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">업로드 날짜</span>
@@ -277,7 +479,6 @@ export default function XerpPmisTable({ isAdmin }: Props) {
           </div>
         )}
 
-        {/* 내보내기 */}
         <button
           onClick={handleExport}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
@@ -336,10 +537,18 @@ export default function XerpPmisTable({ isAdmin }: Props) {
                   <td className={cell}>{row.팀명||"—"}</td>
                   <td className={cell}>{row.직종||"—"}</td>
                   <td className={cell}>{row.사번||"—"}</td>
-                  <td className={`${cell} font-medium`}>{row.성명||"—"}</td>
+                  <td className={`${cell} font-medium p-0`}>
+                    <button
+                      onClick={() => openCalendar(row)}
+                      className="w-full h-full px-2 py-1.5 text-primary hover:underline hover:text-primary/80 transition-colors font-medium"
+                      title="달력으로 출퇴근 현황 보기"
+                    >
+                      {row.성명||"—"}
+                    </button>
+                  </td>
                   <td className={cell}>{row.생년월일||"—"}</td>
-                  <td className={cellNum}>{row.xerp출근||"—"}</td>
-                  <td className={cellNum}>{row.xerp퇴근||"—"}</td>
+                  <td className={`${cellNum} text-blue-600 font-semibold`}>{row.xerp출근||"—"}</td>
+                  <td className={`${cellNum} text-red-600 font-semibold`}>{row.xerp퇴근||"—"}</td>
                   <td className={cellNum}>{row.pmis출근||"—"}</td>
                   <td className={cellNum}>{row.pmis퇴근||"—"}</td>
                   <td className={cellNum}>{row.조출||"—"}</td>
@@ -369,6 +578,19 @@ export default function XerpPmisTable({ isAdmin }: Props) {
           : "저장된 날짜 없음"}
         {!isAdmin && <span className="ml-2 text-amber-600">· 업로드는 관리자만 가능합니다</span>}
       </p>
+
+      {/* ── 달력 모달 ── */}
+      {calendarEmp && (
+        <CalendarModal
+          emp={calendarEmp}
+          year={calendarYear}
+          month={calendarMonth}
+          dateMap={dateMap}
+          onPrev={prevMonth}
+          onNext={nextMonth}
+          onClose={() => setCalendarEmp(null)}
+        />
+      )}
     </div>
   );
 }
