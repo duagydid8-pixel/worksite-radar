@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { CloudUpload, Loader2, Search, X, Download } from "lucide-react";
 import { exportAttendanceExcel, exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
+import AdminLoginButton, { useAdminAuth } from "@/components/AdminLoginDialog";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -62,6 +63,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>("근태보고");
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const { isAdmin, login, logout } = useAdminAuth();
 
   useEffect(() => {
     const timeout = setTimeout(() => setIsLoading(false), 8000);
@@ -274,7 +276,7 @@ const Index = () => {
             </p>
           </div>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-1.5">
           {(["근태보고", "연차관리", "조직도"] as ActiveTab[]).map((tab) => (
             <button
               key={tab}
@@ -288,31 +290,35 @@ const Index = () => {
               {tab}
             </button>
           ))}
+          <div className="w-px h-6 bg-border mx-1" />
+          <AdminLoginButton isAdmin={isAdmin} onLogin={login} onLogout={logout} />
         </div>
       </div>
 
       <div className="p-4 md:p-6 max-w-[1500px] mx-auto space-y-3">
-        {/* File upload + save */}
-        <div className="flex items-center gap-3">
-          <div className="flex-1">
-            <FileUploadZone
-              onFileLoaded={handleFileLoaded}
-              fileName={fileName}
-              onClear={() => { setData(null); setFileName(null); setPendingBuffer(null); }}
-              onFileName={setFileName}
-            />
+        {/* File upload + save (admin only) */}
+        {isAdmin && (
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <FileUploadZone
+                onFileLoaded={handleFileLoaded}
+                fileName={fileName}
+                onClear={() => { setData(null); setFileName(null); setPendingBuffer(null); }}
+                onFileName={setFileName}
+              />
+            </div>
+            {fileName && data && (
+              <button
+                onClick={handleSaveToCloud}
+                disabled={isSaving}
+                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+                {isSaving ? "저장 중..." : "업로드 & 저장"}
+              </button>
+            )}
           </div>
-          {fileName && data && (
-            <button
-              onClick={handleSaveToCloud}
-              disabled={isSaving}
-              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
-            >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
-              {isSaving ? "저장 중..." : "업로드 & 저장"}
-            </button>
-          )}
-        </div>
+        )}
 
         {data && activeTab === "근태보고" && (
           <>
