@@ -3,11 +3,12 @@ import FileUploadZone from "@/components/FileUploadZone";
 import StatCard from "@/components/StatCard";
 import AttendanceTable from "@/components/AttendanceTable";
 import AnnualLeavePanel from "@/components/AnnualLeavePanel";
+import NewEmployeeList from "@/components/NewEmployeeList";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveToSupabase, fetchFromSupabase, saveRowOrder, fetchRowOrder } from "@/lib/supabaseSync";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download } from "lucide-react";
-import { exportAttendanceExcel, exportMonthlyExcel } from "@/lib/exportExcel";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Lock } from "lucide-react";
+import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import AdminLoginButton, { useAdminAuth } from "@/components/AdminLoginDialog";
 
@@ -34,7 +35,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "근태보고" | "연차관리" | "조직도";
+type ActiveTab = "신규자명단" | "근태보고" | "연차관리" | "조직도";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -47,6 +48,20 @@ function formatUploadTime(isoStr: string): string {
 }
 
 const ROW_ORDER_CONTEXTS = ["attendance_한성_F", "attendance_태화_F", "leave"];
+
+interface NavItem {
+  key: ActiveTab;
+  label: string;
+  icon: React.ReactNode;
+  adminOnly: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { key: "신규자명단", label: "신규자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
+  { key: "근태보고", label: "근태보고", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
+  { key: "연차관리", label: "연차관리", icon: <CalendarDays className="h-4 w-4" />, adminOnly: false },
+  { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
+];
 
 const Index = () => {
   const [data, setData] = useState<ParsedData | null>(null);
@@ -136,13 +151,21 @@ const Index = () => {
     }
   }, []);
 
+  const handleNavClick = (key: ActiveTab, adminOnly: boolean) => {
+    if (adminOnly && !isAdmin) {
+      toast.error("관리자 로그인이 필요합니다.");
+      return;
+    }
+    setActiveTab(key);
+    setSearchQuery("");
+  };
+
   const filteredEmployees = useMemo(() => {
     if (!data) return [];
     const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
     let emps = data.employees.filter((e) => e.dataYear === weekYear && e.dataMonth === weekMonth);
     if (emps.length === 0) emps = data.employees;
 
-    // 주가 두 달에 걸치는 경우(예: 3/30~4/5), 이전 달 dailyRecords 병합
     const mondayYear = monday.getFullYear();
     const mondayMonth = monday.getMonth() + 1;
     if (mondayYear !== weekYear || mondayMonth !== weekMonth) {
@@ -172,19 +195,12 @@ const Index = () => {
     return map;
   }, [data]);
 
-  // 이번주 stats
   const weekStats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    let lateEmps = 0;
-    let uncheckEmps = 0;
-    let leaveEmps = 0;
-
+    let lateEmps = 0, uncheckEmps = 0, leaveEmps = 0;
     for (const emp of filteredEmployees) {
-      let empLate = false;
-      let empUncheck = false;
-      let empLeave = false;
-
+      let empLate = false, empUncheck = false, empLeave = false;
       for (let i = 0; i < 6; i++) {
         const wd = weekDates[i];
         if (!wd) continue;
@@ -193,35 +209,27 @@ const Index = () => {
         if (cellDate > today) continue;
         const dow = wd.getDay();
         if (dow === 0 || dow === 6) continue;
-
         const leaveKey = `${wd.getFullYear()}|${wd.getMonth() + 1}|${wd.getDate()}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { empLeave = true; continue; }
-
         const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) empLate = true;
         const isToday = cellDate.getTime() === today.getTime();
         if (!isToday && emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
       }
-
       if (empLate) lateEmps++;
       if (empUncheck) uncheckEmps++;
       if (empLeave) leaveEmps++;
     }
-
     return { total: filteredEmployees.length, late: lateEmps, uncheck: uncheckEmps, leave: leaveEmps };
   }, [filteredEmployees, weekDates, data]);
 
-  // 이번달 stats
   const monthStats = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
     const daysInMonth = new Date(weekYear, weekMonth, 0).getDate();
-    let lateTotal = 0;
-    let uncheckTotal = 0;
-    let leaveTotal = 0;
-
+    let lateTotal = 0, uncheckTotal = 0, leaveTotal = 0;
     for (const emp of filteredEmployees) {
       for (let d = 1; d <= daysInMonth; d++) {
         const dateObj = new Date(weekYear, weekMonth - 1, d);
@@ -229,10 +237,8 @@ const Index = () => {
         if (dateObj > today) break;
         const dow = dateObj.getDay();
         if (dow === 0 || dow === 6) continue;
-
         const leaveKey = `${weekYear}|${weekMonth}|${d}`;
         if (data?.annualLeaveMap[emp.name]?.[leaveKey]) { leaveTotal++; continue; }
-
         const key = `${weekYear}-${weekMonth}-${d}`;
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
@@ -240,7 +246,6 @@ const Index = () => {
         if (!isToday && emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
       }
     }
-
     return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
   }, [filteredEmployees, data, monday, selectedDate]);
 
@@ -256,11 +261,16 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between gap-4 flex-wrap shadow-sm">
+      <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between gap-4 flex-wrap shadow-sm shrink-0">
         <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="회사 로고" className="h-14 w-auto object-contain shrink-0 cursor-pointer" onClick={() => window.location.reload()} />
+          <img
+            src="/logo.png"
+            alt="회사 로고"
+            className="h-14 w-auto object-contain shrink-0 cursor-pointer"
+            onClick={() => window.location.reload()}
+          />
           <div className="w-px h-8 bg-border shrink-0" />
           <div>
             <h1 className="text-base font-bold text-foreground leading-tight">
@@ -276,180 +286,212 @@ const Index = () => {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          {(["근태보고", "연차관리", "조직도"] as ActiveTab[]).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => { setActiveTab(tab); setSearchQuery(""); }}
-              className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors border ${
-                activeTab === tab
-                  ? "bg-primary border-primary text-white"
-                  : "bg-muted border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-          <div className="w-px h-6 bg-border mx-1" />
-          <AdminLoginButton isAdmin={isAdmin} onLogin={login} onLogout={logout} />
-        </div>
+        <AdminLoginButton isAdmin={isAdmin} onLogin={login} onLogout={logout} />
       </div>
 
-      <div className="p-4 md:p-6 max-w-[1500px] mx-auto space-y-3">
-        {/* File upload + save (admin only) */}
-        {isAdmin && (
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <FileUploadZone
-                onFileLoaded={handleFileLoaded}
-                fileName={fileName}
-                onClear={() => { setData(null); setFileName(null); setPendingBuffer(null); }}
-                onFileName={setFileName}
-              />
-            </div>
-            {fileName && data && (
-              <button
-                onClick={handleSaveToCloud}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
-              >
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
-                {isSaving ? "저장 중..." : "업로드 & 저장"}
-              </button>
-            )}
-          </div>
-        )}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <aside className="w-48 shrink-0 border-r border-border bg-white flex flex-col">
+          <nav className="flex-1 py-3 px-2 space-y-0.5">
+            {NAV_ITEMS.map(({ key, label, icon, adminOnly }) => {
+              const isActive = activeTab === key;
+              const locked = adminOnly && !isAdmin;
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleNavClick(key, adminOnly)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
+                    isActive
+                      ? "bg-primary text-white"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  }`}
+                >
+                  {icon}
+                  <span className="flex-1">{label}</span>
+                  {locked && <Lock className="h-3.5 w-3.5 opacity-50 shrink-0" />}
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
 
-        {data && activeTab === "근태보고" && (
-          <>
-            {/* Date / filter bar */}
-            <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-2.5 shadow-sm">
-              <span className="text-xs font-semibold text-muted-foreground">보고기준일</span>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="bg-white border border-border text-foreground text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-              <div className="text-xs font-semibold text-secondary bg-secondary/10 border border-secondary/20 px-3 py-1.5 rounded-lg">
-                {formatWeekRange(monday)}
-              </div>
-              <div className="flex gap-1.5 ml-auto">
-                {(["전체", "한성", "태화"] as TeamFilter[]).map((v) => (
-                  <button
-                    key={v}
-                    onClick={() => setTeamFilter(v)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
-                      teamFilter === v
-                        ? "bg-primary border-primary text-white"
-                        : "bg-muted border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
+        {/* Main content */}
+        <main className="flex-1 overflow-auto">
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-3">
 
-            {/* 검색창 + 다운로드 버튼 */}
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="이름으로 검색..."
-                  className="w-full bg-white border border-border rounded-xl pl-9 pr-9 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+            {/* 신규자 명단 (관리자 전용) */}
+            {activeTab === "신규자명단" && isAdmin && <NewEmployeeList />}
+
+            {/* 근태보고 */}
+            {activeTab === "근태보고" && (
+              <>
+                {/* File upload + save (admin only) */}
+                {isAdmin && (
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <FileUploadZone
+                        onFileLoaded={handleFileLoaded}
+                        fileName={fileName}
+                        onClear={() => { setData(null); setFileName(null); setPendingBuffer(null); }}
+                        onFileName={setFileName}
+                      />
+                    </div>
+                    {fileName && data && (
+                      <button
+                        onClick={handleSaveToCloud}
+                        disabled={isSaving}
+                        className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
+                      >
+                        {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+                        {isSaving ? "저장 중..." : "업로드 & 저장"}
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
-              <button
-                onClick={() => exportMonthlyExcel(data.employees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth)}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors shrink-0"
-              >
-                <Download className="h-4 w-4 text-muted-foreground" />
-                엑셀 다운로드
-              </button>
-            </div>
 
-            {/* Stats: 이번주 + 이번달 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* 이번주 */}
-              <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
-                <p className="text-xs font-bold text-muted-foreground mb-2">이번주</p>
-                <div className="grid grid-cols-4 gap-2">
-                  <StatCard label="총 인원" value={weekStats.total} unit="명" />
-                  <StatCard label="지각" value={weekStats.late} unit="명" variant="late" />
-                  <StatCard label="미체크" value={weekStats.uncheck} unit="명" variant="uncheck" />
-                  <StatCard label="연차" value={weekStats.leave} unit="명" variant="leave" />
-                </div>
-              </div>
-              {/* 이번달 */}
-              <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
-                <p className="text-xs font-bold text-muted-foreground mb-2">이번달</p>
-                <div className="grid grid-cols-4 gap-2">
-                  <StatCard label="총 인원" value={monthStats.total} unit="명" />
-                  <StatCard label="지각" value={monthStats.late} unit="건" variant="late" />
-                  <StatCard label="미체크" value={monthStats.uncheck} unit="건" variant="uncheck" />
-                  <StatCard label="연차" value={monthStats.leave} unit="일" variant="leave" />
-                </div>
-              </div>
-            </div>
+                {data && (
+                  <>
+                    {/* Date / filter bar */}
+                    <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-2.5 shadow-sm">
+                      <span className="text-xs font-semibold text-muted-foreground">보고기준일</span>
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="bg-white border border-border text-foreground text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      />
+                      <div className="text-xs font-semibold text-secondary bg-secondary/10 border border-secondary/20 px-3 py-1.5 rounded-lg">
+                        {formatWeekRange(monday)}
+                      </div>
+                      <div className="flex gap-1.5 ml-auto">
+                        {(["전체", "한성", "태화"] as TeamFilter[]).map((v) => (
+                          <button
+                            key={v}
+                            onClick={() => setTeamFilter(v)}
+                            className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
+                              teamFilter === v
+                                ? "bg-primary border-primary text-white"
+                                : "bg-muted border-border text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-            {filteredEmployees.length === 0 && searchQuery ? (
-              <div className="py-12 text-center bg-white border border-border rounded-xl">
-                <Search className="h-8 w-8 text-muted-foreground/40 mx-auto mb-3" />
-                <p className="text-sm font-semibold text-muted-foreground">검색 결과가 없습니다</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  <span className="font-medium text-foreground">"{searchQuery}"</span>에 해당하는 직원이 없습니다
-                </p>
-              </div>
-            ) : (
-              <AttendanceTable
-                employees={filteredEmployees}
-                anomalyMap={anomalyMap}
-                annualLeaveMap={data.annualLeaveMap}
-                weekDates={weekDates}
-                dataYear={data.dataYear}
-                dataMonth={data.dataMonth}
-                rowOrders={rowOrders}
+                    {/* 검색창 + 다운로드 버튼 */}
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="이름으로 검색..."
+                          className="w-full bg-white border border-border rounded-xl pl-9 pr-9 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                        />
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery("")}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => exportMonthlyExcel(data.employees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth)}
+                        className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors shrink-0"
+                      >
+                        <Download className="h-4 w-4 text-muted-foreground" />
+                        엑셀 다운로드
+                      </button>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
+                        <p className="text-xs font-bold text-muted-foreground mb-2">이번주</p>
+                        <div className="grid grid-cols-4 gap-2">
+                          <StatCard label="총 인원" value={weekStats.total} unit="명" />
+                          <StatCard label="지각" value={weekStats.late} unit="명" variant="late" />
+                          <StatCard label="미체크" value={weekStats.uncheck} unit="명" variant="uncheck" />
+                          <StatCard label="연차" value={weekStats.leave} unit="명" variant="leave" />
+                        </div>
+                      </div>
+                      <div className="bg-white border border-border rounded-xl px-4 pt-3 pb-3 shadow-sm">
+                        <p className="text-xs font-bold text-muted-foreground mb-2">이번달</p>
+                        <div className="grid grid-cols-4 gap-2">
+                          <StatCard label="총 인원" value={monthStats.total} unit="명" />
+                          <StatCard label="지각" value={monthStats.late} unit="건" variant="late" />
+                          <StatCard label="미체크" value={monthStats.uncheck} unit="건" variant="uncheck" />
+                          <StatCard label="연차" value={monthStats.leave} unit="일" variant="leave" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {filteredEmployees.length === 0 && searchQuery ? (
+                      <div className="py-12 text-center bg-white border border-border rounded-xl">
+                        <Search className="h-8 w-8 text-muted-foreground/40 mx-auto mb-3" />
+                        <p className="text-sm font-semibold text-muted-foreground">검색 결과가 없습니다</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          <span className="font-medium text-foreground">"{searchQuery}"</span>에 해당하는 직원이 없습니다
+                        </p>
+                      </div>
+                    ) : (
+                      <AttendanceTable
+                        employees={filteredEmployees}
+                        anomalyMap={anomalyMap}
+                        annualLeaveMap={data.annualLeaveMap}
+                        weekDates={weekDates}
+                        dataYear={data.dataYear}
+                        dataMonth={data.dataMonth}
+                        rowOrders={rowOrders}
+                        onOrderChange={handleOrderChange}
+                      />
+                    )}
+                  </>
+                )}
+
+                {!data && (
+                  <div className="py-16 text-center">
+                    <div className="text-5xl mb-4">⬆️</div>
+                    <h2 className="text-sm font-semibold text-muted-foreground mb-2">
+                      Excel 파일을 업로드하면 근태 현황이 자동 표시됩니다
+                    </h2>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">XERP 기록</code>{" "}+{" "}
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">지문 기록</code> 시트가 포함된 엑셀 파일
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* 연차관리 */}
+            {activeTab === "연차관리" && data && (
+              <AnnualLeavePanel
+                leaveEmployees={data.leaveEmployees}
+                leaveDetails={data.leaveDetails}
+                rowOrder={rowOrders["leave"] || []}
                 onOrderChange={handleOrderChange}
               />
             )}
-          </>
-        )}
 
-        {data && activeTab === "연차관리" && (
-          <AnnualLeavePanel
-            leaveEmployees={data.leaveEmployees}
-            leaveDetails={data.leaveDetails}
-            rowOrder={rowOrders["leave"] || []}
-            onOrderChange={handleOrderChange}
-          />
-        )}
+            {activeTab === "연차관리" && !data && (
+              <div className="py-16 text-center">
+                <div className="text-5xl mb-4">⬆️</div>
+                <h2 className="text-sm font-semibold text-muted-foreground mb-2">
+                  근태보고 탭에서 Excel 파일을 먼저 업로드하세요
+                </h2>
+              </div>
+            )}
 
-        {activeTab === "조직도" && <OrgChart />}
-
-        {!data && activeTab !== "조직도" && (
-          <div className="py-16 text-center">
-            <div className="text-5xl mb-4">⬆️</div>
-            <h2 className="text-sm font-semibold text-muted-foreground mb-2">
-              Excel 파일을 업로드하면 근태 현황이 자동 표시됩니다
-            </h2>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">XERP 기록</code>{" "}+{" "}
-              <code className="bg-muted px-1.5 py-0.5 rounded text-secondary text-[11px]">지문 기록</code> 시트가 포함된 엑셀 파일
-            </p>
+            {/* 조직도 */}
+            {activeTab === "조직도" && <OrgChart />}
           </div>
-        )}
+        </main>
       </div>
     </div>
   );
