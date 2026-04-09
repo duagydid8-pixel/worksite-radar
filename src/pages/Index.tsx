@@ -63,6 +63,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>("근태보고");
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
+  const { isAdmin, login, logout } = useAdminAuth();
 
   useEffect(() => {
     const timeout = setTimeout(() => setIsLoading(false), 8000);
