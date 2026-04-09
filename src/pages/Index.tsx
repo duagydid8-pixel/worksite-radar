@@ -8,6 +8,7 @@ import { saveToSupabase, fetchFromSupabase, saveRowOrder, fetchRowOrder } from "
 import { toast } from "sonner";
 import { CloudUpload, Loader2, Search, X, Download } from "lucide-react";
 import { exportAttendanceExcel, exportMonthlyExcel } from "@/lib/exportExcel";
+import OrgChart from "@/components/OrgChart";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -32,7 +33,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "근태보고" | "연차관리";
+type ActiveTab = "근태보고" | "연차관리" | "조직도";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -274,7 +275,7 @@ const Index = () => {
           </div>
         </div>
         <div className="flex gap-1.5">
-          {(["근태보고", "연차관리"] as ActiveTab[]).map((tab) => (
+          {(["근태보고", "연차관리", "조직도"] as ActiveTab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => { setActiveTab(tab); setSearchQuery(""); }}
@@ -429,7 +430,9 @@ const Index = () => {
           />
         )}
 
-        {!data && (
+        {activeTab === "조직도" && <OrgChart />}
+
+        {!data && activeTab !== "조직도" && (
           <div className="py-16 text-center">
             <div className="text-5xl mb-4">⬆️</div>
             <h2 className="text-sm font-semibold text-muted-foreground mb-2">
