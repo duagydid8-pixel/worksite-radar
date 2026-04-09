@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2, Search, X, Download, Upload } from "lucide-react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Plus, Trash2, Search, X, Download, Upload, Pencil } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
@@ -189,6 +189,26 @@ export default function NewEmployeeList() {
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 모달 편집 상태
+  const [draft, setDraft] = useState<NewEmployee | null>(null);
+
+  const openEdit = useCallback((row: NewEmployee) => {
+    setDraft({ ...row });
+  }, []);
+
+  const closeEdit = useCallback(() => setDraft(null), []);
+
+  const updateDraft = useCallback((field: keyof NewEmployee, value: string) => {
+    setDraft((prev) => prev ? { ...prev, [field]: value } : prev);
+  }, []);
+
+  const saveEdit = useCallback(() => {
+    if (!draft) return;
+    setRows((prev) => prev.map((r) => (r.id === draft.id ? { ...draft } : r)));
+    toast.success("저장되었습니다.");
+    setDraft(null);
+  }, [draft]);
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
   }, [rows]);
@@ -272,8 +292,168 @@ export default function NewEmployeeList() {
   const tdSticky = (left: string, extra = "") =>
     `${tdStickyBase} sticky z-10 ${left}${extra ? ` ${extra}` : ""}`;
 
+  // 모달용 계산값
+  const draftTenure = draft ? calcTenure(draft.입사일, draft.퇴사일) : null;
+  const draftAge = draft ? calcAge(draft.주민번호) : "";
+
   return (
     <div className="flex flex-col gap-3">
+      {/* ── 편집 모달 ── */}
+      {draft && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={closeEdit}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+              <h3 className="text-base font-bold text-foreground">
+                직원 정보 수정
+                {draft.이름 && <span className="ml-2 text-primary">— {draft.이름}</span>}
+              </h3>
+              <button onClick={closeEdit} className="text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* 모달 바디 */}
+            <div className="overflow-y-auto px-6 py-5 space-y-6 flex-1">
+
+              {/* 기본정보 */}
+              <section>
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-3">기본정보</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {(["현장구분", "이름", "주민번호", "연락처"] as const).map((field) => (
+                    <div key={field}>
+                      <label className="text-xs font-semibold text-muted-foreground block mb-1">{field}</label>
+                      <input
+                        type="text"
+                        value={draft[field]}
+                        onChange={(e) => updateDraft(field, e.target.value)}
+                        className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">연령 (자동)</label>
+                    <div className="px-3 py-2 border border-border/50 rounded-lg text-sm bg-muted/30 text-muted-foreground">
+                      {draftAge || "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">남/여</label>
+                    <select
+                      value={draft.남여}
+                      onChange={(e) => updateDraft("남여", e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-white"
+                    >
+                      <option value="">선택</option>
+                      <option value="남">남</option>
+                      <option value="여">여</option>
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              {/* 근무정보 */}
+              <section>
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-3">근무정보</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">입사일</label>
+                    <input
+                      type="date"
+                      value={draft.입사일}
+                      onChange={(e) => updateDraft("입사일", e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">퇴사일</label>
+                    <input
+                      type="date"
+                      value={draft.퇴사일}
+                      onChange={(e) => updateDraft("퇴사일", e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">근속일수 (자동)</label>
+                    <div className="px-3 py-2 border border-border/50 rounded-lg text-sm bg-muted/30 text-muted-foreground">
+                      {draftTenure?.days ? `${draftTenure.days}일` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">근속개월 (자동)</label>
+                    <div className="px-3 py-2 border border-border/50 rounded-lg text-sm bg-muted/30 text-muted-foreground">
+                      {draftTenure?.months ? `${draftTenure.months}개월` : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">근속현황 (자동)</label>
+                    <div className="px-3 py-2 border border-border/50 rounded-lg text-sm bg-muted/30">
+                      {draftTenure?.status ? (
+                        <span className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
+                          draftTenure.status === "재직중" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+                        }`}>
+                          {draftTenure.status}
+                        </span>
+                      ) : "—"}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* 급여 / 계좌 */}
+              <section>
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-3">급여 / 계좌</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {(["신청공종", "단가", "단가변동", "은행명", "계좌번호"] as const).map((field) => (
+                    <div key={field}>
+                      <label className="text-xs font-semibold text-muted-foreground block mb-1">{field}</label>
+                      <input
+                        type="text"
+                        value={draft[field]}
+                        onChange={(e) => updateDraft(field, e.target.value)}
+                        className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      />
+                    </div>
+                  ))}
+                  <div className="col-span-2">
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">주소</label>
+                    <input
+                      type="text"
+                      value={draft.주소}
+                      onChange={(e) => updateDraft("주소", e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            {/* 모달 푸터 */}
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
+              <button
+                onClick={closeEdit}
+                className="px-5 py-2 rounded-lg border border-border text-sm font-semibold text-muted-foreground hover:bg-muted/50 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={saveEdit}
+                className="px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+              >
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* hidden file input */}
       <input
         ref={fileInputRef}
@@ -385,15 +565,15 @@ export default function NewEmployeeList() {
                       />
                     </td>
 
-                    {/* 이름 — sticky left, 우측 구분선 */}
+                    {/* 이름 — sticky left, 클릭 시 모달 */}
                     <td className={tdSticky("left-[134px]", "px-1 py-1 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.12)]")}>
-                      <input
-                        type="text"
-                        value={row.이름}
-                        onChange={(e) => updateRow(row.id, "이름", e.target.value)}
-                        placeholder="이름"
-                        className="px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none transition-colors text-xs min-w-[64px]"
-                      />
+                      <button
+                        onClick={() => openEdit(row)}
+                        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-primary/10 text-primary font-medium text-xs min-w-[64px] w-full text-left transition-colors group/name"
+                      >
+                        <span className="flex-1">{row.이름 || <span className="text-muted-foreground font-normal">이름 없음</span>}</span>
+                        <Pencil className="h-3 w-3 opacity-0 group-hover/name:opacity-60 shrink-0 transition-opacity" />
+                      </button>
                     </td>
 
                     {/* 주민번호, 연락처 */}
