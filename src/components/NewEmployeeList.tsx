@@ -14,6 +14,7 @@ interface NewEmployee {
   퇴사일: string;
   신청공종: string;
   단가: string;
+  단가변동: string;
   은행명: string;
   계좌번호: string;
   주소: string;
@@ -82,18 +83,24 @@ function excelDateToISO(val: unknown): string {
   return str;
 }
 
-// 헤더 이름 → NewEmployee 필드 매핑
+// 열 위치(0-based) → 필드 고정 매핑
+// B=1, M=12, N=13, O=14, P=15
+const COL_POSITION_MAP: Record<number, keyof NewEmployee> = {
+  1:  "현장구분",  // B열: FIELD/SHOP 구분
+  12: "신청공종", // M열: 공종
+  13: "단가",     // N열: 26.01 기준 현 단가
+  14: "단가변동", // O열: 단가 변동
+  15: "은행명",   // P열: 은행명
+};
+
+// 헤더 이름 → 필드 보조 매핑 (위치 매핑에 없는 나머지 열)
 const HEADER_MAP: Record<string, keyof NewEmployee> = {
-  현장구분: "현장구분", 현장: "현장구분",
   이름: "이름", 성명: "이름",
   주민번호: "주민번호", 주민등록번호: "주민번호",
   연락처: "연락처", 전화번호: "연락처", 휴대폰: "연락처", 휴대전화: "연락처",
   "남/여": "남여", 성별: "남여",
   입사일: "입사일",
   퇴사일: "퇴사일",
-  신청공종: "신청공종", 공종: "신청공종",
-  단가: "단가",
-  은행명: "은행명", 은행: "은행명",
   계좌번호: "계좌번호", 계좌: "계좌번호",
   주소: "주소",
 };
@@ -102,38 +109,43 @@ const DATE_FIELDS = new Set<keyof NewEmployee>(["입사일", "퇴사일"]);
 
 function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
   const ws = wb.Sheets[wb.SheetNames[0]];
+  // 헤더 1행, 데이터 2행부터
   const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
   if (raw.length < 2) return [];
 
-  // 헤더 행 찾기 (첫 번째 비어있지 않은 행)
-  let headerRowIdx = 0;
-  for (let i = 0; i < Math.min(raw.length, 5); i++) {
-    const row = raw[i] as unknown[];
-    if (row.some((c) => String(c).trim() !== "")) { headerRowIdx = i; break; }
+  // 헤더는 항상 0번째 행(1행)
+  const headerRowIdx = 0;
+  const headers = (raw[headerRowIdx] as unknown[]).map((h) => String(h).trim());
+
+  // 열별 최종 필드 결정: 위치 매핑 우선, 없으면 헤더명 매핑
+  const fieldMap: { colIdx: number; field: keyof NewEmployee }[] = [];
+  const usedFields = new Set<keyof NewEmployee>();
+
+  // 1) 위치 기반 매핑 먼저 등록
+  for (const [colStr, field] of Object.entries(COL_POSITION_MAP)) {
+    const colIdx = Number(colStr);
+    fieldMap.push({ colIdx, field });
+    usedFields.add(field);
   }
 
-  const headers = (raw[headerRowIdx] as unknown[]).map((h) => String(h).trim());
-  const fieldMap: { colIdx: number; field: keyof NewEmployee }[] = [];
-
+  // 2) 헤더명 기반 매핑 (위치 매핑에 이미 포함된 필드는 건너뜀)
   headers.forEach((h, idx) => {
     const field = HEADER_MAP[h];
-    if (field) fieldMap.push({ colIdx: idx, field });
+    if (field && !usedFields.has(field)) {
+      fieldMap.push({ colIdx: idx, field });
+      usedFields.add(field);
+    }
   });
 
   const results: NewEmployee[] = [];
   for (let i = headerRowIdx + 1; i < raw.length; i++) {
     const row = raw[i] as unknown[];
-    // 완전히 빈 행 건너뜀
     if (row.every((c) => String(c).trim() === "")) continue;
 
     const emp = emptyRow();
     for (const { colIdx, field } of fieldMap) {
       const val = row[colIdx];
-      if (DATE_FIELDS.has(field)) {
-        emp[field] = excelDateToISO(val);
-      } else {
-        emp[field] = String(val ?? "").trim();
-      }
+      emp[field] = DATE_FIELDS.has(field) ? excelDateToISO(val) : String(val ?? "").trim();
     }
     results.push(emp);
   }
@@ -154,6 +166,7 @@ function emptyRow(): NewEmployee {
     퇴사일: "",
     신청공종: "",
     단가: "",
+    단가변동: "",
     은행명: "",
     계좌번호: "",
     주소: "",
@@ -161,7 +174,7 @@ function emptyRow(): NewEmployee {
 }
 
 const TEXT_FIELDS: (keyof NewEmployee)[] = ["현장구분", "이름", "주민번호", "연락처"];
-const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "은행명", "계좌번호", "주소"];
+const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소"];
 
 export default function NewEmployeeList() {
   const [rows, setRows] = useState<NewEmployee[]>(() => {
@@ -224,7 +237,7 @@ export default function NewEmployeeList() {
     const headers = [
       "No", "현장구분", "이름", "주민번호", "연락처", "연령", "남/여",
       "입사일", "퇴사일", "근속일수", "근속개월", "근속현황",
-      "신청공종", "단가", "은행명", "계좌번호", "주소",
+      "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소",
     ];
     const dataRows = rows.map((r, i) => {
       const { days, months, status } = calcTenure(r.입사일, r.퇴사일);
@@ -232,7 +245,7 @@ export default function NewEmployeeList() {
         i + 1, r.현장구분, r.이름, r.주민번호, r.연락처,
         calcAge(r.주민번호), r.남여, r.입사일, r.퇴사일,
         days, months, status,
-        r.신청공종, r.단가, r.은행명, r.계좌번호, r.주소,
+        r.신청공종, r.단가, r.단가변동, r.은행명, r.계좌번호, r.주소,
       ];
     });
     const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
@@ -240,7 +253,7 @@ export default function NewEmployeeList() {
       { wch: 4 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 14 },
       { wch: 5 }, { wch: 5 }, { wch: 11 }, { wch: 11 },
       { wch: 8 }, { wch: 8 }, { wch: 8 },
-      { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 32 },
+      { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 32 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "신규자명단");
@@ -313,7 +326,7 @@ export default function NewEmployeeList() {
                 "No", "현장구분", "이름", "주민번호", "연락처",
                 "연령", "남/여", "입사일", "퇴사일",
                 "근속일수", "근속개월", "근속현황",
-                "신청공종", "단가", "은행명", "계좌번호", "주소", "",
+                "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "",
               ].map((col, i) => (
                 <th
                   key={i}
@@ -327,7 +340,7 @@ export default function NewEmployeeList() {
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={18} className="py-16 text-center text-muted-foreground text-sm">
+                <td colSpan={19} className="py-16 text-center text-muted-foreground text-sm">
                   {search
                     ? `"${search}"에 해당하는 직원이 없습니다`
                     : "데이터가 없습니다. 행 추가 버튼을 눌러 입력하세요."}
