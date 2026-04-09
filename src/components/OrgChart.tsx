@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
+import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
 import { Users, Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet } from "lucide-react";
 import { toPng } from "html-to-image";
 import * as XLSX from "xlsx";
@@ -259,10 +260,22 @@ export default function OrgChart() {
   const [teams, setTeams] = useState<OrgTeam[]>(() => loadOrgFromStorage().teams);
   const [members, setMembers] = useState<OrgMember[]>(() => loadOrgFromStorage().members);
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editMember, setEditMember] = useState<OrgMember | null>(null);
   const [showAddTeam, setShowAddTeam] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
+
+  // 마운트 시 Firestore에서 로드 (localStorage는 즉시 렌더링용 캐시)
+  useEffect(() => {
+    loadOrgFS().then((data) => {
+      if (data && Array.isArray(data.teams) && data.teams.length > 0) {
+        setTeams(data.teams as OrgTeam[]);
+        setMembers(data.members as OrgMember[]);
+        saveOrgToStorage({ teams: data.teams as OrgTeam[], members: data.members as OrgMember[] });
+      }
+    });
+  }, []);
 
   // 팀/멤버 변경 시 localStorage 자동 동기화
   useEffect(() => {
@@ -270,10 +283,17 @@ export default function OrgChart() {
   }, [teams, members]);
 
   /* ── save all ── */
-  const handleSaveAll = useCallback(() => {
-    saveOrgToStorage({ teams, members });
-    setDirty(false);
-    toast.success("조직도가 저장되었습니다.");
+  const handleSaveAll = useCallback(async () => {
+    setSaving(true);
+    const ok = await saveOrgFS({ teams, members });
+    if (ok) {
+      saveOrgToStorage({ teams, members });
+      setDirty(false);
+      toast.success("조직도가 저장되었습니다.");
+    } else {
+      toast.error("Firestore 저장 실패 (네트워크 확인)");
+    }
+    setSaving(false);
   }, [teams, members]);
 
   /* ── add team ── */
@@ -455,11 +475,11 @@ export default function OrgChart() {
         </button>
         <button
           onClick={handleSaveAll}
-          disabled={!dirty}
+          disabled={!dirty || saving}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
         >
           <Save className="h-4 w-4" />
-          변경사항 저장
+          {saving ? "저장 중..." : "변경사항 저장"}
         </button>
       </div>
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Plus, Trash2, Search, X, Download, Upload, Pencil } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
+import { loadEmployeesFS, saveEmployeesFS } from "@/lib/firestoreService";
 
 interface NewEmployee {
   id: string;
@@ -193,6 +194,29 @@ export default function NewEmployeeList() {
   // 모달 편집 상태
   const [draft, setDraft] = useState<NewEmployee | null>(null);
 
+  // 마운트 시 Firestore에서 로드
+  useEffect(() => {
+    loadEmployeesFS().then((fsRows) => {
+      if (Array.isArray(fsRows) && fsRows.length > 0) {
+        const typed = fsRows as NewEmployee[];
+        setRows(typed);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(typed));
+      }
+    });
+  }, []);
+
+  // localStorage 자동 동기화
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+  }, [rows]);
+
+  // Firestore 저장 헬퍼
+  const syncFS = useCallback((newRows: NewEmployee[]) => {
+    saveEmployeesFS(newRows).then((ok) => {
+      if (!ok) toast.error("Firestore 저장 실패");
+    });
+  }, []);
+
   const openEdit = useCallback((row: NewEmployee) => {
     setDraft({ ...row });
   }, []);
@@ -205,24 +229,29 @@ export default function NewEmployeeList() {
 
   const saveEdit = useCallback(() => {
     if (!draft) return;
-    setRows((prev) => prev.map((r) => (r.id === draft.id ? { ...draft } : r)));
+    const updated = rows.map((r) => (r.id === draft.id ? { ...draft } : r));
+    setRows(updated);
+    syncFS(updated);
     toast.success("저장되었습니다.");
     setDraft(null);
-  }, [draft]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  }, [rows]);
+  }, [draft, rows, syncFS]);
 
   const displayRows = useMemo(() => {
     if (!search.trim()) return rows;
     return rows.filter((r) => r.이름.includes(search.trim()));
   }, [rows, search]);
 
-  const addRow = () => setRows((prev) => [...prev, emptyRow()]);
+  const addRow = () => {
+    const next = [...rows, emptyRow()];
+    setRows(next);
+    syncFS(next);
+  };
 
-  const deleteRow = (id: string) =>
-    setRows((prev) => prev.filter((r) => r.id !== id));
+  const deleteRow = (id: string) => {
+    const next = rows.filter((r) => r.id !== id);
+    setRows(next);
+    syncFS(next);
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -242,6 +271,7 @@ export default function NewEmployeeList() {
         }
         setRows(imported);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(imported));
+        syncFS(imported);
         toast.success(`${imported.length}명의 데이터를 불러왔습니다.`);
       } catch {
         toast.error("파일을 읽는 중 오류가 발생했습니다.");

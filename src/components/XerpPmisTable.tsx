@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
+import { loadXerpFS, saveXerpFS } from "@/lib/firestoreService";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -423,10 +424,30 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
   }, [dateMap]);
 
+  // 마운트 시 Firestore에서 로드
+  useEffect(() => {
+    loadXerpFS().then((fsMap) => {
+      if (fsMap && typeof fsMap === "object" && Object.keys(fsMap).length > 0) {
+        const typed = fsMap as DateMap;
+        setDateMap(typed);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(typed));
+        const dates = Object.keys(typed).sort().reverse();
+        if (dates[0]) setSelectedDate(dates[0]);
+      }
+    });
+  }, []);
+
   // localStorage 동기화
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dateMap));
   }, [dateMap]);
+
+  // Firestore 저장 헬퍼
+  const syncXerpFS = (map: DateMap) => {
+    saveXerpFS(map).then((ok) => {
+      if (!ok) toast.error("Firestore 저장 실패");
+    });
+  };
 
   // 날짜 목록 (최신순)
   const availableDates = useMemo(
@@ -476,6 +497,7 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     if (successCount > 0) {
       setDateMap(newMap);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newMap));
+      syncXerpFS(newMap);
       setSelectedDate(lastSavedDate);
       if (files.length > 1) {
         toast.success(`총 ${successCount}개 파일 업로드 완료`);
@@ -486,12 +508,12 @@ export default function XerpPmisTable({ isAdmin }: Props) {
   // ── 날짜 삭제 ──
   const handleDeleteDate = (date: string) => {
     if (!window.confirm(`${formatLabel(date)} 데이터를 삭제하시겠습니까?`)) return;
-    setDateMap((prev) => {
-      const next = { ...prev };
-      delete next[date];
-      return next;
-    });
-    const remaining = Object.keys(dateMap).filter((d) => d !== date).sort().reverse();
+    const next = { ...dateMap };
+    delete next[date];
+    setDateMap(next);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    syncXerpFS(next);
+    const remaining = Object.keys(next).sort().reverse();
     setSelectedDate(remaining[0] ?? TODAY);
     toast.success(`${formatLabel(date)} 데이터를 삭제했습니다.`);
   };
