@@ -393,24 +393,41 @@ export default function OrgChart() {
     }
   }, []);
 
-  /* ── export excel ── */
+  /* ── export excel (카드 형태) ── */
   const handleExportExcel = useCallback(() => {
     if (teams.length === 0) { toast.error("내보낼 조직도 데이터가 없습니다."); return; }
-    const headers = ["팀명", "직급", "이름", "이메일", "연락처"];
-    const rows: string[][] = [headers];
 
-    // 팀 순서대로, 각 팀 내 팀장 먼저
+    type Cell = string | null;
+    const aoa: Cell[][] = [];
+    const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
+
     for (const team of [...teams].sort((a, b) => a.sort_order - b.sort_order)) {
       const teamMembers = members.filter((m) => m.team_id === team.id);
       const leaders = teamMembers.filter((m) => m.is_leader).sort((a, b) => a.sort_order - b.sort_order);
       const others = teamMembers.filter((m) => !m.is_leader).sort((a, b) => a.sort_order - b.sort_order);
+
       for (const m of [...leaders, ...others]) {
-        rows.push([team.name, m.rank, m.name, m.email || "", m.phone || ""]);
+        const r = aoa.length;
+        // 헤더 행: "팀명 담당" — 2열 병합
+        aoa.push([`${team.name} 담당`, null]);
+        merges.push({ s: { r, c: 0 }, e: { r, c: 1 } });
+        // 직급 / 이름
+        aoa.push([m.rank, m.name]);
+        // E-MAIL
+        aoa.push(["E-MAIL", m.email || ""]);
+        // H.P
+        aoa.push(["H.P", m.phone || ""]);
+        // 카드 구분 빈 행
+        aoa.push([null, null]);
       }
+
+      // 팀 구분 빈 행
+      aoa.push([null, null]);
     }
 
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 14 }, { wch: 8 }, { wch: 10 }, { wch: 26 }, { wch: 16 }];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!merges"] = merges;
+    ws["!cols"] = [{ wch: 14 }, { wch: 26 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "조직도");
     const d = new Date();
