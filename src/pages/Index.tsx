@@ -276,7 +276,7 @@ const Index = () => {
             </p>
           </div>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex items-center gap-1.5">
           {(["근태보고", "연차관리", "조직도"] as ActiveTab[]).map((tab) => (
             <button
               key={tab}
@@ -290,6 +290,8 @@ const Index = () => {
               {tab}
             </button>
           ))}
+          <div className="w-px h-6 bg-border mx-1" />
+          <AdminLoginButton isAdmin={isAdmin} onLogin={login} onLogout={logout} />
         </div>
       </div>
 
