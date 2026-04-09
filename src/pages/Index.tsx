@@ -296,27 +296,29 @@ const Index = () => {
       </div>
 
       <div className="p-4 md:p-6 max-w-[1500px] mx-auto space-y-3">
-        {/* File upload + save */}
-        <div className="flex items-center gap-3">
-          <div className="flex-1">
-            <FileUploadZone
-              onFileLoaded={handleFileLoaded}
-              fileName={fileName}
-              onClear={() => { setData(null); setFileName(null); setPendingBuffer(null); }}
-              onFileName={setFileName}
-            />
+        {/* File upload + save (admin only) */}
+        {isAdmin && (
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <FileUploadZone
+                onFileLoaded={handleFileLoaded}
+                fileName={fileName}
+                onClear={() => { setData(null); setFileName(null); setPendingBuffer(null); }}
+                onFileName={setFileName}
+              />
+            </div>
+            {fileName && data && (
+              <button
+                onClick={handleSaveToCloud}
+                disabled={isSaving}
+                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+                {isSaving ? "저장 중..." : "업로드 & 저장"}
+              </button>
+            )}
           </div>
-          {fileName && data && (
-            <button
-              onClick={handleSaveToCloud}
-              disabled={isSaving}
-              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
-            >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
-              {isSaving ? "저장 중..." : "업로드 & 저장"}
-            </button>
-          )}
-        </div>
+        )}
 
         {data && activeTab === "근태보고" && (
           <>
