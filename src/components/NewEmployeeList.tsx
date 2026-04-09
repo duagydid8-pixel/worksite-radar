@@ -180,7 +180,8 @@ export default function NewEmployeeList() {
   const [rows, setRows] = useState<NewEmployee[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      const parsed = saved ? JSON.parse(saved) : null;
+      if (!saved) return [emptyRow()];
+      const parsed = JSON.parse(saved);
       return Array.isArray(parsed) && parsed.length > 0 ? parsed : [emptyRow()];
     } catch {
       return [emptyRow()];
@@ -240,6 +241,7 @@ export default function NewEmployeeList() {
           return;
         }
         setRows(imported);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(imported));
         toast.success(`${imported.length}명의 데이터를 불러왔습니다.`);
       } catch {
         toast.error("파일을 읽는 중 오류가 발생했습니다.");
