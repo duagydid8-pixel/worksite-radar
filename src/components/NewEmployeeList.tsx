@@ -223,11 +223,6 @@ export default function NewEmployeeList() {
   const deleteRow = (id: string) =>
     setRows((prev) => prev.filter((r) => r.id !== id));
 
-  const updateRow = (id: string, field: keyof NewEmployee, value: string) =>
-    setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
-    );
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -555,14 +550,8 @@ export default function NewEmployeeList() {
                     </td>
 
                     {/* 현장구분 — sticky left */}
-                    <td className={tdSticky("left-[44px]") + " px-1 py-1 w-[90px]"}>
-                      <input
-                        type="text"
-                        value={row.현장구분}
-                        onChange={(e) => updateRow(row.id, "현장구분", e.target.value)}
-                        placeholder="현장구분"
-                        className="w-full px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none transition-colors text-xs min-w-[72px]"
-                      />
+                    <td className={tdSticky("left-[44px]") + " px-3 py-1.5 w-[90px] text-xs"}>
+                      {row.현장구분 || <span className="text-muted-foreground/40">—</span>}
                     </td>
 
                     {/* 이름 — sticky left, 클릭 시 모달 */}
@@ -578,90 +567,54 @@ export default function NewEmployeeList() {
 
                     {/* 주민번호, 연락처 */}
                     {(["주민번호", "연락처"] as const).map((field) => (
-                      <td key={field} className="px-1 py-1">
-                        <input
-                          type="text"
-                          value={row[field]}
-                          onChange={(e) => updateRow(row.id, field, e.target.value)}
-                          placeholder={field}
-                          className={`px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none transition-colors text-xs ${field === "주민번호" ? "min-w-[112px]" : "min-w-[100px]"}`}
-                        />
+                      <td key={field} className="px-3 py-1.5 text-xs whitespace-nowrap">
+                        {row[field] || <span className="text-muted-foreground/40">—</span>}
                       </td>
                     ))}
 
                     {/* 연령 (자동계산) */}
-                    <td className="px-2 py-1.5 text-center text-muted-foreground w-10">{age}</td>
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">{age || "—"}</td>
 
                     {/* 남/여 */}
-                    <td className="px-1 py-1">
-                      <select
-                        value={row.남여}
-                        onChange={(e) => updateRow(row.id, "남여", e.target.value)}
-                        className="px-1 py-1 w-14 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none cursor-pointer text-xs"
-                      >
-                        <option value="">-</option>
-                        <option value="남">남</option>
-                        <option value="여">여</option>
-                      </select>
+                    <td className="px-2 py-1.5 text-center text-xs">
+                      {row.남여 || <span className="text-muted-foreground/40">—</span>}
                     </td>
 
                     {/* 입사일 */}
-                    <td className="px-1 py-1">
-                      <input
-                        type="date"
-                        value={row.입사일}
-                        onChange={(e) => updateRow(row.id, "입사일", e.target.value)}
-                        className="min-w-[110px] px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none text-xs"
-                      />
+                    <td className="px-3 py-1.5 text-xs whitespace-nowrap">
+                      {row.입사일 || <span className="text-muted-foreground/40">—</span>}
                     </td>
 
                     {/* 퇴사일 */}
-                    <td className="px-1 py-1">
-                      <input
-                        type="date"
-                        value={row.퇴사일}
-                        onChange={(e) => updateRow(row.id, "퇴사일", e.target.value)}
-                        className="min-w-[110px] px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none text-xs"
-                      />
+                    <td className="px-3 py-1.5 text-xs whitespace-nowrap">
+                      {row.퇴사일 || <span className="text-muted-foreground/40">—</span>}
                     </td>
 
                     {/* 근속일수 (자동계산) */}
-                    <td className="px-2 py-1.5 text-center text-muted-foreground w-14">
-                      {days ? `${days}일` : ""}
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">
+                      {days ? `${days}일` : "—"}
                     </td>
 
                     {/* 근속개월 (자동계산) */}
-                    <td className="px-2 py-1.5 text-center text-muted-foreground w-14">
-                      {months ? `${months}개월` : ""}
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">
+                      {months ? `${months}개월` : "—"}
                     </td>
 
                     {/* 근속현황 (자동계산) */}
                     <td className="px-2 py-1.5 text-center">
-                      {status && (
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                            status === "재직중"
-                              ? "bg-green-100 text-green-700"
-                              : "bg-gray-100 text-gray-500"
-                          }`}
-                        >
+                      {status ? (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          status === "재직중" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+                        }`}>
                           {status}
                         </span>
-                      )}
+                      ) : <span className="text-muted-foreground/40 text-xs">—</span>}
                     </td>
 
                     {/* 신청공종, 단가, 단가변동, 은행명, 계좌번호, 주소 */}
                     {RIGHT_FIELDS.map((field) => (
-                      <td key={field} className="px-1 py-1">
-                        <input
-                          type="text"
-                          value={row[field] as string}
-                          onChange={(e) => updateRow(row.id, field, e.target.value)}
-                          placeholder={field as string}
-                          className={`px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none transition-colors text-xs ${
-                            field === "주소" ? "min-w-[160px]" : "min-w-[72px]"
-                          }`}
-                        />
+                      <td key={field} className="px-3 py-1.5 text-xs whitespace-nowrap">
+                        {(row[field] as string) || <span className="text-muted-foreground/40">—</span>}
                       </td>
                     ))}
 
