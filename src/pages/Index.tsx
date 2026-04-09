@@ -57,13 +57,18 @@ interface NavItem {
   adminOnly: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
+const NAV_PUBLIC: NavItem[] = [
   { key: "근태보고", label: "근태보고", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
   { key: "연차관리", label: "연차관리", icon: <CalendarDays className="h-4 w-4" />, adminOnly: false },
   { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
-  { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: false },
 ];
+
+const NAV_ADMIN: NavItem[] = [
+  { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
+  { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: true },
+];
+
+const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_ADMIN];
 
 const Index = () => {
   const [data, setData] = useState<ParsedData | null>(null);
@@ -295,9 +300,9 @@ const Index = () => {
         {/* Sidebar */}
         <aside className="w-48 shrink-0 border-r border-border bg-white flex flex-col">
           <nav className="flex-1 py-3 px-2 space-y-0.5">
-            {NAV_ITEMS.map(({ key, label, icon, adminOnly }) => {
+            {/* 공개 메뉴 */}
+            {NAV_PUBLIC.map(({ key, label, icon, adminOnly }) => {
               const isActive = activeTab === key;
-              const locked = adminOnly && !isAdmin;
               return (
                 <button
                   key={key}
@@ -310,7 +315,36 @@ const Index = () => {
                 >
                   {icon}
                   <span className="flex-1">{label}</span>
-                  {locked && <Lock className="h-3.5 w-3.5 opacity-50 shrink-0" />}
+                </button>
+              );
+            })}
+
+            {/* 관리자 전용 섹션 */}
+            <div className="pt-3 pb-1">
+              <div className="flex items-center gap-1.5 px-3 mb-1">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-[10px] font-semibold text-muted-foreground/60 whitespace-nowrap uppercase tracking-wide">관리자 전용</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+            </div>
+            {NAV_ADMIN.map(({ key, label, icon, adminOnly }) => {
+              const isActive = activeTab === key;
+              const locked = !isAdmin;
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleNavClick(key, adminOnly)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
+                    isActive
+                      ? "bg-primary text-white"
+                      : locked
+                        ? "text-muted-foreground/50 hover:bg-muted/40 hover:text-muted-foreground"
+                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  }`}
+                >
+                  {icon}
+                  <span className="flex-1">{label}</span>
+                  {locked && <Lock className="h-3.5 w-3.5 opacity-40 shrink-0" />}
                 </button>
               );
             })}
