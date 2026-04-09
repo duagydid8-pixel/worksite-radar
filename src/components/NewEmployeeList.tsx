@@ -2,7 +2,11 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Plus, Trash2, Search, X, Download, Upload, Pencil } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadEmployeesFS, saveEmployeesFS } from "@/lib/firestoreService";
+import {
+  loadEmployeesPH4FS, saveEmployeesPH4FS,
+  loadEmployeesPH2FS, saveEmployeesPH2FS,
+} from "@/lib/firestoreService";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 interface NewEmployee {
   id: string;
@@ -62,18 +66,15 @@ function calcTenure(
 function excelDateToISO(val: unknown): string {
   if (val === null || val === undefined || val === "") return "";
   if (typeof val === "number") {
-    // Excel 시리얼 날짜
     const date = XLSX.SSF.parse_date_code(val);
     if (date) {
       return `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
     }
   }
   const str = String(val).trim();
-  // YYYYMMDD
   if (/^\d{8}$/.test(str)) {
     return `${str.slice(0, 4)}-${str.slice(4, 6)}-${str.slice(6, 8)}`;
   }
-  // YYYY.MM.DD / YYYY/MM/DD
   const dotSlash = str.replace(/[./]/g, "-");
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(dotSlash)) {
     const [y, m, d] = dotSlash.split("-");
@@ -84,17 +85,14 @@ function excelDateToISO(val: unknown): string {
   return str;
 }
 
-// 열 위치(0-based) → 필드 고정 매핑
-// B=1, M=12, N=13, O=14, P=15
 const COL_POSITION_MAP: Record<number, keyof NewEmployee> = {
-  1:  "현장구분",  // B열: FIELD/SHOP 구분
-  12: "신청공종", // M열: 공종
-  13: "단가",     // N열: 26.01 기준 현 단가
-  14: "단가변동", // O열: 단가 변동
-  15: "은행명",   // P열: 은행명
+  1:  "현장구분",
+  12: "신청공종",
+  13: "단가",
+  14: "단가변동",
+  15: "은행명",
 };
 
-// 헤더 이름 → 필드 보조 매핑 (위치 매핑에 없는 나머지 열)
 const HEADER_MAP: Record<string, keyof NewEmployee> = {
   이름: "이름", 성명: "이름",
   주민번호: "주민번호", 주민등록번호: "주민번호",
@@ -110,26 +108,21 @@ const DATE_FIELDS = new Set<keyof NewEmployee>(["입사일", "퇴사일"]);
 
 function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
   const ws = wb.Sheets[wb.SheetNames[0]];
-  // 헤더 1행, 데이터 2행부터
   const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
   if (raw.length < 2) return [];
 
-  // 헤더는 항상 0번째 행(1행)
   const headerRowIdx = 0;
   const headers = (raw[headerRowIdx] as unknown[]).map((h) => String(h).trim());
 
-  // 열별 최종 필드 결정: 위치 매핑 우선, 없으면 헤더명 매핑
   const fieldMap: { colIdx: number; field: keyof NewEmployee }[] = [];
   const usedFields = new Set<keyof NewEmployee>();
 
-  // 1) 위치 기반 매핑 먼저 등록
   for (const [colStr, field] of Object.entries(COL_POSITION_MAP)) {
     const colIdx = Number(colStr);
     fieldMap.push({ colIdx, field });
     usedFields.add(field);
   }
 
-  // 2) 헤더명 기반 매핑 (위치 매핑에 이미 포함된 필드는 건너뜀)
   headers.forEach((h, idx) => {
     const field = HEADER_MAP[h];
     if (field && !usedFields.has(field)) {
@@ -153,8 +146,6 @@ function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
   return results;
 }
 
-const STORAGE_KEY = "worksite_new_employees";
-
 function emptyRow(): NewEmployee {
   return {
     id: crypto.randomUUID(),
@@ -174,13 +165,19 @@ function emptyRow(): NewEmployee {
   };
 }
 
-const TEXT_FIELDS: (keyof NewEmployee)[] = ["현장구분", "이름", "주민번호", "연락처"];
 const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소"];
 
-export default function NewEmployeeList() {
+// ── 공통 탭 컨텐츠 컴포넌트 ─────────────────────────
+interface EmployeeTabContentProps {
+  storageKey: string;
+  loadFn: () => Promise<unknown[] | null>;
+  saveFn: (rows: unknown[]) => Promise<boolean>;
+}
+
+function EmployeeTabContent({ storageKey, loadFn, saveFn }: EmployeeTabContentProps) {
   const [rows, setRows] = useState<NewEmployee[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(storageKey);
       if (!saved) return [emptyRow()];
       const parsed = JSON.parse(saved);
       return Array.isArray(parsed) && parsed.length > 0 ? parsed : [emptyRow()];
@@ -190,32 +187,31 @@ export default function NewEmployeeList() {
   });
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // 모달 편집 상태
   const [draft, setDraft] = useState<NewEmployee | null>(null);
 
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
-    loadEmployeesFS().then((fsRows) => {
+    loadFn().then((fsRows) => {
       if (Array.isArray(fsRows) && fsRows.length > 0) {
         const typed = fsRows as NewEmployee[];
         setRows(typed);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(typed));
+        localStorage.setItem(storageKey, JSON.stringify(typed));
       }
     });
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
 
   // localStorage 자동 동기화
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  }, [rows]);
+    localStorage.setItem(storageKey, JSON.stringify(rows));
+  }, [rows, storageKey]);
 
   // Firestore 저장 헬퍼
   const syncFS = useCallback((newRows: NewEmployee[]) => {
-    saveEmployeesFS(newRows).then((ok) => {
+    saveFn(newRows).then((ok) => {
       if (!ok) toast.error("Firestore 저장 실패");
     });
-  }, []);
+  }, [saveFn]);
 
   const openEdit = useCallback((row: NewEmployee) => {
     setDraft({ ...row });
@@ -256,7 +252,6 @@ export default function NewEmployeeList() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // input 초기화 (같은 파일 재업로드 허용)
     e.target.value = "";
 
     const reader = new FileReader();
@@ -270,7 +265,7 @@ export default function NewEmployeeList() {
           return;
         }
         setRows(imported);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(imported));
+        localStorage.setItem(storageKey, JSON.stringify(imported));
         syncFS(imported);
         toast.success(`${imported.length}명의 데이터를 불러왔습니다.`);
       } catch {
@@ -303,10 +298,10 @@ export default function NewEmployeeList() {
       { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 32 },
     ];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "신규자명단");
+    XLSX.utils.book_append_sheet(wb, ws, "기술인및관리자명단");
     const today = new Date();
     const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
-    XLSX.writeFile(wb, `신규자명단_${dateStr}.xlsx`);
+    XLSX.writeFile(wb, `기술인및관리자명단_${dateStr}.xlsx`);
   };
 
   // sticky 열 공통 클래스
@@ -319,7 +314,6 @@ export default function NewEmployeeList() {
   const tdSticky = (left: string, extra = "") =>
     `${tdStickyBase} sticky z-10 ${left}${extra ? ` ${extra}` : ""}`;
 
-  // 모달용 계산값
   const draftTenure = draft ? calcTenure(draft.입사일, draft.퇴사일) : null;
   const draftAge = draft ? calcAge(draft.주민번호) : "";
 
@@ -335,7 +329,6 @@ export default function NewEmployeeList() {
             className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* 모달 헤더 */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
               <h3 className="text-base font-bold text-foreground">
                 직원 정보 수정
@@ -346,10 +339,7 @@ export default function NewEmployeeList() {
               </button>
             </div>
 
-            {/* 모달 바디 */}
             <div className="overflow-y-auto px-6 py-5 space-y-6 flex-1">
-
-              {/* 기본정보 */}
               <section>
                 <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-3">기본정보</p>
                 <div className="grid grid-cols-2 gap-3">
@@ -385,7 +375,6 @@ export default function NewEmployeeList() {
                 </div>
               </section>
 
-              {/* 근무정보 */}
               <section>
                 <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-3">근무정보</p>
                 <div className="grid grid-cols-2 gap-3">
@@ -434,7 +423,6 @@ export default function NewEmployeeList() {
                 </div>
               </section>
 
-              {/* 급여 / 계좌 */}
               <section>
                 <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-3">급여 / 계좌</p>
                 <div className="grid grid-cols-2 gap-3">
@@ -462,7 +450,6 @@ export default function NewEmployeeList() {
               </section>
             </div>
 
-            {/* 모달 푸터 */}
             <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
               <button
                 onClick={closeEdit}
@@ -492,7 +479,6 @@ export default function NewEmployeeList() {
 
       {/* 툴바 */}
       <div className="flex flex-wrap items-center gap-3 shrink-0">
-        <h2 className="text-lg font-bold text-foreground flex-1">신규자 명단</h2>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input
@@ -534,21 +520,17 @@ export default function NewEmployeeList() {
         </button>
       </div>
 
-      {/* 테이블 — 화면 높이에 맞게 고정, 내부 스크롤 */}
+      {/* 테이블 */}
       <div
         className="overflow-auto rounded-xl border border-border bg-white shadow-sm"
-        style={{ maxHeight: "calc(100vh - 220px)" }}
+        style={{ maxHeight: "calc(100vh - 280px)" }}
       >
         <table className="min-w-full text-xs border-collapse">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
-              {/* No — sticky top + left */}
               <th className={thSticky("left-0") + " w-[44px]"}>No</th>
-              {/* 현장구분 — sticky top + left */}
               <th className={thSticky("left-[44px]") + " w-[90px]"}>현장구분</th>
-              {/* 이름 — sticky top + left, 우측 구분선 */}
               <th className={thSticky("left-[134px]", true)}>이름</th>
-              {/* 나머지 — sticky top only */}
               {[
                 "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
                 "근속일수", "근속개월", "근속현황",
@@ -572,21 +554,13 @@ export default function NewEmployeeList() {
                 const { days, months, status } = calcTenure(row.입사일, row.퇴사일);
                 const age = calcAge(row.주민번호);
                 return (
-                  <tr
-                    key={row.id}
-                    className="group border-b border-border last:border-0"
-                  >
-                    {/* No — sticky left */}
+                  <tr key={row.id} className="group border-b border-border last:border-0">
                     <td className={tdSticky("left-0") + " px-3 py-1.5 text-center text-muted-foreground font-medium w-[44px]"}>
                       {idx + 1}
                     </td>
-
-                    {/* 현장구분 — sticky left */}
                     <td className={tdSticky("left-[44px]") + " px-3 py-1.5 w-[90px] text-xs"}>
                       {row.현장구분 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-
-                    {/* 이름 — sticky left, 클릭 시 모달 */}
                     <td className={tdSticky("left-[134px]", "px-1 py-1 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.12)]")}>
                       <button
                         onClick={() => openEdit(row)}
@@ -596,43 +570,27 @@ export default function NewEmployeeList() {
                         <Pencil className="h-3 w-3 opacity-0 group-hover/name:opacity-60 shrink-0 transition-opacity" />
                       </button>
                     </td>
-
-                    {/* 주민번호, 연락처 */}
                     {(["주민번호", "연락처"] as const).map((field) => (
                       <td key={field} className="px-3 py-1.5 text-xs whitespace-nowrap">
                         {row[field] || <span className="text-muted-foreground/40">—</span>}
                       </td>
                     ))}
-
-                    {/* 연령 (자동계산) */}
                     <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">{age || "—"}</td>
-
-                    {/* 남/여 */}
                     <td className="px-2 py-1.5 text-center text-xs">
                       {row.남여 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-
-                    {/* 입사일 */}
                     <td className="px-3 py-1.5 text-xs whitespace-nowrap">
                       {row.입사일 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-
-                    {/* 퇴사일 */}
                     <td className="px-3 py-1.5 text-xs whitespace-nowrap">
                       {row.퇴사일 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-
-                    {/* 근속일수 (자동계산) */}
                     <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">
                       {days ? `${days}일` : "—"}
                     </td>
-
-                    {/* 근속개월 (자동계산) */}
                     <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">
                       {months ? `${months}개월` : "—"}
                     </td>
-
-                    {/* 근속현황 (자동계산) */}
                     <td className="px-2 py-1.5 text-center">
                       {status ? (
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
@@ -642,15 +600,11 @@ export default function NewEmployeeList() {
                         </span>
                       ) : <span className="text-muted-foreground/40 text-xs">—</span>}
                     </td>
-
-                    {/* 신청공종, 단가, 단가변동, 은행명, 계좌번호, 주소 */}
                     {RIGHT_FIELDS.map((field) => (
                       <td key={field} className="px-3 py-1.5 text-xs whitespace-nowrap">
                         {(row[field] as string) || <span className="text-muted-foreground/40">—</span>}
                       </td>
                     ))}
-
-                    {/* 삭제 */}
                     <td className="px-3 py-1.5">
                       <button
                         onClick={() => deleteRow(row.id)}
@@ -671,6 +625,35 @@ export default function NewEmployeeList() {
       <p className="text-xs text-muted-foreground shrink-0">
         총 {rows.length}명 · 연령 / 근속일수 / 근속개월 / 근속현황은 자동 계산됩니다
       </p>
+    </div>
+  );
+}
+
+// ── 메인 컴포넌트 ────────────────────────────────────
+export default function NewEmployeeList() {
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="text-lg font-bold text-foreground">기술인 및 관리자 명단</h2>
+      <Tabs defaultValue="ph4">
+        <TabsList className="mb-2">
+          <TabsTrigger value="ph4">P4-PH4 초순수</TabsTrigger>
+          <TabsTrigger value="ph2">P4-PH2 초순수</TabsTrigger>
+        </TabsList>
+        <TabsContent value="ph4">
+          <EmployeeTabContent
+            storageKey="worksite_new_employees_ph4"
+            loadFn={loadEmployeesPH4FS}
+            saveFn={saveEmployeesPH4FS}
+          />
+        </TabsContent>
+        <TabsContent value="ph2">
+          <EmployeeTabContent
+            storageKey="worksite_new_employees_ph2"
+            loadFn={loadEmployeesPH2FS}
+            saveFn={saveEmployeesPH2FS}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

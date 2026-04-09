@@ -64,6 +64,24 @@ export async function saveEmployeesFS(rows: unknown[]) {
   return fsSet("new_employees", { rows });
 }
 
+// ── 기술인 및 관리자 명단 — P4-PH4 초순수 ───────────
+export async function loadEmployeesPH4FS() {
+  const data = await fsGet<{ rows: unknown[] }>("new_employees_ph4");
+  return data?.rows ?? null;
+}
+export async function saveEmployeesPH4FS(rows: unknown[]) {
+  return fsSet("new_employees_ph4", { rows });
+}
+
+// ── 기술인 및 관리자 명단 — P4-PH2 초순수 ───────────
+export async function loadEmployeesPH2FS() {
+  const data = await fsGet<{ rows: unknown[] }>("new_employees_ph2");
+  return data?.rows ?? null;
+}
+export async function saveEmployeesPH2FS(rows: unknown[]) {
+  return fsSet("new_employees_ph2", { rows });
+}
+
 // ── XERP & PMIS ──────────────────────────────────────
 export async function loadXerpFS() {
   const data = await fsGet<{ dateMap: Record<string, unknown[]> }>("xerp_pmis");
