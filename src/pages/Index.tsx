@@ -6,7 +6,7 @@ import AnnualLeavePanel from "@/components/AnnualLeavePanel";
 import NewEmployeeList from "@/components/NewEmployeeList";
 import XerpPmisTable from "@/components/XerpPmisTable";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
-import { saveToSupabase, fetchFromSupabase, saveRowOrder, fetchRowOrder } from "@/lib/supabaseSync";
+import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
 import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Lock, Database } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
@@ -87,8 +87,8 @@ const Index = () => {
     (async () => {
       try {
         const [result, ...orders] = await Promise.all([
-          fetchFromSupabase(),
-          ...ROW_ORDER_CONTEXTS.map((ctx) => fetchRowOrder(ctx).then((names) => ({ ctx, names }))),
+          fetchAttendanceFS(),
+          ...ROW_ORDER_CONTEXTS.map((ctx) => fetchRowOrderFS(ctx).then((names) => ({ ctx, names }))),
         ]);
         if (result) {
           setData(result.data);
@@ -133,7 +133,7 @@ const Index = () => {
     if (!data || !fileName) { toast.error("먼저 엑셀 파일을 업로드하세요."); return; }
     setIsSaving(true);
     try {
-      await saveToSupabase(data, fileName);
+      await saveAttendanceFS(data, fileName);
       setLastUploadedAt(new Date().toISOString());
       setPendingBuffer(null);
       toast.success("데이터가 클라우드에 저장되었습니다!");
@@ -147,7 +147,7 @@ const Index = () => {
   const handleOrderChange = useCallback(async (context: string, names: string[]) => {
     setRowOrders((prev) => ({ ...prev, [context]: names }));
     try {
-      await saveRowOrder(context, names);
+      await saveRowOrderFS(context, names);
     } catch {
       // silently fail
     }
