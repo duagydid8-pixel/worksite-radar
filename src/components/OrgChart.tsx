@@ -33,6 +33,71 @@ const TEAM_COLORS = [
   "#0891b2", "#be185d", "#4f46e5", "#15803d", "#b45309",
 ];
 
+/* ── localStorage ── */
+const ORG_STORAGE_KEY = "worksite_org_data";
+
+interface OrgData { teams: OrgTeam[]; members: OrgMember[] }
+
+const SEED_DATA: OrgData = {
+  teams: [
+    { id: "seed-team-1", name: "공무팀", color: "#2563eb", sort_order: 0 },
+    { id: "seed-team-2", name: "공사팀", color: "#7c3aed", sort_order: 1 },
+    { id: "seed-team-3", name: "품질팀", color: "#059669", sort_order: 2 },
+    { id: "seed-team-4", name: "안전팀", color: "#dc2626", sort_order: 3 },
+    { id: "seed-team-5", name: "설계팀", color: "#d97706", sort_order: 4 },
+  ],
+  members: [
+    // 공무팀
+    { id:"sm-01", team_id:"seed-team-1", name:"정두용", position:"팀장", rank:"수석", phone:"010-3499-5097", email:"dooyong@hscleantech.com", photo_url:"", is_leader:true,  sort_order:0 },
+    { id:"sm-02", team_id:"seed-team-1", name:"이재호", position:"담당", rank:"수석", phone:"010-6566-4804", email:"hatbazi@hscleantech.com", photo_url:"", is_leader:false, sort_order:1 },
+    { id:"sm-03", team_id:"seed-team-1", name:"이진식", position:"담당", rank:"책임", phone:"010-5037-5567", email:"jinsik@hscleantech.com", photo_url:"", is_leader:false, sort_order:2 },
+    { id:"sm-04", team_id:"seed-team-1", name:"염효양", position:"담당", rank:"선임", phone:"010-2467-3241", email:"duagydid_@hscleantech.com", photo_url:"", is_leader:false, sort_order:3 },
+    // 공사팀
+    { id:"sm-05", team_id:"seed-team-2", name:"전제현", position:"팀장", rank:"수석", phone:"010-4542-8574", email:"jaehyun@hscleantech.com", photo_url:"", is_leader:true,  sort_order:0 },
+    { id:"sm-06", team_id:"seed-team-2", name:"엄태원", position:"담당", rank:"수석", phone:"010-4044-3004", email:"utw3004@hscleantech.com", photo_url:"", is_leader:false, sort_order:1 },
+    { id:"sm-07", team_id:"seed-team-2", name:"양선우", position:"서류",  rank:"선임", phone:"010-4953-3359", email:"iosyhcc@hscleantech.com", photo_url:"", is_leader:false, sort_order:2 },
+    { id:"sm-08", team_id:"seed-team-2", name:"이중현", position:"차량",  rank:"선임", phone:"010-8695-8987", email:"wndgus77@nate.com",       photo_url:"", is_leader:false, sort_order:3 },
+    // 품질팀
+    { id:"sm-09", team_id:"seed-team-3", name:"오세현", position:"팀장", rank:"수석", phone:"010-9322-2664", email:"ippon@hscleantech.com",       photo_url:"", is_leader:true,  sort_order:0 },
+    { id:"sm-10", team_id:"seed-team-3", name:"이형우", position:"담당", rank:"수석", phone:"010-2268-9990", email:"Nanlhweda@naver.com",          photo_url:"", is_leader:false, sort_order:1 },
+    { id:"sm-11", team_id:"seed-team-3", name:"박재형", position:"담당", rank:"책임", phone:"010-9285-7676", email:"upwquality@hscleantech.com",   photo_url:"", is_leader:false, sort_order:2 },
+    { id:"sm-12", team_id:"seed-team-3", name:"김성덕", position:"담당", rank:"책임", phone:"010-2442-0069", email:"upwquality@hscleantech.com",   photo_url:"", is_leader:false, sort_order:3 },
+    { id:"sm-13", team_id:"seed-team-3", name:"강태길", position:"담당", rank:"책임", phone:"010-6480-2263", email:"taegil@hscleantech.com",       photo_url:"", is_leader:false, sort_order:4 },
+    { id:"sm-14", team_id:"seed-team-3", name:"안형철", position:"서류",  rank:"선임", phone:"010-8277-7514", email:"upwquality@hscleantech.com",   photo_url:"", is_leader:false, sort_order:5 },
+    { id:"sm-15", team_id:"seed-team-3", name:"박슬기", position:"서류",  rank:"선임", phone:"010-5062-3217", email:"sg3217@hscleantech.com",       photo_url:"", is_leader:false, sort_order:6 },
+    // 안전팀
+    { id:"sm-16", team_id:"seed-team-4", name:"윤근희", position:"팀장", rank:"수석", phone:"010-8008-2681", email:"ghyoon@hscleantech.com",      photo_url:"", is_leader:true,  sort_order:0 },
+    { id:"sm-17", team_id:"seed-team-4", name:"곽희규", position:"서류",  rank:"책임", phone:"010-5865-4584", email:"heekyu@hscleantech.com",       photo_url:"", is_leader:false, sort_order:1 },
+    { id:"sm-18", team_id:"seed-team-4", name:"조성진", position:"담당", rank:"책임", phone:"010-6575-9539", email:"upwsafety@hscleantech.com",    photo_url:"", is_leader:false, sort_order:2 },
+    { id:"sm-19", team_id:"seed-team-4", name:"원영섭", position:"담당", rank:"책임", phone:"010-7696-2269", email:"dudtjq122@hscleantech.com",    photo_url:"", is_leader:false, sort_order:3 },
+    { id:"sm-20", team_id:"seed-team-4", name:"양준용", position:"담당", rank:"선임", phone:"010-3020-8418", email:"did8418@hscleantech.com",      photo_url:"", is_leader:false, sort_order:4 },
+    // 설계팀
+    { id:"sm-21", team_id:"seed-team-5", name:"이대용", position:"팀장", rank:"수석", phone:"010-6213-3902", email:"daeyong@hscleantech.com",     photo_url:"", is_leader:true,  sort_order:0 },
+    { id:"sm-22", team_id:"seed-team-5", name:"박세일", position:"담당", rank:"수석", phone:"010-9959-8992", email:"psw062@hscleantech.com",       photo_url:"", is_leader:false, sort_order:1 },
+    { id:"sm-23", team_id:"seed-team-5", name:"전종수", position:"담당", rank:"수석", phone:"010-2840-7163", email:"jongsoo@hscleantech.com",      photo_url:"", is_leader:false, sort_order:2 },
+    { id:"sm-24", team_id:"seed-team-5", name:"이호기", position:"담당", rank:"수석", phone:"010-2840-7163", email:"jongsoo@hscleantech.com",      photo_url:"", is_leader:false, sort_order:3 },
+    { id:"sm-25", team_id:"seed-team-5", name:"소영성", position:"담당", rank:"책임", phone:"010-8501-6881", email:"soyy99@hscleantech.com",       photo_url:"", is_leader:false, sort_order:4 },
+    { id:"sm-26", team_id:"seed-team-5", name:"신동건", position:"담당", rank:"선임", phone:"010-8747-6786", email:"donggeon@hscleantech.com",     photo_url:"", is_leader:false, sort_order:5 },
+  ],
+};
+
+function loadOrgFromStorage(): OrgData {
+  try {
+    const saved = localStorage.getItem(ORG_STORAGE_KEY);
+    if (saved) {
+      const parsed: OrgData = JSON.parse(saved);
+      if (Array.isArray(parsed.teams) && Array.isArray(parsed.members)) return parsed;
+    }
+  } catch { /* ignore */ }
+  // 저장된 데이터 없으면 시드 데이터 반환 및 저장
+  localStorage.setItem(ORG_STORAGE_KEY, JSON.stringify(SEED_DATA));
+  return SEED_DATA;
+}
+
+function saveOrgToStorage(data: OrgData) {
+  localStorage.setItem(ORG_STORAGE_KEY, JSON.stringify(data));
+}
+
 /* ── helpers ── */
 function lighten(hex: string, pct: number) {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -208,11 +273,30 @@ export default function OrgChart() {
           supabase.from("org_teams").select("*").order("sort_order"),
           supabase.from("org_members").select("*").order("sort_order"),
         ]);
-        if (t.data) setTeams(t.data);
-        if (m.data) setMembers(m.data);
-      } catch { /* */ } finally { setLoading(false); }
+        if (t.data && t.data.length > 0) {
+          // Supabase에 데이터 있음 → 사용 + localStorage 동기화
+          setTeams(t.data);
+          setMembers(m.data ?? []);
+          saveOrgToStorage({ teams: t.data, members: m.data ?? [] });
+        } else {
+          // Supabase 비어있음 → localStorage(또는 시드 데이터) 사용
+          const local = loadOrgFromStorage();
+          setTeams(local.teams);
+          setMembers(local.members);
+        }
+      } catch {
+        // Supabase 오류 → localStorage 폴백
+        const local = loadOrgFromStorage();
+        setTeams(local.teams);
+        setMembers(local.members);
+      } finally { setLoading(false); }
     })();
   }, []);
+
+  // 팀/멤버 변경 시 localStorage 자동 동기화
+  useEffect(() => {
+    if (!loading) saveOrgToStorage({ teams, members });
+  }, [teams, members, loading]);
 
   /* ── save all ── */
   const handleSaveAll = useCallback(async () => {
@@ -244,10 +328,13 @@ export default function OrgChart() {
       const teamIds = teams.map((t) => t.id);
       await supabase.from("org_teams").delete().not("id", "in", `(${teamIds.join(",")})`);
 
+      saveOrgToStorage({ teams, members }); // localStorage에도 동기화
       setDirty(false);
       toast.success("조직도가 저장되었습니다.");
     } catch (err: any) {
-      toast.error(`저장 실패: ${err.message}`);
+      // Supabase 저장 실패 시에도 localStorage에는 저장
+      saveOrgToStorage({ teams, members });
+      toast.error(`DB 저장 실패 (로컬 저장 완료): ${err.message}`);
     } finally { setSaving(false); }
   }, [teams, members]);
 
