@@ -161,6 +161,33 @@ function detectConsecutiveAbsences(dateMap: DateMap): XerpPmisRow[] {
   return result;
 }
 
+// ── 파일명에서 날짜 추출 ──────────────────────────────
+// YYYYMMDD, YYYY-MM-DD, YYYY.MM.DD 등 패턴을 찾아 "YYYY-MM-DD" 반환
+function extractDateFromFilename(filename: string): string | null {
+  const name = filename.replace(/\.[^.]+$/, "");
+
+  // YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD
+  const sep = name.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
+  if (sep) {
+    const [, y, m, d] = sep;
+    const date = new Date(`${y}-${m}-${d}T00:00:00`);
+    if (!isNaN(date.getTime())) return `${y}-${m}-${d}`;
+  }
+
+  // YYYYMMDD (8자리 연속)
+  const compact = name.match(/(\d{4})(\d{2})(\d{2})/);
+  if (compact) {
+    const [, y, m, d] = compact;
+    const mo = Number(m), dy = Number(d);
+    if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
+      const date = new Date(`${y}-${m}-${d}T00:00:00`);
+      if (!isNaN(date.getTime())) return `${y}-${m}-${d}`;
+    }
+  }
+
+  return null;
+}
+
 // ── 상수 ─────────────────────────────────────────────
 const STORAGE_KEY = "worksite_xerp_pmis";
 const TODAY = toDateStr();
@@ -400,31 +427,44 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     return currentRows.filter((r) => r.성명.includes(q) || r.사번.includes(q));
   }, [currentRows, search]);
 
-  // ── 업로드 ──
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // ── 업로드 (다중 파일 지원) ──
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     e.target.value = "";
-    const reader = new FileReader();
-    reader.onload = (evt) => {
+
+    let newMap = { ...dateMap };
+    let successCount = 0;
+    let lastSavedDate = uploadDate;
+
+    for (const file of files) {
+      // 파일명에서 날짜 추출, 없으면 선택된 uploadDate 사용
+      const dateToUse = extractDateFromFilename(file.name) ?? uploadDate;
       try {
-        const data = new Uint8Array(evt.target!.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
         const imported = parseSheet(wb);
         if (imported.length === 0) {
-          toast.error("데이터를 찾을 수 없습니다. 헤더 행을 확인하세요.");
-          return;
+          toast.error(`${file.name}: 데이터를 찾을 수 없습니다.`);
+          continue;
         }
-        const newMap = { ...dateMap, [uploadDate]: imported };
-        setDateMap(newMap);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newMap));
-        setSelectedDate(uploadDate);
-        toast.success(`${formatLabel(uploadDate)} — ${imported.length}건 저장되었습니다.`);
+        newMap = { ...newMap, [dateToUse]: imported };
+        lastSavedDate = dateToUse;
+        successCount++;
+        toast.success(`${formatLabel(dateToUse)} — ${imported.length}건 저장 (${file.name})`);
       } catch {
-        toast.error("파일을 읽는 중 오류가 발생했습니다.");
+        toast.error(`${file.name}: 파일을 읽는 중 오류가 발생했습니다.`);
       }
-    };
-    reader.readAsArrayBuffer(file);
+    }
+
+    if (successCount > 0) {
+      setDateMap(newMap);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newMap));
+      setSelectedDate(lastSavedDate);
+      if (files.length > 1) {
+        toast.success(`총 ${successCount}개 파일 업로드 완료`);
+      }
+    }
   };
 
   // ── 날짜 삭제 ──
@@ -469,7 +509,7 @@ export default function XerpPmisTable({ isAdmin }: Props) {
   return (
     <div className="flex flex-col gap-3">
       {isAdmin && (
-        <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
+        <input ref={fileInputRef} type="file" accept=".xlsx,.xls" multiple className="hidden" onChange={handleUpload} />
       )}
 
       {/* ── 제목 ── */}
