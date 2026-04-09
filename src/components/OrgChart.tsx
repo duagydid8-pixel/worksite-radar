@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Users, Plus, Trash2, Search, X, Download, Save, Loader2, Camera, Pencil, FileSpreadsheet } from "lucide-react";
+import { Users, Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet } from "lucide-react";
 import { toPng } from "html-to-image";
 import * as XLSX from "xlsx";
 
@@ -254,88 +253,24 @@ function AddTeamDialog({ onAdd, onClose, usedColors }: { onAdd: (name: string, c
 
 /* ━━━━━━━━━━━━━━━ MAIN ━━━━━━━━━━━━━━━ */
 export default function OrgChart() {
-  const [teams, setTeams] = useState<OrgTeam[]>([]);
-  const [members, setMembers] = useState<OrgMember[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [teams, setTeams] = useState<OrgTeam[]>(() => loadOrgFromStorage().teams);
+  const [members, setMembers] = useState<OrgMember[]>(() => loadOrgFromStorage().members);
   const [dirty, setDirty] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editMember, setEditMember] = useState<OrgMember | null>(null);
   const [showAddTeam, setShowAddTeam] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
-
-  /* ── load ── */
-  useEffect(() => {
-    (async () => {
-      try {
-        const [t, m] = await Promise.all([
-          supabase.from("org_teams").select("*").order("sort_order"),
-          supabase.from("org_members").select("*").order("sort_order"),
-        ]);
-        if (t.data && t.data.length > 0) {
-          // Supabase에 데이터 있음 → 사용 + localStorage 동기화
-          setTeams(t.data);
-          setMembers(m.data ?? []);
-          saveOrgToStorage({ teams: t.data, members: m.data ?? [] });
-        } else {
-          // Supabase 비어있음 → localStorage(또는 시드 데이터) 사용
-          const local = loadOrgFromStorage();
-          setTeams(local.teams);
-          setMembers(local.members);
-        }
-      } catch {
-        // Supabase 오류 → localStorage 폴백
-        const local = loadOrgFromStorage();
-        setTeams(local.teams);
-        setMembers(local.members);
-      } finally { setLoading(false); }
-    })();
-  }, []);
 
   // 팀/멤버 변경 시 localStorage 자동 동기화
   useEffect(() => {
-    if (!loading) saveOrgToStorage({ teams, members });
-  }, [teams, members, loading]);
+    saveOrgToStorage({ teams, members });
+  }, [teams, members]);
 
   /* ── save all ── */
-  const handleSaveAll = useCallback(async () => {
-    setSaving(true);
-    try {
-      // upsert teams
-      const { error: te } = await supabase.from("org_teams").upsert(teams, { onConflict: "id" });
-      if (te) throw te;
-
-      // delete removed members
-      const existingIds = members.map((m) => m.id);
-      if (existingIds.length > 0) {
-        // fetch current DB member ids for these teams
-        const teamIds = teams.map((t) => t.id);
-        const { data: dbMembers } = await supabase.from("org_members").select("id").in("team_id", teamIds);
-        const toDelete = (dbMembers || []).filter((d) => !existingIds.includes(d.id)).map((d) => d.id);
-        if (toDelete.length > 0) {
-          await supabase.from("org_members").delete().in("id", toDelete);
-        }
-      }
-
-      // upsert members
-      if (members.length > 0) {
-        const { error: me } = await supabase.from("org_members").upsert(members, { onConflict: "id" });
-        if (me) throw me;
-      }
-
-      // delete removed teams
-      const teamIds = teams.map((t) => t.id);
-      await supabase.from("org_teams").delete().not("id", "in", `(${teamIds.join(",")})`);
-
-      saveOrgToStorage({ teams, members }); // localStorage에도 동기화
-      setDirty(false);
-      toast.success("조직도가 저장되었습니다.");
-    } catch (err: any) {
-      // Supabase 저장 실패 시에도 localStorage에는 저장
-      saveOrgToStorage({ teams, members });
-      toast.error(`DB 저장 실패 (로컬 저장 완료): ${err.message}`);
-    } finally { setSaving(false); }
+  const handleSaveAll = useCallback(() => {
+    saveOrgToStorage({ teams, members });
+    setDirty(false);
+    toast.success("조직도가 저장되었습니다.");
   }, [teams, members]);
 
   /* ── add team ── */
@@ -407,24 +342,18 @@ export default function OrgChart() {
     setDirty(true);
   }, []);
 
-  /* ── photo upload ── */
-  const handlePhotoUpload = useCallback(async (memberId: string, file: File) => {
-    setUploading(true);
-    try {
-      const ext = file.name.split(".").pop() || "jpg";
-      const path = `${memberId}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("org-photos").upload(path, file, { upsert: true });
-      if (upErr) throw upErr;
-      const { data } = supabase.storage.from("org-photos").getPublicUrl(path);
-      const url = data.publicUrl + "?t=" + Date.now();
-      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, photo_url: url } : m)));
-      if (editMember?.id === memberId) setEditMember((prev) => prev ? { ...prev, photo_url: url } : null);
+  /* ── photo upload (base64 → localStorage) ── */
+  const handlePhotoUpload = useCallback((memberId: string, file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, photo_url: dataUrl } : m)));
+      setEditMember((prev) => prev?.id === memberId ? { ...prev, photo_url: dataUrl } : prev);
       setDirty(true);
-      toast.success("사진이 업로드되었습니다.");
-    } catch (err: any) {
-      toast.error(`업로드 실패: ${err.message}`);
-    } finally { setUploading(false); }
-  }, [editMember]);
+      toast.success("사진이 저장되었습니다.");
+    };
+    reader.readAsDataURL(file);
+  }, []);
 
   /* ── export image ── */
   const handleExportImage = useCallback(async () => {
@@ -486,14 +415,6 @@ export default function OrgChart() {
     [members, searchQuery],
   );
 
-  if (loading) {
-    return (
-      <div className="py-16 flex items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -531,11 +452,11 @@ export default function OrgChart() {
         </button>
         <button
           onClick={handleSaveAll}
-          disabled={saving || !dirty}
+          disabled={!dirty}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
         >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {saving ? "저장 중..." : "변경사항 저장"}
+          <Save className="h-4 w-4" />
+          변경사항 저장
         </button>
       </div>
 
@@ -606,7 +527,7 @@ export default function OrgChart() {
           onSave={handleMemberSave}
           onClose={() => setEditMember(null)}
           onPhotoUpload={handlePhotoUpload}
-          uploading={uploading}
+          uploading={false}
         />
       )}
       {showAddTeam && (
