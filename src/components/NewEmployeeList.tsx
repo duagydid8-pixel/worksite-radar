@@ -139,7 +139,16 @@ function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
     const emp = emptyRow();
     for (const { colIdx, field } of fieldMap) {
       const val = row[colIdx];
-      emp[field] = DATE_FIELDS.has(field) ? excelDateToISO(val) : String(val ?? "").trim();
+      if (field === "주민번호") {
+        // 엑셀이 숫자로 읽으면 앞자리 0이 사라지므로 13자리로 패딩
+        if (typeof val === "number") {
+          emp[field] = String(Math.round(val)).padStart(13, "0");
+        } else {
+          emp[field] = String(val ?? "").trim();
+        }
+      } else {
+        emp[field] = DATE_FIELDS.has(field) ? excelDateToISO(val) : String(val ?? "").trim();
+      }
     }
     // 이름과 주민번호가 모두 없는 행은 제외
     if (!emp.이름 && !emp.주민번호) continue;
