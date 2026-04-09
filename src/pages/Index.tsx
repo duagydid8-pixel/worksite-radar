@@ -8,6 +8,7 @@ import { saveToSupabase, fetchFromSupabase, saveRowOrder, fetchRowOrder } from "
 import { toast } from "sonner";
 import { CloudUpload, Loader2, Search, X, Download } from "lucide-react";
 import { exportAttendanceExcel, exportMonthlyExcel } from "@/lib/exportExcel";
+import OrgChart from "@/components/OrgChart";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
