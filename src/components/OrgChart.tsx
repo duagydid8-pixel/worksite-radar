@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Users, Plus, Trash2, Search, X, Download, Save, Loader2, Camera, Pencil } from "lucide-react";
+import { Users, Plus, Trash2, Search, X, Download, Save, Loader2, Camera, Pencil, FileSpreadsheet } from "lucide-react";
 import { toPng } from "html-to-image";
+import * as XLSX from "xlsx";
 
 /* ── types ── */
 interface OrgTeam {
@@ -353,6 +354,32 @@ export default function OrgChart() {
     }
   }, []);
 
+  /* ── export excel ── */
+  const handleExportExcel = useCallback(() => {
+    if (teams.length === 0) { toast.error("내보낼 조직도 데이터가 없습니다."); return; }
+    const headers = ["팀명", "직급", "이름", "이메일", "연락처"];
+    const rows: string[][] = [headers];
+
+    // 팀 순서대로, 각 팀 내 팀장 먼저
+    for (const team of [...teams].sort((a, b) => a.sort_order - b.sort_order)) {
+      const teamMembers = members.filter((m) => m.team_id === team.id);
+      const leaders = teamMembers.filter((m) => m.is_leader).sort((a, b) => a.sort_order - b.sort_order);
+      const others = teamMembers.filter((m) => !m.is_leader).sort((a, b) => a.sort_order - b.sort_order);
+      for (const m of [...leaders, ...others]) {
+        rows.push([team.name, m.rank, m.name, m.email || "", m.phone || ""]);
+      }
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 14 }, { wch: 8 }, { wch: 10 }, { wch: 26 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "조직도");
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+    XLSX.writeFile(wb, `조직도_${dateStr}.xlsx`);
+    toast.success("엑셀로 내보냈습니다.");
+  }, [teams, members]);
+
   /* ── filtered data ── */
   const filteredTeams = useMemo(() => {
     if (!searchQuery.trim()) return teams;
@@ -408,6 +435,9 @@ export default function OrgChart() {
         {/* Actions */}
         <button onClick={() => setShowAddTeam(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors">
           <Plus className="h-4 w-4" /> 팀 추가
+        </button>
+        <button onClick={handleExportExcel} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors">
+          <FileSpreadsheet className="h-4 w-4" /> 엑셀 내보내기
         </button>
         <button onClick={handleExportImage} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors">
           <Download className="h-4 w-4" /> 이미지 저장
