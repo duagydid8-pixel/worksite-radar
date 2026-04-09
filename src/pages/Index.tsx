@@ -430,7 +430,9 @@ const Index = () => {
           />
         )}
 
-        {!data && (
+        {activeTab === "조직도" && <OrgChart />}
+
+        {!data && activeTab !== "조직도" && (
           <div className="py-16 text-center">
             <div className="text-5xl mb-4">⬆️</div>
             <h2 className="text-sm font-semibold text-muted-foreground mb-2">
