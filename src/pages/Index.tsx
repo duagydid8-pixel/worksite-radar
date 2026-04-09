@@ -33,7 +33,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "근태보고" | "연차관리";
+type ActiveTab = "근태보고" | "연차관리" | "조직도";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
