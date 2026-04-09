@@ -275,7 +275,7 @@ const Index = () => {
           </div>
         </div>
         <div className="flex gap-1.5">
-          {(["근태보고", "연차관리"] as ActiveTab[]).map((tab) => (
+          {(["근태보고", "연차관리", "조직도"] as ActiveTab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => { setActiveTab(tab); setSearchQuery(""); }}
