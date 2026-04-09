@@ -141,6 +141,8 @@ function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
       const val = row[colIdx];
       emp[field] = DATE_FIELDS.has(field) ? excelDateToISO(val) : String(val ?? "").trim();
     }
+    // 이름과 주민번호가 모두 없는 행은 제외
+    if (!emp.이름 && !emp.주민번호) continue;
     results.push(emp);
   }
   return results;
