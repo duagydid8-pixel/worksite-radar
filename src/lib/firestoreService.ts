@@ -20,6 +20,10 @@ import { db } from "./firebase";
 const COL = "worksite_data";
 
 async function fsGet<T>(docId: string): Promise<T | null> {
+  if (!db) {
+    console.warn("[Firestore] Firebase 미설정 — 읽기 건너뜀");
+    return null;
+  }
   try {
     const snap = await getDoc(doc(db, COL, docId));
     return snap.exists() ? (snap.data() as T) : null;
@@ -30,6 +34,10 @@ async function fsGet<T>(docId: string): Promise<T | null> {
 }
 
 async function fsSet(docId: string, data: object): Promise<boolean> {
+  if (!db) {
+    console.warn("[Firestore] Firebase 미설정 — 쓰기 건너뜀");
+    return false;
+  }
   try {
     await setDoc(doc(db, COL, docId), data);
     return true;
