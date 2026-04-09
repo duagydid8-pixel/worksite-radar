@@ -401,11 +401,27 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     else setCalendarMonth((m) => m + 1);
   };
 
-  // 연속 3일 이상 결근 감지 (페이지 로드 / dateMap 변경 시 자동)
-  const absentEmployees = useMemo(
-    () => detectConsecutiveAbsences(dateMap),
-    [dateMap]
-  );
+  // 연속 3일 이상 결근 감지 — 신규자명단 퇴사자 제외
+  const absentEmployees = useMemo(() => {
+    const allAbsent = detectConsecutiveAbsences(dateMap);
+
+    // 신규자명단에서 퇴사일이 입력된 직원 이름 수집
+    const resignedNames = new Set<string>();
+    try {
+      const saved = localStorage.getItem("worksite_new_employees");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          for (const emp of parsed) {
+            if (emp.퇴사일 && emp.이름) resignedNames.add(emp.이름);
+          }
+        }
+      }
+    } catch { /* ignore */ }
+
+    // 퇴사자 제외 (XERP 성명 ↔ 신규자명단 이름 매칭)
+    return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
+  }, [dateMap]);
 
   // localStorage 동기화
   useEffect(() => {
