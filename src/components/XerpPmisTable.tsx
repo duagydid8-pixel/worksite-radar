@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
@@ -99,6 +99,66 @@ function getEmpRecord(
     if (found) return found;
   }
   return rows.find((r) => r.성명 === emp.성명) ?? null;
+}
+
+// ── 연속 결근 감지 ────────────────────────────────────
+// 평일(월~금) 기준으로 dateMap의 업로드 날짜들을 순서대로 확인하여
+// 3일 이상 연속으로 출근 기록이 없는 직원 목록을 반환한다.
+function detectConsecutiveAbsences(dateMap: DateMap): XerpPmisRow[] {
+  // 평일 업로드 날짜만 정렬
+  const weekdayDates = Object.keys(dateMap)
+    .filter((d) => {
+      const dow = new Date(d + "T00:00:00").getDay();
+      return dow >= 1 && dow <= 5;
+    })
+    .sort();
+
+  if (weekdayDates.length < 3) return [];
+
+  // 전체 직원 수집 (사번 우선, 없으면 성명 키)
+  const empMap = new Map<string, XerpPmisRow>();
+  for (const rows of Object.values(dateMap)) {
+    for (const row of rows) {
+      const key = row.사번 || row.성명;
+      if (key && !empMap.has(key)) empMap.set(key, row);
+    }
+  }
+
+  const result: XerpPmisRow[] = [];
+
+  for (const [, emp] of empMap) {
+    // 이 직원이 처음 등장한 날짜부터 체크
+    let firstDate: string | null = null;
+    for (const d of weekdayDates) {
+      const rows = dateMap[d];
+      const rec = emp.사번
+        ? rows?.find((r) => r.사번 === emp.사번)
+        : rows?.find((r) => r.성명 === emp.성명);
+      if (rec) { firstDate = d; break; }
+    }
+    if (!firstDate) continue;
+
+    let consecutive = 0;
+    let flagged = false;
+    for (const d of weekdayDates) {
+      if (d < firstDate) continue;
+      const rows = dateMap[d];
+      const rec = emp.사번
+        ? rows?.find((r) => r.사번 === emp.사번)
+        : rows?.find((r) => r.성명 === emp.성명);
+      const hasCheckIn = rec && (rec.xerp출근 || rec.pmis출근);
+
+      if (!hasCheckIn) {
+        consecutive++;
+        if (consecutive >= 3) { flagged = true; break; }
+      } else {
+        consecutive = 0;
+      }
+    }
+    if (flagged) result.push(emp);
+  }
+
+  return result;
 }
 
 // ── 상수 ─────────────────────────────────────────────
@@ -314,6 +374,12 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     else setCalendarMonth((m) => m + 1);
   };
 
+  // 연속 3일 이상 결근 감지 (페이지 로드 / dateMap 변경 시 자동)
+  const absentEmployees = useMemo(
+    () => detectConsecutiveAbsences(dateMap),
+    [dateMap]
+  );
+
   // localStorage 동기화
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dateMap));
@@ -408,6 +474,31 @@ export default function XerpPmisTable({ isAdmin }: Props) {
 
       {/* ── 제목 ── */}
       <h2 className="text-lg font-bold text-foreground shrink-0">XERP &amp; PMIS</h2>
+
+      {/* ── 연속 결근 경고 배너 ── */}
+      {absentEmployees.length > 0 && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-300 rounded-xl px-4 py-3 shrink-0">
+          <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+          <div className="flex flex-col gap-2 min-w-0">
+            <span className="text-sm font-bold text-red-700">
+              연속 3일 이상 출근 기록 없는 직원 ({absentEmployees.length}명)
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {absentEmployees.map((emp) => (
+                <button
+                  key={emp.사번 || emp.성명}
+                  onClick={() => openCalendar(emp)}
+                  className="px-2.5 py-1 rounded-full bg-red-100 hover:bg-red-200 text-red-700 text-xs font-semibold border border-red-200 transition-colors"
+                >
+                  {emp.성명}
+                  {emp.팀명 && <span className="ml-1 font-normal opacity-70">({emp.팀명})</span>}
+                </button>
+              ))}
+            </div>
+            <span className="text-[11px] text-red-500/70">이름을 클릭하면 달력에서 상세 확인할 수 있습니다. 주말 제외 기준.</span>
+          </div>
+        </div>
+      )}
 
       {/* ── 날짜 조회 바 ── */}
       <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-2.5 shadow-sm shrink-0">
