@@ -85,10 +85,13 @@ function loadOrgFromStorage(): OrgData {
     const saved = localStorage.getItem(ORG_STORAGE_KEY);
     if (saved) {
       const parsed: OrgData = JSON.parse(saved);
-      if (Array.isArray(parsed.teams) && Array.isArray(parsed.members)) return parsed;
+      // teams가 1개 이상 있어야 유효한 데이터로 인정
+      if (Array.isArray(parsed.teams) && parsed.teams.length > 0 && Array.isArray(parsed.members)) {
+        return parsed;
+      }
     }
   } catch { /* ignore */ }
-  // 저장된 데이터 없으면 시드 데이터 반환 및 저장
+  // 저장된 데이터 없거나 비어있으면 시드 데이터 저장 후 반환
   localStorage.setItem(ORG_STORAGE_KEY, JSON.stringify(SEED_DATA));
   return SEED_DATA;
 }
