@@ -262,8 +262,18 @@ export default function NewEmployeeList() {
     XLSX.writeFile(wb, `신규자명단_${dateStr}.xlsx`);
   };
 
+  // sticky 열 공통 클래스
+  const thBase = "px-2 py-2.5 text-center font-semibold text-muted-foreground whitespace-nowrap bg-muted/50";
+  const thSticky = (left: string, shadow = false) =>
+    `${thBase} sticky top-0 z-30 ${left}${shadow ? " shadow-[2px_0_4px_-1px_rgba(0,0,0,0.12)]" : ""}`;
+  const thNormal = `${thBase} sticky top-0 z-20`;
+
+  const tdStickyBase = "bg-white group-hover:bg-muted/20 transition-colors";
+  const tdSticky = (left: string, extra = "") =>
+    `${tdStickyBase} sticky z-10 ${left}${extra ? ` ${extra}` : ""}`;
+
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-3">
       {/* hidden file input */}
       <input
         ref={fileInputRef}
@@ -274,7 +284,7 @@ export default function NewEmployeeList() {
       />
 
       {/* 툴바 */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 shrink-0">
         <h2 className="text-lg font-bold text-foreground flex-1">신규자 명단</h2>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -317,23 +327,27 @@ export default function NewEmployeeList() {
         </button>
       </div>
 
-      {/* 테이블 */}
-      <div className="overflow-x-auto rounded-xl border border-border bg-white shadow-sm">
+      {/* 테이블 — 화면 높이에 맞게 고정, 내부 스크롤 */}
+      <div
+        className="overflow-auto rounded-xl border border-border bg-white shadow-sm"
+        style={{ maxHeight: "calc(100vh - 220px)" }}
+      >
         <table className="min-w-full text-xs border-collapse">
           <thead>
             <tr className="bg-muted/50 border-b border-border">
+              {/* No — sticky top + left */}
+              <th className={thSticky("left-0") + " w-[44px]"}>No</th>
+              {/* 현장구분 — sticky top + left */}
+              <th className={thSticky("left-[44px]") + " w-[90px]"}>현장구분</th>
+              {/* 이름 — sticky top + left, 우측 구분선 */}
+              <th className={thSticky("left-[134px]", true)}>이름</th>
+              {/* 나머지 — sticky top only */}
               {[
-                "No", "현장구분", "이름", "주민번호", "연락처",
-                "연령", "남/여", "입사일", "퇴사일",
+                "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
                 "근속일수", "근속개월", "근속현황",
                 "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "",
               ].map((col, i) => (
-                <th
-                  key={i}
-                  className="px-2 py-2.5 text-center font-semibold text-muted-foreground whitespace-nowrap"
-                >
-                  {col}
-                </th>
+                <th key={i} className={thNormal}>{col}</th>
               ))}
             </tr>
           </thead>
@@ -353,26 +367,44 @@ export default function NewEmployeeList() {
                 return (
                   <tr
                     key={row.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors"
+                    className="group border-b border-border last:border-0"
                   >
-                    {/* No */}
-                    <td className="px-3 py-1.5 text-center text-muted-foreground font-medium w-8">
+                    {/* No — sticky left */}
+                    <td className={tdSticky("left-0") + " px-3 py-1.5 text-center text-muted-foreground font-medium w-[44px]"}>
                       {idx + 1}
                     </td>
 
-                    {/* 현장구분, 이름, 주민번호, 연락처 */}
-                    {TEXT_FIELDS.map((field) => (
+                    {/* 현장구분 — sticky left */}
+                    <td className={tdSticky("left-[44px]") + " px-1 py-1 w-[90px]"}>
+                      <input
+                        type="text"
+                        value={row.현장구분}
+                        onChange={(e) => updateRow(row.id, "현장구분", e.target.value)}
+                        placeholder="현장구분"
+                        className="w-full px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none transition-colors text-xs min-w-[72px]"
+                      />
+                    </td>
+
+                    {/* 이름 — sticky left, 우측 구분선 */}
+                    <td className={tdSticky("left-[134px]", "px-1 py-1 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.12)]")}>
+                      <input
+                        type="text"
+                        value={row.이름}
+                        onChange={(e) => updateRow(row.id, "이름", e.target.value)}
+                        placeholder="이름"
+                        className="px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none transition-colors text-xs min-w-[64px]"
+                      />
+                    </td>
+
+                    {/* 주민번호, 연락처 */}
+                    {(["주민번호", "연락처"] as const).map((field) => (
                       <td key={field} className="px-1 py-1">
                         <input
                           type="text"
-                          value={row[field] as string}
+                          value={row[field]}
                           onChange={(e) => updateRow(row.id, field, e.target.value)}
-                          placeholder={field as string}
-                          className={`px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none transition-colors text-xs ${
-                            field === "주민번호" ? "min-w-[112px]" :
-                            field === "연락처" ? "min-w-[100px]" :
-                            field === "현장구분" ? "min-w-[72px]" : "min-w-[64px]"
-                          }`}
+                          placeholder={field}
+                          className={`px-2 py-1 border border-transparent hover:border-border focus:border-primary rounded bg-transparent focus:bg-white outline-none transition-colors text-xs ${field === "주민번호" ? "min-w-[112px]" : "min-w-[100px]"}`}
                         />
                       </td>
                     ))}
@@ -438,7 +470,7 @@ export default function NewEmployeeList() {
                       )}
                     </td>
 
-                    {/* 신청공종, 단가, 은행명, 계좌번호, 주소 */}
+                    {/* 신청공종, 단가, 단가변동, 은행명, 계좌번호, 주소 */}
                     {RIGHT_FIELDS.map((field) => (
                       <td key={field} className="px-1 py-1">
                         <input
@@ -471,7 +503,7 @@ export default function NewEmployeeList() {
         </table>
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground shrink-0">
         총 {rows.length}명 · 연령 / 근속일수 / 근속개월 / 근속현황은 자동 계산됩니다
       </p>
     </div>
