@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, Search, X, Download } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Plus, Trash2, Search, X, Download, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
+import { toast } from "sonner";
 
 interface NewEmployee {
   id: string;
@@ -55,6 +56,90 @@ function calcTenure(
   };
 }
 
+// 엑셀 셀 값을 YYYY-MM-DD 문자열로 변환
+function excelDateToISO(val: unknown): string {
+  if (val === null || val === undefined || val === "") return "";
+  if (typeof val === "number") {
+    // Excel 시리얼 날짜
+    const date = XLSX.SSF.parse_date_code(val);
+    if (date) {
+      return `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+    }
+  }
+  const str = String(val).trim();
+  // YYYYMMDD
+  if (/^\d{8}$/.test(str)) {
+    return `${str.slice(0, 4)}-${str.slice(4, 6)}-${str.slice(6, 8)}`;
+  }
+  // YYYY.MM.DD / YYYY/MM/DD
+  const dotSlash = str.replace(/[./]/g, "-");
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(dotSlash)) {
+    const [y, m, d] = dotSlash.split("-");
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) return parsed.toISOString().split("T")[0];
+  return str;
+}
+
+// 헤더 이름 → NewEmployee 필드 매핑
+const HEADER_MAP: Record<string, keyof NewEmployee> = {
+  현장구분: "현장구분", 현장: "현장구분",
+  이름: "이름", 성명: "이름",
+  주민번호: "주민번호", 주민등록번호: "주민번호",
+  연락처: "연락처", 전화번호: "연락처", 휴대폰: "연락처", 휴대전화: "연락처",
+  "남/여": "남여", 성별: "남여",
+  입사일: "입사일",
+  퇴사일: "퇴사일",
+  신청공종: "신청공종", 공종: "신청공종",
+  단가: "단가",
+  은행명: "은행명", 은행: "은행명",
+  계좌번호: "계좌번호", 계좌: "계좌번호",
+  주소: "주소",
+};
+
+const DATE_FIELDS = new Set<keyof NewEmployee>(["입사일", "퇴사일"]);
+
+function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  if (raw.length < 2) return [];
+
+  // 헤더 행 찾기 (첫 번째 비어있지 않은 행)
+  let headerRowIdx = 0;
+  for (let i = 0; i < Math.min(raw.length, 5); i++) {
+    const row = raw[i] as unknown[];
+    if (row.some((c) => String(c).trim() !== "")) { headerRowIdx = i; break; }
+  }
+
+  const headers = (raw[headerRowIdx] as unknown[]).map((h) => String(h).trim());
+  const fieldMap: { colIdx: number; field: keyof NewEmployee }[] = [];
+
+  headers.forEach((h, idx) => {
+    const field = HEADER_MAP[h];
+    if (field) fieldMap.push({ colIdx: idx, field });
+  });
+
+  const results: NewEmployee[] = [];
+  for (let i = headerRowIdx + 1; i < raw.length; i++) {
+    const row = raw[i] as unknown[];
+    // 완전히 빈 행 건너뜀
+    if (row.every((c) => String(c).trim() === "")) continue;
+
+    const emp = emptyRow();
+    for (const { colIdx, field } of fieldMap) {
+      const val = row[colIdx];
+      if (DATE_FIELDS.has(field)) {
+        emp[field] = excelDateToISO(val);
+      } else {
+        emp[field] = String(val ?? "").trim();
+      }
+    }
+    results.push(emp);
+  }
+  return results;
+}
+
 const STORAGE_KEY = "worksite_new_employees";
 
 function emptyRow(): NewEmployee {
@@ -89,6 +174,7 @@ export default function NewEmployeeList() {
     }
   });
   const [search, setSearch] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
@@ -108,6 +194,31 @@ export default function NewEmployeeList() {
     setRows((prev) =>
       prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
     );
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // input 초기화 (같은 파일 재업로드 허용)
+    e.target.value = "";
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target!.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array", cellDates: false });
+        const imported = parseImportedSheet(wb);
+        if (imported.length === 0) {
+          toast.error("데이터를 찾을 수 없습니다. 헤더 행을 확인하세요.");
+          return;
+        }
+        setRows(imported);
+        toast.success(`${imported.length}명의 데이터를 불러왔습니다.`);
+      } catch {
+        toast.error("파일을 읽는 중 오류가 발생했습니다.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   const exportToExcel = () => {
     const headers = [
@@ -140,6 +251,15 @@ export default function NewEmployeeList() {
 
   return (
     <div className="space-y-4">
+      {/* hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
+
       {/* 툴바 */}
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-bold text-foreground flex-1">신규자 명단</h2>
@@ -167,6 +287,13 @@ export default function NewEmployeeList() {
         >
           <Plus className="h-4 w-4" />
           행 추가
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
+        >
+          <Upload className="h-4 w-4 text-muted-foreground" />
+          엑셀 업로드
         </button>
         <button
           onClick={exportToExcel}
