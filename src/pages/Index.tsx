@@ -8,11 +8,13 @@ import XerpPmisTable from "@/components/XerpPmisTable";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Lock, Database, Home, LogOut, KeyRound } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Database, Home, LogOut, KeyRound } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import HomePage from "@/components/HomePage";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Lock } from "lucide-react";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -88,6 +90,20 @@ const Index = () => {
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const { isAdmin, login, logout } = useAdminAuth();
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [loginId, setLoginId] = useState("");
+  const [loginPw, setLoginPw] = useState("");
+
+  const handleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (login(loginId, loginPw)) {
+      toast.success("관리자로 로그인되었습니다.");
+      setLoginDialogOpen(false);
+      setLoginId(""); setLoginPw("");
+    } else {
+      toast.error("아이디 또는 비밀번호가 올바르지 않습니다.");
+    }
+  };
 
   useEffect(() => {
     const timeout = setTimeout(() => setIsLoading(false), 8000);
@@ -271,6 +287,44 @@ const Index = () => {
 
   return (
     <div className="flex h-screen bg-[#F0F2F5]">
+      {/* 관리자 로그인 다이얼로그 */}
+      <Dialog open={loginDialogOpen} onOpenChange={setLoginDialogOpen}>
+        <DialogContent className="sm:max-w-[340px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Lock className="h-4 w-4 text-primary" />
+              관리자 로그인
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleLoginSubmit} className="space-y-3 pt-2">
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1 block">아이디</label>
+              <input
+                type="text"
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground mb-1 block">비밀번호</label>
+              <input
+                type="password"
+                value={loginPw}
+                onChange={(e) => setLoginPw(e.target.value)}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+            >
+              로그인
+            </button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* ── SIDEBAR ─────────────────────────────── */}
       <aside className="w-56 shrink-0 bg-white flex flex-col shadow-[2px_0_12px_rgba(0,0,0,0.06)] z-20">
@@ -341,7 +395,7 @@ const Index = () => {
         <div className="px-4 py-4 border-t border-gray-100 shrink-0">
           {isAdmin ? (
             <button
-              onClick={logout}
+              onClick={() => { logout(); toast.info("로그아웃 되었습니다."); }}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
             >
               <LogOut className="h-4 w-4" />
@@ -349,7 +403,7 @@ const Index = () => {
             </button>
           ) : (
             <button
-              onClick={login}
+              onClick={() => setLoginDialogOpen(true)}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[#c8d8f8] text-sm font-semibold text-[#4a6aaa] hover:bg-[#f0f4ff] transition-colors"
             >
               <KeyRound className="h-4 w-4" />
