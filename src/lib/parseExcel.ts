@@ -213,7 +213,6 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   let dataYear = 2026;
   let dataMonth = 3;
   const xerpHanseongNames = new Set<string>(); // track 한성_F names from XERP
-  const taehwaNames = new Set<string>(); // track 태화_F names from XERP (중복 방지)
 
   const xerpSheet = wb.Sheets["XERP 기록"];
   if (xerpSheet) {
@@ -297,33 +296,28 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       }
 
       if (team === "한성_F") {
-        if (!xerpHanseongNames.has(name)) {
-          xerpHanseongNames.add(name);
-          xerpHanseongEmployees.push({
-            team: "한성_F",
-            name,
-            jobTitle,
-            rank,
-            totalDays,
-            dataYear: empYear,
-            dataMonth: empMonth,
-            dailyRecords,
-          });
-        }
+        xerpHanseongNames.add(name);
+        xerpHanseongEmployees.push({
+          team: "한성_F",
+          name,
+          jobTitle,
+          rank,
+          totalDays,
+          dataYear: empYear,
+          dataMonth: empMonth,
+          dailyRecords,
+        });
       } else {
-        if (!taehwaNames.has(name)) {
-          taehwaNames.add(name);
-          taehwaEmployees.push({
-            team: "태화_F",
-            name,
-            jobTitle,
-            rank: "",
-            totalDays,
-            dataYear: empYear,
-            dataMonth: empMonth,
-            dailyRecords,
-          });
-        }
+        taehwaEmployees.push({
+          team: "태화_F",
+          name,
+          jobTitle,
+          rank: "",
+          totalDays,
+          dataYear: empYear,
+          dataMonth: empMonth,
+          dailyRecords,
+        });
       }
     }
   }
