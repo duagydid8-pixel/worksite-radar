@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { ParsedData } from "@/lib/parseExcel";
-import { loadEmployeesPH4FS } from "@/lib/firestoreService";
+import { loadXerpFS } from "@/lib/firestoreService";
 
 interface HomePageProps {
   data: ParsedData | null;
@@ -10,27 +10,16 @@ interface HomePageProps {
 
 const DAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
 
-// ── 재직 여부 판단 ──────────────────────────────────
-function isActive(퇴사일: string): boolean {
-  if (!퇴사일) return true;
-  return new Date(퇴사일) >= new Date();
-}
+// ── 기술인 통계 (XERP&PMIS 가장 최근 날짜 기준) ────
+interface TechStats { total: number; present: number; absent: number; }
 
-// ── 기술인 통계 (기술인 명단 기반) ─────────────────
-interface TechStats { total: number; present: number; absent: number; leave: number; }
+type XerpRow = { xerp출근: string; pmis출근: string; 성명: string };
 
-function calcTechStats(
-  techEmployees: { 이름: string; 현장구분: string; 퇴사일: string }[],
-  anomalies: ParsedData["anomalies"]
-): TechStats {
-  const active = techEmployees.filter(
-    (e) => e.현장구분 === "기술인" && isActive(e.퇴사일)
-  );
-  const total = active.length;
-  const names = new Set(active.map((e) => e.이름));
-  const absent = anomalies.filter((a) => names.has(a.name) && a.결근 > 0).length;
-  const leave  = anomalies.filter((a) => names.has(a.name) && a.연차 > 0).length;
-  return { total, present: Math.max(0, total - absent - leave), absent, leave };
+function calcTechStats(xerpRows: XerpRow[]): TechStats {
+  const total   = xerpRows.length;
+  const present = xerpRows.filter((r) => r.xerp출근.trim() !== "" || r.pmis출근.trim() !== "").length;
+  const absent  = total - present;
+  return { total, present, absent };
 }
 
 // ── 관리자 통계 (근태보고 기반) ────────────────────
@@ -53,11 +42,12 @@ function getEmployeeStatus(name: string, anomalies: ParsedData["anomalies"]) {
 }
 
 // ── 통계 카드 행 컴포넌트 ──────────────────────────
+type AnyStats = Record<string, number>;
 interface StatRowProps {
   title: string;
-  stats: TechStats;
+  stats: AnyStats;
   loaded: boolean;
-  cards: { label: string; icon: string; bg: string; key: keyof TechStats; sub: string }[];
+  cards: { label: string; icon: string; bg: string; key: string; sub: string }[];
 }
 function StatRow({ title, stats, loaded, cards }: StatRowProps) {
   return (
@@ -148,20 +138,25 @@ export default function HomePage({ data, lastUploadedAt, selectedDate }: HomePag
   const today = new Date();
   const todayStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일 (${DAY_KO[today.getDay()]})`;
 
-  // 기술인 명단 로드
-  type RawEmployee = { 이름: string; 현장구분: string; 퇴사일: string };
-  const [techList, setTechList] = useState<RawEmployee[]>([]);
-  const [techLoaded, setTechLoaded] = useState(false);
+  // XERP 데이터 로드 → 가장 최근 날짜 행 사용
+  const [xerpRows, setXerpRows] = useState<XerpRow[]>([]);
+  const [xerpLoaded, setXerpLoaded] = useState(false);
 
   useEffect(() => {
-    loadEmployeesPH4FS().then((rows) => {
-      if (Array.isArray(rows)) setTechList(rows as RawEmployee[]);
-      setTechLoaded(true);
+    loadXerpFS().then((dateMap) => {
+      if (dateMap && typeof dateMap === "object") {
+        const dates = Object.keys(dateMap).sort();
+        if (dates.length > 0) {
+          const latest = dates[dates.length - 1];
+          setXerpRows((dateMap[latest] ?? []) as XerpRow[]);
+        }
+      }
+      setXerpLoaded(true);
     });
   }, []);
 
   // 통계 계산
-  const techStats    = useMemo(() => calcTechStats(techList, data?.anomalies ?? []), [techList, data]);
+  const techStats    = useMemo(() => calcTechStats(xerpRows), [xerpRows]);
   const managerStats = useMemo(() => calcManagerStats(data), [data]);
 
   // 최근 근태 테이블
@@ -177,16 +172,15 @@ export default function HomePage({ data, lastUploadedAt, selectedDate }: HomePag
   }, [data, selectedDate]);
 
   const TECH_CARDS = [
-    { label: "총 기술인 수", key: "total"   as const, icon: "⛑️", bg: "bg-blue-50",   sub: "재직 기준" },
-    { label: "정상 출근",    key: "present" as const, icon: "✅", bg: "bg-green-50",  sub: "결근·연차 제외" },
-    { label: "결근자",       key: "absent"  as const, icon: "❌", bg: "bg-red-50",    sub: "" },
-    { label: "연차자",       key: "leave"   as const, icon: "🌿", bg: "bg-purple-50", sub: "" },
+    { label: "총 기술인 수", key: "total",   icon: "⛑️", bg: "bg-blue-50",  sub: "XERP 최근 데이터 기준" },
+    { label: "정상 출근",    key: "present", icon: "✅", bg: "bg-green-50", sub: "출근 기록 있는 인원" },
+    { label: "결근자",       key: "absent",  icon: "❌", bg: "bg-red-50",   sub: "출근 기록 없음" },
   ];
   const MANAGER_CARDS = [
-    { label: "총 관리자 수", key: "total"   as const, icon: "👔", bg: "bg-blue-50",   sub: "근태보고 기준" },
-    { label: "정상 출근",    key: "present" as const, icon: "✅", bg: "bg-green-50",  sub: "결근·연차 제외" },
-    { label: "결근자",       key: "absent"  as const, icon: "❌", bg: "bg-red-50",    sub: "" },
-    { label: "연차자",       key: "leave"   as const, icon: "🌿", bg: "bg-purple-50", sub: "" },
+    { label: "총 관리자 수", key: "total",   icon: "👔", bg: "bg-blue-50",   sub: "근태보고 기준" },
+    { label: "정상 출근",    key: "present", icon: "✅", bg: "bg-green-50",  sub: "결근·연차 제외" },
+    { label: "결근자",       key: "absent",  icon: "❌", bg: "bg-red-50",    sub: "" },
+    { label: "연차자",       key: "leave",   icon: "🌿", bg: "bg-purple-50", sub: "" },
   ];
 
   return (
@@ -220,8 +214,8 @@ export default function HomePage({ data, lastUploadedAt, selectedDate }: HomePag
           {/* 기술인 통계 */}
           <StatRow
             title="기술인"
-            stats={techStats}
-            loaded={techLoaded}
+            stats={techStats as AnyStats}
+            loaded={xerpLoaded}
             cards={TECH_CARDS}
           />
           {/* 관리자 통계 */}
