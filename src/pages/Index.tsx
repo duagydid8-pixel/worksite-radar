@@ -331,14 +331,16 @@ const Index = () => {
 
         {/* 로고 */}
         <div
-          className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 cursor-pointer shrink-0"
+          className="px-5 py-5 border-b border-gray-100 cursor-pointer shrink-0"
           onClick={() => window.location.reload()}
         >
-          <img src="/logo.png" alt="로고" className="h-9 w-auto object-contain shrink-0" />
-          <div>
-            <div className="text-sm font-bold text-gray-800 leading-tight">Worksite</div>
-            <div className="text-[10px] text-gray-400">현장 관리 시스템</div>
+          <div
+            className="text-lg font-extrabold leading-tight tracking-tight"
+            style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
+          >
+            한성크린텍
           </div>
+          <div className="text-[11px] text-gray-400 font-medium mt-0.5">현장 관리 시스템</div>
         </div>
 
         {/* 네비게이션 */}
