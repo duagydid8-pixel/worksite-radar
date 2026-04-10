@@ -8,10 +8,11 @@ import XerpPmisTable from "@/components/XerpPmisTable";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Lock, Database } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Lock, Database, Home, LogOut, KeyRound } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
-import AdminLoginButton, { useAdminAuth } from "@/components/AdminLoginDialog";
+import { useAdminAuth } from "@/components/AdminLoginDialog";
+import HomePage from "@/components/HomePage";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -36,7 +37,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS";
+type ActiveTab = "홈" | "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -58,6 +59,7 @@ interface NavItem {
 }
 
 const NAV_PUBLIC: NavItem[] = [
+  { key: "홈", label: "홈", icon: <Home className="h-4 w-4" />, adminOnly: false },
   { key: "근태보고", label: "근태보고", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
   { key: "연차관리", label: "연차관리", icon: <CalendarDays className="h-4 w-4" />, adminOnly: false },
   { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
@@ -82,7 +84,7 @@ const Index = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingBuffer, setPendingBuffer] = useState<ArrayBuffer | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("근태보고");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("홈");
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const { isAdmin, login, logout } = useAdminAuth();
@@ -268,100 +270,115 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
-      <div className="border-b border-border bg-white px-6 py-4 flex items-center justify-between gap-4 flex-wrap shadow-sm shrink-0">
-        <div className="flex items-center gap-3">
-          <img
-            src="/logo.png"
-            alt="회사 로고"
-            className="h-14 w-auto object-contain shrink-0 cursor-pointer"
-            onClick={() => window.location.reload()}
-          />
-          <div className="w-px h-8 bg-border shrink-0" />
+    <div className="flex h-screen bg-[#F0F2F5]">
+
+      {/* ── SIDEBAR ─────────────────────────────── */}
+      <aside className="w-56 shrink-0 bg-white flex flex-col shadow-[2px_0_12px_rgba(0,0,0,0.06)] z-20">
+
+        {/* 로고 */}
+        <div
+          className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 cursor-pointer shrink-0"
+          onClick={() => window.location.reload()}
+        >
+          <img src="/logo.png" alt="로고" className="h-9 w-auto object-contain shrink-0" />
           <div>
-            <h1 className="text-base font-bold text-foreground leading-tight">
-              P4-PH4 초순수 현장 — 근태관리
-            </h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              평택 한성크린텍 · XERP / 지문 기록 기반 자동집계
-              {lastUploadedAt && (
-                <span className="ml-3 text-secondary">
-                  최종 업데이트: {formatUploadTime(lastUploadedAt)}
-                </span>
-              )}
-            </p>
+            <div className="text-sm font-bold text-gray-800 leading-tight">Worksite</div>
+            <div className="text-[10px] text-gray-400">현장 관리 시스템</div>
           </div>
         </div>
-        <AdminLoginButton isAdmin={isAdmin} onLogin={login} onLogout={logout} />
-      </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-48 shrink-0 border-r border-border bg-white flex flex-col">
-          <nav className="flex-1 py-3 px-2 space-y-0.5">
-            {/* 공개 메뉴 */}
-            {NAV_PUBLIC.map(({ key, label, icon, adminOnly }) => {
-              const isActive = activeTab === key;
-              return (
-                <button
-                  key={key}
-                  onClick={() => handleNavClick(key, adminOnly)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
-                    isActive
-                      ? "bg-primary text-white"
-                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                  }`}
-                >
-                  {icon}
-                  <span className="flex-1">{label}</span>
-                </button>
-              );
-            })}
+        {/* 네비게이션 */}
+        <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-0.5">
+          {NAV_PUBLIC.map(({ key, label, icon }) => {
+            const isActive = activeTab === key;
+            return (
+              <button
+                key={key}
+                onClick={() => handleNavClick(key, false)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
+                  isActive ? "text-[#2d3a8a] font-semibold shadow-[0_2px_8px_rgba(168,200,248,0.35)]" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                }`}
+                style={isActive ? { background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" } : {}}
+              >
+                <span className="shrink-0">{icon}</span>
+                <span>{label}</span>
+              </button>
+            );
+          })}
 
-            {/* 관리자 전용 섹션 */}
-            <div className="pt-3 pb-1">
-              <div className="flex items-center gap-1.5 px-3 mb-1">
-                <div className="flex-1 h-px bg-border" />
-                <span className="text-[10px] font-semibold text-muted-foreground/60 whitespace-nowrap uppercase tracking-wide">관리자 전용</span>
-                <div className="flex-1 h-px bg-border" />
-              </div>
-            </div>
-            {NAV_ADMIN.map(({ key, label, icon, adminOnly }) => {
-              const isActive = activeTab === key;
-              const locked = !isAdmin;
-              return (
-                <button
-                  key={key}
-                  onClick={() => handleNavClick(key, adminOnly)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
-                    isActive
-                      ? "bg-primary text-white"
-                      : locked
-                        ? "text-muted-foreground/50 hover:bg-muted/40 hover:text-muted-foreground"
-                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                  }`}
-                >
-                  {icon}
-                  <span className="flex-1">{label}</span>
-                  {locked && <Lock className="h-3.5 w-3.5 opacity-40 shrink-0" />}
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
+          {/* 관리자 전용 구분선 */}
+          <div className="flex items-center gap-2 px-2 pt-4 pb-1">
+            <div className="flex-1 h-px bg-gray-100" />
+            <span className="text-[10px] text-gray-300 font-semibold uppercase tracking-wider whitespace-nowrap">관리자 전용</span>
+            <div className="flex-1 h-px bg-gray-100" />
+          </div>
 
-        {/* Main content */}
-        <main className="flex-1 overflow-auto">
+          {NAV_ADMIN.map(({ key, label, icon, adminOnly }) => {
+            const isActive = activeTab === key;
+            const locked = !isAdmin;
+            return (
+              <button
+                key={key}
+                onClick={() => handleNavClick(key, adminOnly)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
+                  isActive
+                    ? "text-[#2d3a8a] font-semibold shadow-[0_2px_8px_rgba(168,200,248,0.35)]"
+                    : locked
+                      ? "text-gray-300 hover:bg-gray-50"
+                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                }`}
+                style={isActive ? { background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" } : {}}
+              >
+                <span className="shrink-0">{icon}</span>
+                <span className="flex-1">{label}</span>
+                {locked && <Lock className="h-3 w-3 opacity-30 shrink-0" />}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* 하단 로그인/로그아웃 */}
+        <div className="px-4 py-4 border-t border-gray-100 shrink-0">
+          {isAdmin ? (
+            <button
+              onClick={logout}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              로그아웃
+            </button>
+          ) : (
+            <button
+              onClick={login}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[#c8d8f8] text-sm font-semibold text-[#4a6aaa] hover:bg-[#f0f4ff] transition-colors"
+            >
+              <KeyRound className="h-4 w-4" />
+              관리자 로그인
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* ── MAIN ────────────────────────────────── */}
+      <main className="flex-1 overflow-auto">
+
+        {/* 홈 */}
+        {activeTab === "홈" && (
+          <HomePage data={data} lastUploadedAt={lastUploadedAt ? formatUploadTime(lastUploadedAt) : null} selectedDate={selectedDate} />
+        )}
+
+        {/* 신규자 명단 (관리자 전용) */}
+        {activeTab === "신규자명단" && isAdmin && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+            <NewEmployeeList />
+          </div>
+        )}
+
+        {/* 근태보고 */}
+        {activeTab === "근태보고" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-3">
-
-            {/* 신규자 명단 (관리자 전용) */}
-            {activeTab === "신규자명단" && isAdmin && <NewEmployeeList />}
-
-            {/* 근태보고 */}
-            {activeTab === "근태보고" && (
-              <>
-                {/* File upload + save (admin only) */}
+            <>
+              {/* File upload + save (admin only) */}
                 {isAdmin && (
                   <div className="flex items-center gap-3">
                     <div className="flex-1">
@@ -503,19 +520,20 @@ const Index = () => {
                   </div>
                 )}
               </>
-            )}
+          </div>
+        )}
 
-            {/* 연차관리 */}
-            {activeTab === "연차관리" && data && (
+        {/* 연차관리 */}
+        {activeTab === "연차관리" && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-3">
+            {data ? (
               <AnnualLeavePanel
                 leaveEmployees={data.leaveEmployees}
                 leaveDetails={data.leaveDetails}
                 rowOrder={rowOrders["leave"] || []}
                 onOrderChange={handleOrderChange}
               />
-            )}
-
-            {activeTab === "연차관리" && !data && (
+            ) : (
               <div className="py-16 text-center">
                 <div className="text-5xl mb-4">⬆️</div>
                 <h2 className="text-sm font-semibold text-muted-foreground mb-2">
@@ -523,15 +541,24 @@ const Index = () => {
                 </h2>
               </div>
             )}
-
-            {/* 조직도 */}
-            {activeTab === "조직도" && <OrgChart />}
-
-            {/* XERP & PMIS */}
-            {activeTab === "XERP&PMIS" && <XerpPmisTable isAdmin={isAdmin} />}
           </div>
-        </main>
-      </div>
+        )}
+
+        {/* 조직도 */}
+        {activeTab === "조직도" && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+            <OrgChart />
+          </div>
+        )}
+
+        {/* XERP & PMIS */}
+        {activeTab === "XERP&PMIS" && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+            <XerpPmisTable isAdmin={isAdmin} />
+          </div>
+        )}
+
+      </main>
     </div>
   );
 };

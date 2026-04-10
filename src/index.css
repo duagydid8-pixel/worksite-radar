@@ -6,7 +6,7 @@
 
 @layer base {
   :root {
-    --background: 210 20% 97%;
+    --background: 213 20% 95%;
     --foreground: 218 33% 16%;
 
     --card: 0 0% 100%;
@@ -15,17 +15,17 @@
     --popover: 0 0% 100%;
     --popover-foreground: 218 33% 16%;
 
-    --primary: 161 69% 37%;
+    --primary: 220 76% 68%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 216 63% 40%;
+    --secondary: 270 60% 72%;
     --secondary-foreground: 0 0% 100%;
 
     --muted: 213 14% 93%;
     --muted-foreground: 220 9% 46%;
 
-    --accent: 161 50% 94%;
-    --accent-foreground: 161 69% 25%;
+    --accent: 220 60% 94%;
+    --accent-foreground: 220 76% 35%;
 
     --destructive: 0 65% 40%;
     --destructive-foreground: 0 0% 100%;
@@ -33,23 +33,23 @@
     --warning: 33 88% 46%;
     --warning-foreground: 0 0% 100%;
 
-    --hanseong: 161 69% 37%;
-    --taehwa: 216 63% 40%;
+    --hanseong: 220 76% 68%;
+    --taehwa: 270 60% 72%;
 
     --border: 213 14% 89%;
     --input: 213 14% 89%;
-    --ring: 161 69% 37%;
+    --ring: 220 76% 68%;
 
     --radius: 0.5rem;
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 218 33% 16%;
-    --sidebar-primary: 161 69% 37%;
+    --sidebar-primary: 220 76% 68%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 213 14% 93%;
     --sidebar-accent-foreground: 218 33% 16%;
     --sidebar-border: 213 14% 89%;
-    --sidebar-ring: 161 69% 37%;
+    --sidebar-ring: 220 76% 68%;
   }
 }
 
