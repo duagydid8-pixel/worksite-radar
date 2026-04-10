@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpFS, saveXerpFS } from "@/lib/firestoreService";
+import { loadXerpFS, saveXerpFS, loadEmployeesPH4FS, loadEmployeesPH2FS } from "@/lib/firestoreService";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -357,6 +357,7 @@ interface Props { isAdmin: boolean }
 export default function XerpPmisTable({ isAdmin }: Props) {
   const [dateMap, setDateMap] = useState<DateMap>({});
   const [selectedDate, setSelectedDate] = useState<string>(TODAY);
+  const [resignedNames, setResignedNames] = useState<Set<string>>(new Set());
   const [uploadDate, setUploadDate] = useState<string>(TODAY);
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -383,11 +384,26 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     else setCalendarMonth((m) => m + 1);
   };
 
-  // 연속 3일 이상 결근 감지
-  const absentEmployees = useMemo(() => detectConsecutiveAbsences(dateMap), [dateMap]);
+  // 연속 3일 이상 결근 감지 — 퇴사자 제외
+  const absentEmployees = useMemo(() => {
+    const allAbsent = detectConsecutiveAbsences(dateMap);
+    return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
+  }, [dateMap, resignedNames]);
 
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
+    // 퇴사자 명단 로드 (PH4 + PH2)
+    Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS()]).then(([ph4, ph2]) => {
+      const names = new Set<string>();
+      for (const rows of [ph4, ph2]) {
+        if (!Array.isArray(rows)) continue;
+        for (const emp of rows as { 이름?: string; 퇴사일?: string }[]) {
+          if (emp.퇴사일 && emp.이름) names.add(emp.이름);
+        }
+      }
+      setResignedNames(names);
+    });
+
     loadXerpFS().then((fsMap) => {
       if (fsMap && typeof fsMap === "object" && Object.keys(fsMap).length > 0) {
         const typed = fsMap as DateMap;
