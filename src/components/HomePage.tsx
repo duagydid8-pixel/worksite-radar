@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { ParsedData } from "@/lib/parseExcel";
+import { loadEmployeesPH4FS } from "@/lib/firestoreService";
 
 interface HomePageProps {
   data: ParsedData | null;
@@ -9,16 +10,39 @@ interface HomePageProps {
 
 const DAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
 
-function calcStats(data: ParsedData | null) {
-  if (!data) return { total: 0, present: 0, absent: 0, leave: 0 };
-  const total = data.employees.length;
-  const absentSet = new Set(data.anomalies.filter((a) => a.결근 > 0).map((a) => a.name));
-  const leaveSet = new Set(data.anomalies.filter((a) => a.연차 > 0).map((a) => a.name));
-  const absent = absentSet.size;
-  const leave = leaveSet.size;
+// ── 재직 여부 판단 ──────────────────────────────────
+function isActive(퇴사일: string): boolean {
+  if (!퇴사일) return true;
+  return new Date(퇴사일) >= new Date();
+}
+
+// ── 기술인 통계 (기술인 명단 기반) ─────────────────
+interface TechStats { total: number; present: number; absent: number; leave: number; }
+
+function calcTechStats(
+  techEmployees: { 이름: string; 현장구분: string; 퇴사일: string }[],
+  anomalies: ParsedData["anomalies"]
+): TechStats {
+  const active = techEmployees.filter(
+    (e) => e.현장구분 === "기술인" && isActive(e.퇴사일)
+  );
+  const total = active.length;
+  const names = new Set(active.map((e) => e.이름));
+  const absent = anomalies.filter((a) => names.has(a.name) && a.결근 > 0).length;
+  const leave  = anomalies.filter((a) => names.has(a.name) && a.연차 > 0).length;
   return { total, present: Math.max(0, total - absent - leave), absent, leave };
 }
 
+// ── 관리자 통계 (근태보고 기반) ────────────────────
+function calcManagerStats(data: ParsedData | null) {
+  if (!data) return { total: 0, present: 0, absent: 0, leave: 0 };
+  const total  = data.employees.length;
+  const absent = data.anomalies.filter((a) => a.결근 > 0).length;
+  const leave  = data.anomalies.filter((a) => a.연차 > 0).length;
+  return { total, present: Math.max(0, total - absent - leave), absent, leave };
+}
+
+// ── 최근 근태 상태 ──────────────────────────────────
 function getEmployeeStatus(name: string, anomalies: ParsedData["anomalies"]) {
   const a = anomalies.find((x) => x.name === name);
   if (!a) return { label: "정상", color: "bg-green-100 text-green-700" };
@@ -28,6 +52,39 @@ function getEmployeeStatus(name: string, anomalies: ParsedData["anomalies"]) {
   return { label: "정상", color: "bg-green-100 text-green-700" };
 }
 
+// ── 통계 카드 행 컴포넌트 ──────────────────────────
+interface StatRowProps {
+  title: string;
+  stats: TechStats;
+  loaded: boolean;
+  cards: { label: string; icon: string; bg: string; key: keyof TechStats; sub: string }[];
+}
+function StatRow({ title, stats, loaded, cards }: StatRowProps) {
+  return (
+    <div>
+      <h3 className="text-sm font-bold text-gray-500 mb-3 flex items-center gap-2">
+        <span className="w-1 h-4 rounded-full inline-block" style={{ background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" }} />
+        {title}
+      </h3>
+      <div className="grid grid-cols-4 gap-4">
+        {cards.map((card) => (
+          <div key={card.label} className="bg-white rounded-2xl p-5 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+            <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center text-lg mb-3`}>
+              {card.icon}
+            </div>
+            <div className="text-3xl font-bold text-gray-800 mb-0.5">
+              {loaded ? stats[card.key] : "—"}
+            </div>
+            <div className="text-xs text-gray-400 font-medium">{card.label}</div>
+            {card.sub && <div className="text-[11px] text-gray-300 mt-1">{card.sub}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 미니 달력 ──────────────────────────────────────
 function MiniCalendar({ selectedDate }: { selectedDate: string }) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -43,29 +100,21 @@ function MiniCalendar({ selectedDate }: { selectedDate: string }) {
 
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-  const prevMonth = () => {
-    if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); }
-    else setViewMonth((m) => m - 1);
-  };
-  const nextMonth = () => {
-    if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); }
-    else setViewMonth((m) => m + 1);
-  };
+  const prevMonth = () => { if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); } else setViewMonth((m) => m - 1); };
+  const nextMonth = () => { if (viewMonth === 11) { setViewYear((y) => y + 1); setViewMonth(0); } else setViewMonth((m) => m + 1); };
 
   return (
     <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] p-5 h-full">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors font-bold text-base leading-none">‹</button>
+        <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 font-bold text-base leading-none">‹</button>
         <span className="text-sm font-bold text-gray-700">{viewYear}년 {viewMonth + 1}월</span>
-        <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors font-bold text-base leading-none">›</button>
+        <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 font-bold text-base leading-none">›</button>
       </div>
-
       <div className="grid grid-cols-7 mb-1">
         {DAY_KO.map((d, i) => (
           <div key={d} className={`text-center text-[10px] font-semibold pb-1.5 ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-400"}`}>{d}</div>
         ))}
       </div>
-
       <div className="grid grid-cols-7 gap-y-1">
         {cells.map((day, idx) => {
           if (!day) return <div key={idx} />;
@@ -94,16 +143,32 @@ function MiniCalendar({ selectedDate }: { selectedDate: string }) {
   );
 }
 
+// ── 메인 컴포넌트 ──────────────────────────────────
 export default function HomePage({ data, lastUploadedAt, selectedDate }: HomePageProps) {
   const today = new Date();
   const todayStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일 (${DAY_KO[today.getDay()]})`;
 
-  const stats = useMemo(() => calcStats(data), [data]);
+  // 기술인 명단 로드
+  type RawEmployee = { 이름: string; 현장구분: string; 퇴사일: string };
+  const [techList, setTechList] = useState<RawEmployee[]>([]);
+  const [techLoaded, setTechLoaded] = useState(false);
 
+  useEffect(() => {
+    loadEmployeesPH4FS().then((rows) => {
+      if (Array.isArray(rows)) setTechList(rows as RawEmployee[]);
+      setTechLoaded(true);
+    });
+  }, []);
+
+  // 통계 계산
+  const techStats    = useMemo(() => calcTechStats(techList, data?.anomalies ?? []), [techList, data]);
+  const managerStats = useMemo(() => calcManagerStats(data), [data]);
+
+  // 최근 근태 테이블
   const recentRows = useMemo(() => {
     if (!data) return [];
     return data.employees.slice(0, 10).map((emp) => {
-      const [y, m, d] = selectedDate.split("-").map(Number);
+      const [, m, d] = selectedDate.split("-").map(Number);
       const key = `${m}/${d}`;
       const rec = emp.dailyRecords?.[key];
       const status = getEmployeeStatus(emp.name, data.anomalies);
@@ -111,11 +176,17 @@ export default function HomePage({ data, lastUploadedAt, selectedDate }: HomePag
     });
   }, [data, selectedDate]);
 
-  const STAT_CARDS = [
-    { label: "총 인원수",  value: data ? stats.total   : null, icon: "👷", bg: "bg-blue-50",   sub: "업로드 기준" },
-    { label: "정상 출근",  value: data ? stats.present : null, icon: "✅", bg: "bg-green-50",  sub: "결근·연차 제외" },
-    { label: "결근자",    value: data ? stats.absent  : null, icon: "❌", bg: "bg-red-50",    sub: stats.absent > 0 ? "주의 필요" : "" },
-    { label: "연차자",    value: data ? stats.leave   : null, icon: "🌿", bg: "bg-purple-50", sub: "이번 기간 기준" },
+  const TECH_CARDS = [
+    { label: "총 기술인 수", key: "total"   as const, icon: "⛑️", bg: "bg-blue-50",   sub: "재직 기준" },
+    { label: "정상 출근",    key: "present" as const, icon: "✅", bg: "bg-green-50",  sub: "결근·연차 제외" },
+    { label: "결근자",       key: "absent"  as const, icon: "❌", bg: "bg-red-50",    sub: "" },
+    { label: "연차자",       key: "leave"   as const, icon: "🌿", bg: "bg-purple-50", sub: "" },
+  ];
+  const MANAGER_CARDS = [
+    { label: "총 관리자 수", key: "total"   as const, icon: "👔", bg: "bg-blue-50",   sub: "근태보고 기준" },
+    { label: "정상 출근",    key: "present" as const, icon: "✅", bg: "bg-green-50",  sub: "결근·연차 제외" },
+    { label: "결근자",       key: "absent"  as const, icon: "❌", bg: "bg-red-50",    sub: "" },
+    { label: "연차자",       key: "leave"   as const, icon: "🌿", bg: "bg-purple-50", sub: "" },
   ];
 
   return (
@@ -143,23 +214,26 @@ export default function HomePage({ data, lastUploadedAt, selectedDate }: HomePag
         <div className="absolute w-28 h-28 rounded-full bg-white/10 right-20 -bottom-10 pointer-events-none" />
       </div>
 
-      {/* 통계 카드 + 미니 달력 */}
+      {/* 통계 + 달력 */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-5 items-start">
-        <div className="grid grid-cols-2 gap-4">
-          {STAT_CARDS.map((card) => (
-            <div key={card.label} className="bg-white rounded-2xl p-5 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-              <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center text-lg mb-3`}>
-                {card.icon}
-              </div>
-              <div className="text-3xl font-bold text-gray-800 mb-0.5">
-                {card.value !== null ? card.value : "—"}
-              </div>
-              <div className="text-xs text-gray-400 font-medium">{card.label}</div>
-              {card.sub && <div className="text-[11px] text-gray-300 mt-1">{card.sub}</div>}
-            </div>
-          ))}
+        <div className="space-y-5">
+          {/* 기술인 통계 */}
+          <StatRow
+            title="기술인"
+            stats={techStats}
+            loaded={techLoaded}
+            cards={TECH_CARDS}
+          />
+          {/* 관리자 통계 */}
+          <StatRow
+            title="관리자"
+            stats={managerStats}
+            loaded={data !== null}
+            cards={MANAGER_CARDS}
+          />
         </div>
 
+        {/* 미니 달력 */}
         <MiniCalendar selectedDate={selectedDate} />
       </div>
 
