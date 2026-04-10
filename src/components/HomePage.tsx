@@ -35,16 +35,6 @@ function calcManagerStats(data: ParsedData | null) {
   return { total, present: Math.max(0, total - absent - leave), absent, leave };
 }
 
-// ── 최근 근태 상태 ──────────────────────────────────
-function getEmployeeStatus(name: string, anomalies: ParsedData["anomalies"]) {
-  const a = anomalies.find((x) => x.name === name);
-  if (!a) return { label: "정상", color: "bg-green-100 text-green-700" };
-  if (a.결근 > 0) return { label: "결근", color: "bg-red-100 text-red-600" };
-  if (a.연차 > 0) return { label: "연차", color: "bg-gray-100 text-gray-500" };
-  if (a.지각 > 0) return { label: "지각", color: "bg-blue-100 text-blue-600" };
-  return { label: "정상", color: "bg-green-100 text-green-700" };
-}
-
 // ── 통계 카드 행 컴포넌트 ──────────────────────────
 type AnyStats = Record<string, number>;
 interface StatRowProps {
@@ -363,18 +353,6 @@ export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }
   const techStats    = useMemo(() => calcTechStats(xerpRows), [xerpRows]);
   const managerStats = useMemo(() => calcManagerStats(data), [data]);
 
-  // 최근 근태 테이블
-  const recentRows = useMemo(() => {
-    if (!data) return [];
-    return data.employees.slice(0, 10).map((emp) => {
-      const [, m, d] = selectedDate.split("-").map(Number);
-      const key = `${m}/${d}`;
-      const rec = emp.dailyRecords?.[key];
-      const status = getEmployeeStatus(emp.name, data.anomalies);
-      return { name: emp.name, team: emp.team, rank: emp.rank, punchIn: rec?.punchIn ?? null, punchOut: rec?.punchOut ?? null, status };
-    });
-  }, [data, selectedDate]);
-
   const TECH_CARDS = [
     { label: "총 기술인 수", key: "total",   icon: "⛑️", bg: "bg-blue-50",  sub: "XERP 최근 데이터 기준" },
     { label: "정상 출근",    key: "present", icon: "✅", bg: "bg-green-50", sub: "출근 기록 있는 인원" },
@@ -438,39 +416,6 @@ export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }
       {/* 작업 일정 */}
       <WorkScheduleSection isAdmin={isAdmin} />
 
-      {/* 최근 근태 테이블 */}
-      <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] p-5">
-        <h3 className="text-sm font-bold text-gray-700 mb-4">최근 근태 현황</h3>
-        {!data ? (
-          <p className="text-sm text-gray-400 py-8 text-center">업로드된 데이터가 없습니다.</p>
-        ) : (
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-gray-100">
-                {["이름", "팀", "직급", "출근", "퇴근", "상태"].map((h) => (
-                  <th key={h} className="text-left text-gray-400 font-semibold pb-2 px-2">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {recentRows.map((row, i) => (
-                <tr key={i} className="border-b border-gray-50 last:border-0">
-                  <td className="py-2.5 px-2 font-medium text-gray-700">{row.name}</td>
-                  <td className="py-2.5 px-2 text-gray-500">{row.team}</td>
-                  <td className="py-2.5 px-2 text-gray-500">{row.rank}</td>
-                  <td className="py-2.5 px-2 text-gray-500">{row.punchIn ?? "—"}</td>
-                  <td className="py-2.5 px-2 text-gray-500">{row.punchOut ?? "—"}</td>
-                  <td className="py-2.5 px-2">
-                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${row.status.color}`}>
-                      {row.status.label}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
     </div>
   );
 }
