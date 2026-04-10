@@ -390,6 +390,11 @@ export default function OrgChart() {
                           <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-gray-200" />
                         </div>
 
+                        {/* Team name label */}
+                        <div className="mb-3 px-5 py-1.5 rounded-xl text-sm font-bold text-white shadow-sm" style={{ background: team.color }}>
+                          {team.name}
+                        </div>
+
                         {/* Leader card */}
                         {leader ? (
                           <TreeCard member={leader} color={team.color} isLeader onEdit={() => setEditMember(leader)} onDelete={() => handleDeleteMember(leader.id)} />
@@ -410,11 +415,8 @@ export default function OrgChart() {
                           </div>
                         )}
 
-                        {/* Team label + actions */}
-                        <div className="mt-4 flex flex-col items-center gap-1.5">
-                          <span className="text-[11px] font-bold px-3 py-1 rounded-full text-white" style={{ background: team.color }}>
-                            {team.name}
-                          </span>
+                        {/* Actions */}
+                        <div className="mt-3 flex flex-col items-center gap-1.5">
                           <button onClick={() => handleAddMember(team.id)} className="text-xs text-gray-400 hover:text-gray-600 hover:underline transition-colors">
                             + 인원 추가
                           </button>
