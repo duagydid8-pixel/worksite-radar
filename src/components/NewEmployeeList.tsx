@@ -180,22 +180,13 @@ const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "단가�
 
 // ── 공통 탭 컨텐츠 컴포넌트 ─────────────────────────
 interface EmployeeTabContentProps {
-  storageKey: string;
   loadFn: () => Promise<unknown[] | null>;
   saveFn: (rows: unknown[]) => Promise<boolean>;
 }
 
-function EmployeeTabContent({ storageKey, loadFn, saveFn }: EmployeeTabContentProps) {
-  const [rows, setRows] = useState<NewEmployee[]>(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (!saved) return [emptyRow()];
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : [emptyRow()];
-    } catch {
-      return [emptyRow()];
-    }
-  });
+function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
+  const [rows, setRows] = useState<NewEmployee[]>([emptyRow()]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<NewEmployee | null>(null);
@@ -204,18 +195,12 @@ function EmployeeTabContent({ storageKey, loadFn, saveFn }: EmployeeTabContentPr
   useEffect(() => {
     loadFn().then((fsRows) => {
       if (Array.isArray(fsRows) && fsRows.length > 0) {
-        const typed = fsRows as NewEmployee[];
-        setRows(typed);
-        localStorage.setItem(storageKey, JSON.stringify(typed));
+        setRows(fsRows as NewEmployee[]);
       }
+      setLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey]);
-
-  // localStorage 자동 동기화
-  useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify(rows));
-  }, [rows, storageKey]);
+  }, []);
 
   // Firestore 저장 헬퍼
   const syncFS = useCallback((newRows: NewEmployee[]) => {
@@ -276,7 +261,6 @@ function EmployeeTabContent({ storageKey, loadFn, saveFn }: EmployeeTabContentPr
           return;
         }
         setRows(imported);
-        localStorage.setItem(storageKey, JSON.stringify(imported));
         syncFS(imported);
         toast.success(`${imported.length}명의 데이터를 불러왔습니다.`);
       } catch {
@@ -652,14 +636,12 @@ export default function NewEmployeeList() {
         </TabsList>
         <TabsContent value="ph4">
           <EmployeeTabContent
-            storageKey="worksite_new_employees_ph4"
             loadFn={loadEmployeesPH4FS}
             saveFn={saveEmployeesPH4FS}
           />
         </TabsContent>
         <TabsContent value="ph2">
           <EmployeeTabContent
-            storageKey="worksite_new_employees_ph2"
             loadFn={loadEmployeesPH2FS}
             saveFn={saveEmployeesPH2FS}
           />

@@ -190,26 +190,11 @@ function extractDateFromFilename(filename: string): string | null {
 }
 
 // ── 상수 ─────────────────────────────────────────────
-const STORAGE_KEY = "worksite_xerp_pmis";
 const TODAY = toDateStr();
 const DOW = ["일","월","화","수","목","금","토"];
 
 const cell = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-border/40 last:border-r-0";
 const cellNum = `${cell} tabular-nums`;
-
-// ── localStorage 초기 로드 (구버전 배열 → 날짜맵 자동 마이그레이션) ──
-function loadDateMap(): DateMap {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return {};
-    const parsed = JSON.parse(saved);
-    if (Array.isArray(parsed)) {
-      return parsed.length > 0 ? { [TODAY]: parsed } : {};
-    }
-    if (typeof parsed === "object" && parsed !== null) return parsed as DateMap;
-    return {};
-  } catch { return {}; }
-}
 
 // ── 달력 모달 컴포넌트 ─────────────────────────────────
 interface CalendarModalProps {
@@ -370,12 +355,8 @@ function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: C
 interface Props { isAdmin: boolean }
 
 export default function XerpPmisTable({ isAdmin }: Props) {
-  const [dateMap, setDateMap] = useState<DateMap>(loadDateMap);
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const map = loadDateMap();
-    const dates = Object.keys(map).sort().reverse();
-    return dates[0] ?? TODAY;
-  });
+  const [dateMap, setDateMap] = useState<DateMap>({});
+  const [selectedDate, setSelectedDate] = useState<string>(TODAY);
   const [uploadDate, setUploadDate] = useState<string>(TODAY);
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -402,27 +383,8 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     else setCalendarMonth((m) => m + 1);
   };
 
-  // 연속 3일 이상 결근 감지 — 신규자명단 퇴사자 제외
-  const absentEmployees = useMemo(() => {
-    const allAbsent = detectConsecutiveAbsences(dateMap);
-
-    // 신규자명단에서 퇴사일이 입력된 직원 이름 수집
-    const resignedNames = new Set<string>();
-    try {
-      const saved = localStorage.getItem("worksite_new_employees");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          for (const emp of parsed) {
-            if (emp.퇴사일 && emp.이름) resignedNames.add(emp.이름);
-          }
-        }
-      }
-    } catch { /* ignore */ }
-
-    // 퇴사자 제외 (XERP 성명 ↔ 신규자명단 이름 매칭)
-    return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
-  }, [dateMap]);
+  // 연속 3일 이상 결근 감지
+  const absentEmployees = useMemo(() => detectConsecutiveAbsences(dateMap), [dateMap]);
 
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
@@ -430,17 +392,11 @@ export default function XerpPmisTable({ isAdmin }: Props) {
       if (fsMap && typeof fsMap === "object" && Object.keys(fsMap).length > 0) {
         const typed = fsMap as DateMap;
         setDateMap(typed);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(typed));
         const dates = Object.keys(typed).sort().reverse();
         if (dates[0]) setSelectedDate(dates[0]);
       }
     });
   }, []);
-
-  // localStorage 동기화
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dateMap));
-  }, [dateMap]);
 
   // Firestore 저장 헬퍼
   const syncXerpFS = (map: DateMap) => {
@@ -496,7 +452,6 @@ export default function XerpPmisTable({ isAdmin }: Props) {
 
     if (successCount > 0) {
       setDateMap(newMap);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newMap));
       syncXerpFS(newMap);
       setSelectedDate(lastSavedDate);
       if (files.length > 1) {
@@ -511,7 +466,6 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     const next = { ...dateMap };
     delete next[date];
     setDateMap(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     syncXerpFS(next);
     const remaining = Object.keys(next).sort().reverse();
     setSelectedDate(remaining[0] ?? TODAY);

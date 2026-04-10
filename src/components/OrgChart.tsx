@@ -13,7 +13,6 @@ interface OrgData { teams: OrgTeam[]; members: OrgMember[]; siteManager?: SiteMa
 
 const RANKS = ["수석", "책임", "선임", "사원"] as const;
 const TEAM_COLORS = ["#2563eb", "#7c3aed", "#059669", "#dc2626", "#d97706", "#0891b2", "#be185d", "#4f46e5", "#15803d", "#b45309"];
-const ORG_STORAGE_KEY = "worksite_org_data";
 const DEFAULT_SM: SiteManagerInfo = { name: "현장소장", phone: "", email: "", photo_url: "" };
 
 const SEED_DATA: OrgData = {
@@ -54,19 +53,6 @@ const SEED_DATA: OrgData = {
     { id:"sm-26", team_id:"seed-team-5", name:"신동건", position:"담당", rank:"선임", phone:"010-8747-6786", email:"donggeon@hscleantech.com",  photo_url:"", is_leader:false, sort_order:5 },
   ],
 };
-
-function loadOrgFromStorage(): OrgData {
-  try {
-    const saved = localStorage.getItem(ORG_STORAGE_KEY);
-    if (saved) {
-      const parsed: OrgData = JSON.parse(saved);
-      if (Array.isArray(parsed.teams) && parsed.teams.length > 0 && Array.isArray(parsed.members)) return parsed;
-    }
-  } catch { /* ignore */ }
-  localStorage.setItem(ORG_STORAGE_KEY, JSON.stringify(SEED_DATA));
-  return SEED_DATA;
-}
-function saveOrgToStorage(data: OrgData) { localStorage.setItem(ORG_STORAGE_KEY, JSON.stringify(data)); }
 
 function lighten(hex: string, pct: number) {
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16), f = pct/100;
@@ -217,9 +203,9 @@ function AddTeamDialog({ onAdd, onClose, usedColors }: { onAdd: (name: string, c
 
 /* ━━━━━━━━━━━━━━━ MAIN ━━━━━━━━━━━━━━━ */
 export default function OrgChart() {
-  const [teams, setTeams] = useState<OrgTeam[]>(() => loadOrgFromStorage().teams);
-  const [members, setMembers] = useState<OrgMember[]>(() => loadOrgFromStorage().members);
-  const [siteManager, setSiteManager] = useState<SiteManagerInfo>(() => loadOrgFromStorage().siteManager ?? DEFAULT_SM);
+  const [teams, setTeams] = useState<OrgTeam[]>([]);
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  const [siteManager, setSiteManager] = useState<SiteManagerInfo>(DEFAULT_SM);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -234,17 +220,16 @@ export default function OrgChart() {
         const d = data as OrgData;
         setTeams(d.teams); setMembers(d.members);
         if (d.siteManager) setSiteManager(d.siteManager);
-        saveOrgToStorage(d);
+      } else {
+        setTeams(SEED_DATA.teams); setMembers(SEED_DATA.members);
       }
     });
   }, []);
 
-  useEffect(() => { saveOrgToStorage({ teams, members, siteManager }); }, [teams, members, siteManager]);
-
   const handleSaveAll = useCallback(async () => {
     setSaving(true);
     const ok = await saveOrgFS({ teams, members, siteManager });
-    if (ok) { saveOrgToStorage({ teams, members, siteManager }); setDirty(false); toast.success("조직도가 저장되었습니다."); }
+    if (ok) { setDirty(false); toast.success("조직도가 저장되었습니다."); }
     else toast.error("Firestore 저장 실패 (네트워크 확인)");
     setSaving(false);
   }, [teams, members, siteManager]);
