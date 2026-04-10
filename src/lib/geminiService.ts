@@ -5,7 +5,7 @@ export interface ScheduleData {
   uploadedAt: string;
 }
 
-const MODEL = "gemini-2.0-flash";
+const MODEL = "gemini-2.0-flash-lite";
 
 function getApiKey(): string {
   const key = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
