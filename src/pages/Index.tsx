@@ -335,12 +335,12 @@ const Index = () => {
           onClick={() => window.location.reload()}
         >
           <div
-            className="text-lg font-extrabold leading-tight tracking-tight"
+            className="text-2xl font-extrabold leading-tight tracking-tight"
             style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
           >
             한성크린텍
           </div>
-          <div className="text-[11px] text-gray-400 font-medium mt-0.5">현장 관리 시스템</div>
+          <div className="text-[13px] text-gray-400 font-medium mt-1">현장 관리 시스템</div>
         </div>
 
         {/* 네비게이션 */}
