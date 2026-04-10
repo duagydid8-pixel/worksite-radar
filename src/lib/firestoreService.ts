@@ -101,3 +101,11 @@ export async function loadXerpFS() {
 export async function saveXerpFS(dateMap: Record<string, unknown[]>) {
   return fsSet("xerp_pmis", { dateMap });
 }
+
+// ── 작업 일정 ──────────────────────────────────────────
+export async function loadScheduleFS() {
+  return fsGet<import("./geminiService").ScheduleData>("work_schedule");
+}
+export async function saveScheduleFS(data: import("./geminiService").ScheduleData) {
+  return fsSet("work_schedule", data as unknown as object);
+}

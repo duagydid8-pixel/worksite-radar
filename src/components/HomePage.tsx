@@ -1,11 +1,15 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { ParsedData } from "@/lib/parseExcel";
-import { loadXerpFS } from "@/lib/firestoreService";
+import { loadXerpFS, loadScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
+import { analyzeScheduleImage, fileToBase64, hasGeminiKey, type ScheduleData } from "@/lib/geminiService";
+import { toast } from "sonner";
+import { Upload, Loader2, CalendarDays } from "lucide-react";
 
 interface HomePageProps {
   data: ParsedData | null;
   lastUploadedAt: string | null;
   selectedDate: string;
+  isAdmin: boolean;
 }
 
 const DAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
@@ -133,8 +137,208 @@ function MiniCalendar({ selectedDate }: { selectedDate: string }) {
   );
 }
 
+// ── 작업 유형 스타일 ──────────────────────────────────
+const TYPE_META: Record<string, { bg: string; text: string; border: string; dot: string; label: string }> = {
+  "주간":    { bg: "bg-green-50",  text: "text-green-700",  border: "border-green-200", dot: "bg-green-500",  label: "주간" },
+  "연장":    { bg: "bg-blue-50",   text: "text-blue-700",   border: "border-blue-200",  dot: "bg-blue-500",   label: "연장" },
+  "야간":    { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200",dot: "bg-orange-500", label: "야간" },
+  "현장휴무":{ bg: "bg-red-50",    text: "text-red-600",    border: "border-red-200",   dot: "bg-red-400",    label: "휴무" },
+};
+
+const WEEK_DAY_KO = ["월","화","수","목","금","토","일"];
+
+function getWeekDates(weekStart: string): string[] {
+  const start = new Date(weekStart + "T00:00:00");
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
+// ── 주간 캘린더 ──────────────────────────────────────
+function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
+  const weekDates = useMemo(() => getWeekDates(schedule.weekStart), [schedule.weekStart]);
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const [wy, wm, wd] = schedule.weekStart.split("-").map(Number);
+  const endDate = weekDates[6];
+  const [, em, ed] = endDate.split("-").map(Number);
+  const rangeLabel = `${wy}년 ${wm}월 ${wd}일 ~ ${em}월 ${ed}일`;
+
+  return (
+    <div>
+      <p className="text-xs text-gray-400 mb-3">{rangeLabel}</p>
+      <div className="overflow-x-auto rounded-xl border border-gray-100">
+        <table className="w-full text-xs border-collapse" style={{ minWidth: 560 }}>
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              <th className="text-left text-gray-500 font-semibold py-2.5 px-4 w-28">구역</th>
+              {weekDates.map((date, i) => {
+                const [, m, d] = date.split("-").map(Number);
+                const isToday = date === todayStr;
+                const isWeekend = i >= 5;
+                return (
+                  <th key={date} className="text-center py-2.5 px-2" style={{ minWidth: 64 }}>
+                    <div className={`text-[11px] font-bold ${isToday ? "text-purple-600" : isWeekend ? "text-blue-400" : "text-gray-600"}`}>
+                      {m}/{d}
+                    </div>
+                    <div className={`text-[10px] font-normal mt-0.5 ${isToday ? "text-purple-400" : isWeekend ? "text-blue-300" : "text-gray-400"}`}>
+                      ({WEEK_DAY_KO[i]})
+                    </div>
+                    {isToday && <div className="w-1.5 h-1.5 rounded-full bg-purple-500 mx-auto mt-0.5" />}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.zones.map((zone, zi) => (
+              <tr key={zone} className={`border-b border-gray-50 last:border-0 ${zi % 2 === 1 ? "bg-gray-50/40" : "bg-white"}`}>
+                <td className="py-3 px-4 font-semibold text-gray-700 text-xs whitespace-nowrap">{zone}</td>
+                {weekDates.map((date) => {
+                  const type = schedule.schedule[date]?.[zone] ?? "";
+                  const meta = TYPE_META[type];
+                  const isToday = date === todayStr;
+                  return (
+                    <td key={date} className={`py-3 px-2 text-center ${isToday ? "bg-purple-50/30" : ""}`}>
+                      {meta ? (
+                        <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
+                          {meta.label}
+                        </span>
+                      ) : (
+                        <span className="text-gray-200 text-xs">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 범례 */}
+      <div className="mt-3 flex flex-wrap gap-3">
+        {Object.entries(TYPE_META).map(([key, meta]) => (
+          <div key={key} className="flex items-center gap-1.5">
+            <span className={`w-2.5 h-2.5 rounded-sm border ${meta.bg} ${meta.border}`} />
+            <span className="text-[11px] text-gray-500">{key}</span>
+          </div>
+        ))}
+      </div>
+
+      {schedule.uploadedAt && (
+        <p className="mt-2 text-[11px] text-gray-300">
+          업데이트: {new Date(schedule.uploadedAt).toLocaleString("ko-KR")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── 작업 일정 섹션 ────────────────────────────────────
+function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
+  const [schedule, setSchedule] = useState<ScheduleData | null>(null);
+  const [loadingFetch, setLoadingFetch] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const apiKeyAvailable = hasGeminiKey();
+
+  useEffect(() => {
+    loadScheduleFS().then((data) => {
+      setSchedule(data);
+      setLoadingFetch(false);
+    });
+  }, []);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("파일 크기는 15MB 이하여야 합니다.");
+      return;
+    }
+    const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!supportedTypes.includes(file.type)) {
+      toast.error("JPG, PNG, WebP, GIF 형식만 지원합니다.");
+      return;
+    }
+
+    setAnalyzing(true);
+    try {
+      const base64 = await fileToBase64(file);
+      const data = await analyzeScheduleImage(base64, file.type);
+      await saveScheduleFS(data);
+      setSchedule(data);
+      toast.success("작업 일정이 성공적으로 분석되었습니다.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "분석 중 오류가 발생했습니다.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] p-5">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-primary" />
+          주간 작업 일정
+        </h3>
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            {!apiKeyAvailable && (
+              <span className="text-[11px] text-red-400 bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
+                API 키 미설정
+              </span>
+            )}
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={analyzing || !apiKeyAvailable}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
+            >
+              {analyzing ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> 분석 중...</>
+              ) : (
+                <><Upload className="h-3.5 w-3.5" /> 이미지 업로드</>
+              )}
+            </button>
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleFileChange} />
+          </div>
+        )}
+      </div>
+
+      {/* 컨텐츠 */}
+      {loadingFetch ? (
+        <div className="flex items-center justify-center py-10 gap-2 text-gray-400 text-sm">
+          <Loader2 className="h-4 w-4 animate-spin" /> 불러오는 중...
+        </div>
+      ) : analyzing ? (
+        <div className="flex flex-col items-center justify-center py-10 gap-3 text-gray-400">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm font-medium text-gray-500">Gemini AI가 이미지를 분석하고 있습니다...</p>
+          <p className="text-xs text-gray-300">잠시만 기다려 주세요 (10~30초)</p>
+        </div>
+      ) : !schedule ? (
+        <div className="py-10 text-center">
+          <CalendarDays className="h-10 w-10 text-gray-200 mx-auto mb-3" />
+          <p className="text-sm text-gray-400">
+            {isAdmin ? "작업 일정 이미지를 업로드하면 자동으로 분석됩니다." : "등록된 작업 일정이 없습니다."}
+          </p>
+        </div>
+      ) : (
+        <ScheduleCalendar schedule={schedule} />
+      )}
+    </div>
+  );
+}
+
 // ── 메인 컴포넌트 ──────────────────────────────────
-export default function HomePage({ data, lastUploadedAt, selectedDate }: HomePageProps) {
+export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }: HomePageProps) {
   const today = new Date();
   const todayStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일 (${DAY_KO[today.getDay()]})`;
 
@@ -230,6 +434,9 @@ export default function HomePage({ data, lastUploadedAt, selectedDate }: HomePag
         {/* 미니 달력 */}
         <MiniCalendar selectedDate={selectedDate} />
       </div>
+
+      {/* 작업 일정 */}
+      <WorkScheduleSection isAdmin={isAdmin} />
 
       {/* 최근 근태 테이블 */}
       <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] p-5">
