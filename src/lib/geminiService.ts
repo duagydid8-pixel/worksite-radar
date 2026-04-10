@@ -5,7 +5,7 @@ export interface ScheduleData {
   uploadedAt: string;
 }
 
-const MODEL = "gemini-1.5-flash";
+const MODEL = "gemini-2.0-flash";
 
 function getApiKey(): string {
   const key = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
@@ -15,7 +15,7 @@ function getApiKey(): string {
 
 export async function analyzeScheduleImage(base64Data: string, mimeType: string): Promise<ScheduleData> {
   const key = getApiKey();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${key}`;
 
   const prompt = `이 이미지는 건설현장 주간 작업 일정표입니다.
 이미지를 분석하여 구역/팀별, 날짜별 작업 일정을 정확히 추출하세요.
