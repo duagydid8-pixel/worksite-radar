@@ -44,7 +44,7 @@ export async function analyzeScheduleImage(base64Data: string, mimeType: string)
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ inlineData: { mimeType, data: base64Data } }, { text: prompt }] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 2048, responseMimeType: "application/json" },
+      generationConfig: { temperature: 0, maxOutputTokens: 2048 },
     }),
   });
 
