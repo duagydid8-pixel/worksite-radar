@@ -686,10 +686,11 @@ export default function XerpPmisTable({ isAdmin }: Props) {
                   <td className={`${cell} font-medium p-0`}>
                     <button
                       onClick={() => openCalendar(row)}
-                      className="w-full h-full px-2 py-1.5 text-primary hover:underline hover:text-primary/80 transition-colors font-medium"
+                      className="w-full h-full px-2 py-1.5 flex items-center justify-center gap-1 text-primary hover:text-primary/80 transition-colors font-medium group"
                       title="달력으로 출퇴근 현황 보기"
                     >
                       {row.성명||"—"}
+                      <CalendarDays className="h-3 w-3 opacity-40 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                     </button>
                   </td>
                   <td className={cell}>{row.생년월일||"—"}</td>
