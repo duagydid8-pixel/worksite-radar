@@ -83,6 +83,8 @@ const Index = () => {
   const [data, setData] = useState<ParsedData | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
+    const saved = localStorage.getItem("attendance_selected_date");
+    if (saved) return saved;
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   });
@@ -476,7 +478,7 @@ const Index = () => {
                         className="bg-white border border-border text-foreground text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       />
                       <button
-                        onClick={() => setSelectedDate(pendingDate)}
+                        onClick={() => { setSelectedDate(pendingDate); localStorage.setItem("attendance_selected_date", pendingDate); }}
                         disabled={pendingDate === selectedDate}
                         className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
                       >
