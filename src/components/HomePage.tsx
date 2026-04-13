@@ -169,7 +169,7 @@ function getWeekDates(weekStart: string): string[] {
 
 // ── 주간 캘린더 ──────────────────────────────────────
 const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleData }>(
-function ScheduleCalendar({ schedule }, _ref) {
+  ({ schedule }, _ref) => {
   const weekDates = useMemo(() => getWeekDates(schedule.weekStart), [schedule.weekStart]);
   const todayStr = new Date().toISOString().slice(0, 10);
 
