@@ -140,7 +140,6 @@ function detectConsecutiveAbsences(dateMap: DateMap): XerpPmisRow[] {
     if (!firstDate) continue;
 
     let consecutive = 0;
-    let flagged = false;
     for (const d of weekdayDates) {
       if (d < firstDate) continue;
       const rows = dateMap[d];
@@ -151,12 +150,11 @@ function detectConsecutiveAbsences(dateMap: DateMap): XerpPmisRow[] {
 
       if (!hasCheckIn) {
         consecutive++;
-        if (consecutive >= 3) { flagged = true; break; }
       } else {
         consecutive = 0;
       }
     }
-    if (flagged) result.push(emp);
+    if (consecutive >= 3) result.push(emp);
   }
 
   return result;
