@@ -5,10 +5,11 @@ import AttendanceTable from "@/components/AttendanceTable";
 import AnnualLeavePanel from "@/components/AnnualLeavePanel";
 import NewEmployeeList from "@/components/NewEmployeeList";
 import XerpPmisTable from "@/components/XerpPmisTable";
+import { WeeklySchedule } from "@/components/WeeklySchedule";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Database, Home, LogOut, KeyRound } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -39,7 +40,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "홈" | "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS";
+type ActiveTab = "홈" | "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS" | "주간일정";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -65,6 +66,7 @@ const NAV_PUBLIC: NavItem[] = [
   { key: "근태보고", label: "근태보고", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
   { key: "연차관리", label: "연차관리", icon: <CalendarDays className="h-4 w-4" />, adminOnly: false },
   { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
+  { key: "주간일정", label: "주간일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: false },
 ];
 
 const NAV_ADMIN: NavItem[] = [
@@ -604,6 +606,13 @@ const Index = () => {
         {activeTab === "조직도" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <OrgChart />
+          </div>
+        )}
+
+        {/* 주간일정 */}
+        {activeTab === "주간일정" && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+            <WeeklySchedule />
           </div>
         )}
 
