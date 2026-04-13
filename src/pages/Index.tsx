@@ -83,6 +83,7 @@ const Index = () => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   });
+  const [pendingDate, setPendingDate] = useState(selectedDate);
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("전체");
   const [lastUploadedAt, setLastUploadedAt] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -467,10 +468,17 @@ const Index = () => {
                       <span className="text-xs font-semibold text-muted-foreground">보고기준일</span>
                       <input
                         type="date"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
+                        value={pendingDate}
+                        onChange={(e) => setPendingDate(e.target.value)}
                         className="bg-white border border-border text-foreground text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       />
+                      <button
+                        onClick={() => setSelectedDate(pendingDate)}
+                        disabled={pendingDate === selectedDate}
+                        className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
+                      >
+                        적용
+                      </button>
                       <div className="text-xs font-semibold text-secondary bg-secondary/10 border border-secondary/20 px-3 py-1.5 rounded-lg">
                         {formatWeekRange(monday)}
                       </div>
