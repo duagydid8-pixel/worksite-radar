@@ -3,7 +3,7 @@ import { ParsedData } from "@/lib/parseExcel";
 import { loadXerpFS, loadScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
 import { analyzeScheduleImage, fileToBase64, hasGeminiKey, type ScheduleData } from "@/lib/geminiService";
 import { toast } from "sonner";
-import { Upload, Loader2, CalendarDays } from "lucide-react";
+import { Upload, Loader2, CalendarDays, FileJson } from "lucide-react";
 
 interface HomePageProps {
   data: ParsedData | null;
@@ -156,6 +156,27 @@ function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
   const [, em, ed] = endDate.split("-").map(Number);
   const rangeLabel = `${wy}년 ${wm}월 ${wd}일 ~ ${em}월 ${ed}일`;
 
+  // Group zones by floor
+  const floorGroups = useMemo(() => {
+    const groups: { label: string; zones: string[] }[] = [];
+    const floor1: string[] = [];
+    const floor3: string[] = [];
+    const other: string[] = [];
+
+    for (const zone of schedule.zones) {
+      if (zone.startsWith("1층")) floor1.push(zone);
+      else if (zone.startsWith("3층")) floor3.push(zone);
+      else other.push(zone);
+    }
+
+    if (floor1.length > 0) groups.push({ label: "1층", zones: floor1 });
+    if (floor3.length > 0) groups.push({ label: "3층", zones: floor3 });
+    if (other.length > 0) groups.push({ label: "기타", zones: other });
+    if (groups.length === 0) groups.push({ label: "", zones: schedule.zones });
+
+    return groups;
+  }, [schedule.zones]);
+
   return (
     <div>
       <p className="text-xs text-gray-400 mb-3">{rangeLabel}</p>
@@ -183,26 +204,42 @@ function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
             </tr>
           </thead>
           <tbody>
-            {schedule.zones.map((zone, zi) => (
-              <tr key={zone} className={`border-b border-gray-50 last:border-0 ${zi % 2 === 1 ? "bg-gray-50/40" : "bg-white"}`}>
-                <td className="py-3 px-4 font-semibold text-gray-700 text-xs whitespace-nowrap">{zone}</td>
-                {weekDates.map((date) => {
-                  const type = schedule.schedule[date]?.[zone] ?? "";
-                  const meta = TYPE_META[type];
-                  const isToday = date === todayStr;
-                  return (
-                    <td key={date} className={`py-3 px-2 text-center ${isToday ? "bg-purple-50/30" : ""}`}>
-                      {meta ? (
-                        <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
-                          {meta.label}
-                        </span>
-                      ) : (
-                        <span className="text-gray-200 text-xs">—</span>
-                      )}
+            {floorGroups.map((group) => (
+              <>
+                {group.label && (
+                  <tr key={`group-${group.label}`} className="bg-gray-50/70">
+                    <td colSpan={8} className="py-2 px-4">
+                      <span className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5">
+                        <span className="w-1 h-3 rounded-full inline-block" style={{ background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" }} />
+                        {group.label}
+                      </span>
                     </td>
-                  );
-                })}
-              </tr>
+                  </tr>
+                )}
+                {group.zones.map((zone, zi) => (
+                  <tr key={zone} className={`border-b border-gray-50 last:border-0 ${zi % 2 === 1 ? "bg-gray-50/40" : "bg-white"}`}>
+                    <td className="py-3 px-4 font-semibold text-gray-700 text-xs whitespace-nowrap">
+                      {group.label ? zone.replace(/^[13]층\s*/, "") : zone}
+                    </td>
+                    {weekDates.map((date) => {
+                      const type = schedule.schedule[date]?.[zone] ?? "";
+                      const meta = TYPE_META[type];
+                      const isToday = date === todayStr;
+                      return (
+                        <td key={date} className={`py-3 px-2 text-center ${isToday ? "bg-purple-50/30" : ""}`}>
+                          {meta ? (
+                            <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
+                              {meta.label}
+                            </span>
+                          ) : (
+                            <span className="text-gray-200 text-xs">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </>
             ))}
           </tbody>
         </table>
@@ -233,6 +270,7 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
   const [loadingFetch, setLoadingFetch] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const jsonRef = useRef<HTMLInputElement>(null);
   const apiKeyAvailable = hasGeminiKey();
 
   useEffect(() => {
@@ -271,6 +309,36 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
     }
   };
 
+  const handleJsonUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+
+      // Validate and normalize JSON structure
+      if (!json.weekStart || !json.zones || !json.schedule) {
+        toast.error("JSON 형식이 올바르지 않습니다. weekStart, zones, schedule 필드가 필요합니다.");
+        return;
+      }
+
+      const data: ScheduleData = {
+        weekStart: json.weekStart,
+        zones: json.zones,
+        schedule: json.schedule,
+        uploadedAt: new Date().toISOString(),
+      };
+
+      await saveScheduleFS(data);
+      setSchedule(data);
+      toast.success("작업 일정(JSON)이 저장되었습니다.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "JSON 파일을 읽는 중 오류가 발생했습니다.");
+    }
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] p-5">
       {/* 헤더 */}
@@ -287,6 +355,12 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
               </span>
             )}
             <button
+              onClick={() => jsonRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
+            >
+              <FileJson className="h-3.5 w-3.5" /> JSON 업로드
+            </button>
+            <button
               onClick={() => fileRef.current?.click()}
               disabled={analyzing || !apiKeyAvailable}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
@@ -297,6 +371,7 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
                 <><Upload className="h-3.5 w-3.5" /> 이미지 업로드</>
               )}
             </button>
+            <input ref={jsonRef} type="file" accept=".json" className="hidden" onChange={handleJsonUpload} />
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleFileChange} />
           </div>
         )}
@@ -317,8 +392,23 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
         <div className="py-10 text-center">
           <CalendarDays className="h-10 w-10 text-gray-200 mx-auto mb-3" />
           <p className="text-sm text-gray-400">
-            {isAdmin ? "작업 일정 이미지를 업로드하면 자동으로 분석됩니다." : "등록된 작업 일정이 없습니다."}
+            {isAdmin ? "작업 일정 이미지 또는 JSON 파일을 업로드하면 자동으로 표시됩니다." : "등록된 작업 일정이 없습니다."}
           </p>
+          {isAdmin && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-xl text-left max-w-md mx-auto">
+              <p className="text-xs font-semibold text-gray-500 mb-2">📋 JSON 형식 예시:</p>
+              <pre className="text-[10px] text-gray-400 overflow-x-auto whitespace-pre">{`{
+  "weekStart": "2026-04-13",
+  "zones": ["1층 A구역", "1층 B구역", "3층 A구역", "3층 B구역"],
+  "schedule": {
+    "2026-04-13": {
+      "1층 A구역": "주간",
+      "3층 A구역": "야간"
+    }
+  }
+}`}</pre>
+            </div>
+          )}
         </div>
       ) : (
         <ScheduleCalendar schedule={schedule} />
@@ -396,7 +486,7 @@ export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }
           {/* 기술인 통계 */}
           <StatRow
             title="기술인"
-            stats={techStats as AnyStats}
+            stats={techStats as unknown as AnyStats}
             loaded={xerpLoaded}
             cards={TECH_CARDS}
           />
