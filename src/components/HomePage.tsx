@@ -1,9 +1,15 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { ParsedData } from "@/lib/parseExcel";
 import { loadXerpFS, loadScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
-import { analyzeScheduleImage, fileToBase64, hasGeminiKey, type ScheduleData } from "@/lib/geminiService";
 import { toast } from "sonner";
-import { Upload, Loader2, CalendarDays, FileJson } from "lucide-react";
+import { Loader2, CalendarDays, FileJson } from "lucide-react";
+
+interface ScheduleData {
+  weekStart: string;
+  zones: string[];
+  schedule: Record<string, Record<string, string>>;
+  uploadedAt?: string;
+}
 
 interface HomePageProps {
   data: ParsedData | null;
@@ -283,10 +289,7 @@ function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
 function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
   const [loadingFetch, setLoadingFetch] = useState(true);
-  const [analyzing, setAnalyzing] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
   const jsonRef = useRef<HTMLInputElement>(null);
-  const apiKeyAvailable = hasGeminiKey();
 
   useEffect(() => {
     loadScheduleFS().then((data) => {
@@ -294,35 +297,6 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
       setLoadingFetch(false);
     });
   }, []);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
-
-    if (file.size > 15 * 1024 * 1024) {
-      toast.error("파일 크기는 15MB 이하여야 합니다.");
-      return;
-    }
-    const supportedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-    if (!supportedTypes.includes(file.type)) {
-      toast.error("JPG, PNG, WebP, GIF 형식만 지원합니다.");
-      return;
-    }
-
-    setAnalyzing(true);
-    try {
-      const base64 = await fileToBase64(file);
-      const data = await analyzeScheduleImage(base64, file.type);
-      await saveScheduleFS(data);
-      setSchedule(data);
-      toast.success("작업 일정이 성공적으로 분석되었습니다.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "분석 중 오류가 발생했습니다.");
-    } finally {
-      setAnalyzing(false);
-    }
-  };
 
   const handleJsonUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -364,30 +338,13 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
         </h3>
         {isAdmin && (
           <div className="flex items-center gap-2">
-            {!apiKeyAvailable && (
-              <span className="text-[11px] text-red-400 bg-red-50 px-2 py-0.5 rounded-md border border-red-100">
-                API 키 미설정
-              </span>
-            )}
             <button
               onClick={() => jsonRef.current?.click()}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
             >
               <FileJson className="h-3.5 w-3.5" /> JSON 업로드
             </button>
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={analyzing || !apiKeyAvailable}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
-            >
-              {analyzing ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> 분석 중...</>
-              ) : (
-                <><Upload className="h-3.5 w-3.5" /> 이미지 업로드</>
-              )}
-            </button>
             <input ref={jsonRef} type="file" accept=".json" className="hidden" onChange={handleJsonUpload} />
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleFileChange} />
           </div>
         )}
       </div>
@@ -396,12 +353,6 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
       {loadingFetch ? (
         <div className="flex items-center justify-center py-10 gap-2 text-gray-400 text-sm">
           <Loader2 className="h-4 w-4 animate-spin" /> 불러오는 중...
-        </div>
-      ) : analyzing ? (
-        <div className="flex flex-col items-center justify-center py-10 gap-3 text-gray-400">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm font-medium text-gray-500">Gemini AI가 이미지를 분석하고 있습니다...</p>
-          <p className="text-xs text-gray-300">잠시만 기다려 주세요 (10~30초)</p>
         </div>
       ) : !schedule ? (
         <div className="py-10 text-center">
