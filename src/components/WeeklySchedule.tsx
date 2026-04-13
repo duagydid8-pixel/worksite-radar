@@ -99,12 +99,12 @@ export function WeeklySchedule() {
     }
   };
 
-  // 날짜 목록 생성
+  // 날짜 목록 생성 (로컬 기준 — toISOString은 UTC로 변환되어 KST에서 하루 밀림)
   const weekDates = preview
     ? Array.from({ length: 7 }, (_, i) => {
         const d = new Date(preview.weekStart + "T00:00:00");
         d.setDate(d.getDate() + i);
-        return d.toISOString().slice(0, 10);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       })
     : [];
 
