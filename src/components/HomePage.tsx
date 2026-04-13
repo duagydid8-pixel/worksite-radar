@@ -299,6 +299,16 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
     });
   }, []);
 
+  // 주간일정 탭에서 저장 시 자동 업데이트
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) setSchedule(detail);
+    };
+    window.addEventListener("schedule-updated", handler);
+    return () => window.removeEventListener("schedule-updated", handler);
+  }, []);
+
   const handleJsonUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
