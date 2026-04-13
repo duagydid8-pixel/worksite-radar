@@ -204,8 +204,8 @@ function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
             </tr>
           </thead>
           <tbody>
-            {floorGroups.map((group) => (
-              <>
+          {floorGroups.map((group) => (
+              <React.Fragment key={`floor-${group.label}`}>
                 {group.label && (
                   <tr key={`group-${group.label}`} className="bg-gray-50/70">
                     <td colSpan={8} className="py-2 px-4">
@@ -239,7 +239,7 @@ function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
                     })}
                   </tr>
                 ))}
-              </>
+              </React.Fragment>
             ))}
           </tbody>
         </table>
