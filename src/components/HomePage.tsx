@@ -53,7 +53,15 @@ function calcManagerStats(data: ParsedData | null, selectedDate: string) {
   const total  = unique.length;
   const absent = data.anomalies.filter((a) => a.결근 > 0).length;
   const leave  = data.anomalies.filter((a) => a.연차 > 0).length;
-  return { total, present: Math.max(0, total - absent - leave), absent, leave };
+
+  // 결근 또는 연차인 사람을 이름 기준으로 중복 없이 카운트
+  const anomalyNames = new Set([
+    ...data.anomalies.filter((a) => a.결근 > 0).map((a) => a.name),
+    ...data.anomalies.filter((a) => a.연차 > 0).map((a) => a.name),
+  ]);
+  const present = Math.max(0, total - anomalyNames.size);
+
+  return { total, present, absent, leave };
 }
 
 // ── 통계 카드 행 컴포넌트 ──────────────────────────
