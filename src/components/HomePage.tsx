@@ -168,7 +168,8 @@ function getWeekDates(weekStart: string): string[] {
 }
 
 // ── 주간 캘린더 ──────────────────────────────────────
-function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
+const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleData }>(
+function ScheduleCalendar({ schedule }, _ref) {
   const weekDates = useMemo(() => getWeekDates(schedule.weekStart), [schedule.weekStart]);
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -283,7 +284,7 @@ function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
       )}
     </div>
   );
-}
+});
 
 // ── 작업 일정 섹션 ────────────────────────────────────
 function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
