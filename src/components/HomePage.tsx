@@ -233,6 +233,7 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
   const [loadingFetch, setLoadingFetch] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const jsonRef = useRef<HTMLInputElement>(null);
   const apiKeyAvailable = hasGeminiKey();
 
   useEffect(() => {
@@ -271,6 +272,36 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
     }
   };
 
+  const handleJsonUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+
+      // Validate and normalize JSON structure
+      if (!json.weekStart || !json.zones || !json.schedule) {
+        toast.error("JSON 형식이 올바르지 않습니다. weekStart, zones, schedule 필드가 필요합니다.");
+        return;
+      }
+
+      const data: ScheduleData = {
+        weekStart: json.weekStart,
+        zones: json.zones,
+        schedule: json.schedule,
+        uploadedAt: new Date().toISOString(),
+      };
+
+      await saveScheduleFS(data);
+      setSchedule(data);
+      toast.success("작업 일정(JSON)이 저장되었습니다.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "JSON 파일을 읽는 중 오류가 발생했습니다.");
+    }
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)] p-5">
       {/* 헤더 */}
@@ -287,6 +318,12 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
               </span>
             )}
             <button
+              onClick={() => jsonRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
+            >
+              <FileJson className="h-3.5 w-3.5" /> JSON 업로드
+            </button>
+            <button
               onClick={() => fileRef.current?.click()}
               disabled={analyzing || !apiKeyAvailable}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
@@ -297,6 +334,7 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
                 <><Upload className="h-3.5 w-3.5" /> 이미지 업로드</>
               )}
             </button>
+            <input ref={jsonRef} type="file" accept=".json" className="hidden" onChange={handleJsonUpload} />
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleFileChange} />
           </div>
         )}
@@ -317,8 +355,23 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
         <div className="py-10 text-center">
           <CalendarDays className="h-10 w-10 text-gray-200 mx-auto mb-3" />
           <p className="text-sm text-gray-400">
-            {isAdmin ? "작업 일정 이미지를 업로드하면 자동으로 분석됩니다." : "등록된 작업 일정이 없습니다."}
+            {isAdmin ? "작업 일정 이미지 또는 JSON 파일을 업로드하면 자동으로 표시됩니다." : "등록된 작업 일정이 없습니다."}
           </p>
+          {isAdmin && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-xl text-left max-w-md mx-auto">
+              <p className="text-xs font-semibold text-gray-500 mb-2">📋 JSON 형식 예시:</p>
+              <pre className="text-[10px] text-gray-400 overflow-x-auto whitespace-pre">{`{
+  "weekStart": "2026-04-13",
+  "zones": ["1층 A구역", "1층 B구역", "3층 A구역", "3층 B구역"],
+  "schedule": {
+    "2026-04-13": {
+      "1층 A구역": "주간",
+      "3층 A구역": "야간"
+    }
+  }
+}`}</pre>
+            </div>
+          )}
         </div>
       ) : (
         <ScheduleCalendar schedule={schedule} />
@@ -396,7 +449,7 @@ export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }
           {/* 기술인 통계 */}
           <StatRow
             title="기술인"
-            stats={techStats as AnyStats}
+            stats={techStats as unknown as AnyStats}
             loaded={xerpLoaded}
             cards={TECH_CARDS}
           />
