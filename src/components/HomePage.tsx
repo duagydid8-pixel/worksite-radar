@@ -1,5 +1,4 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { ParsedData } from "@/lib/parseExcel";
 import { loadXerpFS, loadScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
 import { toast } from "sonner";
 import { Loader2, CalendarDays, FileJson } from "lucide-react";
@@ -12,7 +11,6 @@ interface ScheduleData {
 }
 
 interface HomePageProps {
-  data: ParsedData | null;
   lastUploadedAt: string | null;
   selectedDate: string;
   isAdmin: boolean;
@@ -32,37 +30,6 @@ function calcTechStats(xerpRows: XerpRow[]): TechStats {
   return { total, present, absent };
 }
 
-// ── 관리자 통계 (근태보고 기반) ────────────────────
-function calcManagerStats(data: ParsedData | null, selectedDate: string) {
-  if (!data) return { total: 0, present: 0, absent: 0, leave: 0 };
-  const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
-
-  // selectedDate 기준 월 필터링 → 없으면 전체
-  let emps = data.employees.filter((e) => e.dataYear === weekYear && e.dataMonth === weekMonth);
-  if (emps.length === 0) emps = data.employees;
-
-  // 이름+팀 기준 중복 제거
-  const seen = new Set<string>();
-  const unique = emps.filter((e) => {
-    const key = `${e.name}__${e.team}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  const total  = unique.length;
-  const absent = data.anomalies.filter((a) => a.결근 > 0).length;
-  const leave  = data.anomalies.filter((a) => a.연차 > 0).length;
-
-  // 결근 또는 연차인 사람을 이름 기준으로 중복 없이 카운트
-  const anomalyNames = new Set([
-    ...data.anomalies.filter((a) => a.결근 > 0).map((a) => a.name),
-    ...data.anomalies.filter((a) => a.연차 > 0).map((a) => a.name),
-  ]);
-  const present = Math.max(0, total - anomalyNames.size);
-
-  return { total, present, absent, leave };
-}
 
 // ── 통계 카드 행 컴포넌트 ──────────────────────────
 type AnyStats = Record<string, number>;
@@ -403,7 +370,7 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
 }
 
 // ── 메인 컴포넌트 ──────────────────────────────────
-export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }: HomePageProps) {
+export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: HomePageProps) {
   const today = new Date();
   const todayStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일 (${DAY_KO[today.getDay()]})`;
 
@@ -425,19 +392,12 @@ export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }
   }, []);
 
   // 통계 계산
-  const techStats    = useMemo(() => calcTechStats(xerpRows), [xerpRows]);
-  const managerStats = useMemo(() => calcManagerStats(data, selectedDate), [data, selectedDate]);
+  const techStats = useMemo(() => calcTechStats(xerpRows), [xerpRows]);
 
   const TECH_CARDS = [
     { label: "총 기술인 수", key: "total",   icon: "⛑️", bg: "bg-blue-50",  sub: "XERP 최근 데이터 기준" },
     { label: "정상 출근",    key: "present", icon: "✅", bg: "bg-green-50", sub: "출근 기록 있는 인원" },
     { label: "결근자",       key: "absent",  icon: "❌", bg: "bg-red-50",   sub: "출근 기록 없음" },
-  ];
-  const MANAGER_CARDS = [
-    { label: "총 관리자 수", key: "total",   icon: "👔", bg: "bg-blue-50",   sub: "근태보고 기준" },
-    { label: "정상 출근",    key: "present", icon: "✅", bg: "bg-green-50",  sub: "결근·연차 제외" },
-    { label: "결근자",       key: "absent",  icon: "❌", bg: "bg-red-50",    sub: "" },
-    { label: "연차자",       key: "leave",   icon: "🌿", bg: "bg-purple-50", sub: "" },
   ];
 
   return (
@@ -474,13 +434,6 @@ export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }
             stats={techStats as unknown as AnyStats}
             loaded={xerpLoaded}
             cards={TECH_CARDS}
-          />
-          {/* 관리자 통계 */}
-          <StatRow
-            title="관리자"
-            stats={managerStats}
-            loaded={data !== null}
-            cards={MANAGER_CARDS}
           />
         </div>
 
