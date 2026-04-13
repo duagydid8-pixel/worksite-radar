@@ -156,6 +156,27 @@ function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
   const [, em, ed] = endDate.split("-").map(Number);
   const rangeLabel = `${wy}년 ${wm}월 ${wd}일 ~ ${em}월 ${ed}일`;
 
+  // Group zones by floor
+  const floorGroups = useMemo(() => {
+    const groups: { label: string; zones: string[] }[] = [];
+    const floor1: string[] = [];
+    const floor3: string[] = [];
+    const other: string[] = [];
+
+    for (const zone of schedule.zones) {
+      if (zone.startsWith("1층")) floor1.push(zone);
+      else if (zone.startsWith("3층")) floor3.push(zone);
+      else other.push(zone);
+    }
+
+    if (floor1.length > 0) groups.push({ label: "1층", zones: floor1 });
+    if (floor3.length > 0) groups.push({ label: "3층", zones: floor3 });
+    if (other.length > 0) groups.push({ label: "기타", zones: other });
+    if (groups.length === 0) groups.push({ label: "", zones: schedule.zones });
+
+    return groups;
+  }, [schedule.zones]);
+
   return (
     <div>
       <p className="text-xs text-gray-400 mb-3">{rangeLabel}</p>
@@ -183,26 +204,42 @@ function ScheduleCalendar({ schedule }: { schedule: ScheduleData }) {
             </tr>
           </thead>
           <tbody>
-            {schedule.zones.map((zone, zi) => (
-              <tr key={zone} className={`border-b border-gray-50 last:border-0 ${zi % 2 === 1 ? "bg-gray-50/40" : "bg-white"}`}>
-                <td className="py-3 px-4 font-semibold text-gray-700 text-xs whitespace-nowrap">{zone}</td>
-                {weekDates.map((date) => {
-                  const type = schedule.schedule[date]?.[zone] ?? "";
-                  const meta = TYPE_META[type];
-                  const isToday = date === todayStr;
-                  return (
-                    <td key={date} className={`py-3 px-2 text-center ${isToday ? "bg-purple-50/30" : ""}`}>
-                      {meta ? (
-                        <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
-                          {meta.label}
-                        </span>
-                      ) : (
-                        <span className="text-gray-200 text-xs">—</span>
-                      )}
+            {floorGroups.map((group) => (
+              <>
+                {group.label && (
+                  <tr key={`group-${group.label}`} className="bg-gray-50/70">
+                    <td colSpan={8} className="py-2 px-4">
+                      <span className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5">
+                        <span className="w-1 h-3 rounded-full inline-block" style={{ background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" }} />
+                        {group.label}
+                      </span>
                     </td>
-                  );
-                })}
-              </tr>
+                  </tr>
+                )}
+                {group.zones.map((zone, zi) => (
+                  <tr key={zone} className={`border-b border-gray-50 last:border-0 ${zi % 2 === 1 ? "bg-gray-50/40" : "bg-white"}`}>
+                    <td className="py-3 px-4 font-semibold text-gray-700 text-xs whitespace-nowrap">
+                      {group.label ? zone.replace(/^[13]층\s*/, "") : zone}
+                    </td>
+                    {weekDates.map((date) => {
+                      const type = schedule.schedule[date]?.[zone] ?? "";
+                      const meta = TYPE_META[type];
+                      const isToday = date === todayStr;
+                      return (
+                        <td key={date} className={`py-3 px-2 text-center ${isToday ? "bg-purple-50/30" : ""}`}>
+                          {meta ? (
+                            <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
+                              {meta.label}
+                            </span>
+                          ) : (
+                            <span className="text-gray-200 text-xs">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </>
             ))}
           </tbody>
         </table>
