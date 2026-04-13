@@ -27,9 +27,24 @@ function calcTechStats(xerpRows: XerpRow[]): TechStats {
 }
 
 // ── 관리자 통계 (근태보고 기반) ────────────────────
-function calcManagerStats(data: ParsedData | null) {
+function calcManagerStats(data: ParsedData | null, selectedDate: string) {
   if (!data) return { total: 0, present: 0, absent: 0, leave: 0 };
-  const total  = data.employees.length;
+  const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
+
+  // selectedDate 기준 월 필터링 → 없으면 전체
+  let emps = data.employees.filter((e) => e.dataYear === weekYear && e.dataMonth === weekMonth);
+  if (emps.length === 0) emps = data.employees;
+
+  // 이름+팀 기준 중복 제거
+  const seen = new Set<string>();
+  const unique = emps.filter((e) => {
+    const key = `${e.name}__${e.team}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const total  = unique.length;
   const absent = data.anomalies.filter((a) => a.결근 > 0).length;
   const leave  = data.anomalies.filter((a) => a.연차 > 0).length;
   return { total, present: Math.max(0, total - absent - leave), absent, leave };
@@ -441,7 +456,7 @@ export default function HomePage({ data, lastUploadedAt, selectedDate, isAdmin }
 
   // 통계 계산
   const techStats    = useMemo(() => calcTechStats(xerpRows), [xerpRows]);
-  const managerStats = useMemo(() => calcManagerStats(data), [data]);
+  const managerStats = useMemo(() => calcManagerStats(data, selectedDate), [data, selectedDate]);
 
   const TECH_CARDS = [
     { label: "총 기술인 수", key: "total",   icon: "⛑️", bg: "bg-blue-50",  sub: "XERP 최근 데이터 기준" },
