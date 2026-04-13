@@ -71,10 +71,13 @@ const NAV_PUBLIC: NavItem[] = [
 const NAV_ADMIN: NavItem[] = [
   { key: "주간일정", label: "주간일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
-  { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: true },
 ];
 
-const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_ADMIN];
+const NAV_SEMI_PUBLIC: NavItem[] = [
+  { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: false },
+];
+
+const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN];
 
 const Index = () => {
   const [data, setData] = useState<ParsedData | null>(null);
@@ -348,7 +351,7 @@ const Index = () => {
 
         {/* 네비게이션 */}
         <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-0.5">
-          {NAV_PUBLIC.map(({ key, label, icon }) => {
+          {[...NAV_PUBLIC, ...NAV_SEMI_PUBLIC].map(({ key, label, icon }) => {
             const isActive = activeTab === key;
             return (
               <button

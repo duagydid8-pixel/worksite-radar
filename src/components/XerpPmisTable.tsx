@@ -189,6 +189,20 @@ function extractDateFromFilename(filename: string): string | null {
   return null;
 }
 
+// ── 주민번호 뒷자리 마스킹 ────────────────────────────
+function maskResidentNum(value: string, isAdmin: boolean): string {
+  if (isAdmin || !value || value === "—") return value;
+  const dashIdx = value.indexOf("-");
+  if (dashIdx !== -1) {
+    return value.slice(0, dashIdx + 1) + "*".repeat(value.length - dashIdx - 1);
+  }
+  // 대시 없이 13자리인 경우
+  if (value.replace(/\D/g, "").length >= 13) {
+    return value.slice(0, 6) + "-*******";
+  }
+  return value;
+}
+
 // ── 상수 ─────────────────────────────────────────────
 const TODAY = toDateStr();
 const DOW = ["일","월","화","수","목","금","토"];
@@ -693,7 +707,7 @@ export default function XerpPmisTable({ isAdmin }: Props) {
                       <CalendarDays className="h-3 w-3 opacity-40 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                     </button>
                   </td>
-                  <td className={cell}>{row.생년월일||"—"}</td>
+                  <td className={cell}>{maskResidentNum(row.생년월일 || "—", isAdmin)}</td>
                   <td className={`${cellNum} text-blue-600 font-semibold`}>{row.xerp출근||"—"}</td>
                   <td className={`${cellNum} text-red-600 font-semibold`}>{row.xerp퇴근||"—"}</td>
                   <td className={cellNum}>{row.pmis출근||"—"}</td>
