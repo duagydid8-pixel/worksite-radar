@@ -3,7 +3,7 @@ import { ParsedData } from "@/lib/parseExcel";
 import { loadXerpFS, loadScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
 import { analyzeScheduleImage, fileToBase64, hasGeminiKey, type ScheduleData } from "@/lib/geminiService";
 import { toast } from "sonner";
-import { Upload, Loader2, CalendarDays } from "lucide-react";
+import { Upload, Loader2, CalendarDays, FileJson } from "lucide-react";
 
 interface HomePageProps {
   data: ParsedData | null;
