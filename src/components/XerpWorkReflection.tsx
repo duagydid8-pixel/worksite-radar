@@ -33,19 +33,16 @@ function minToStr(min: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-// X-ERP 퇴근: 정각절사 (17:35 → 17:00)
-function truncateHour(min: number): number {
-  return Math.floor(min / 60) * 60;
-}
-
-// PMIS 퇴근: 10분올림 (17:35 → 17:40)
-function roundUp10(min: number): number {
-  return Math.ceil(min / 10) * 10;
-}
-
 const STANDARD_START = 7 * 60;  // 420 (07:00)
 const STANDARD_END   = 17 * 60; // 1020 (17:00)
 const JOCHUL_CUTOFF  = 7 * 60 + 10; // 430 (07:10)
+
+// 퇴근 49분 기준 반올림: 분 >= 49 → 올림, 분 <= 48 → 내림
+function roundBy49(min: number): number {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m >= 49 ? (h + 1) * 60 : h * 60;
+}
 
 // 적용 출근 계산 (조출 여부에 따라 분기)
 function resolveEffInMin(rawInMin: number | null, isJochul: boolean): number | null {
@@ -54,13 +51,13 @@ function resolveEffInMin(rawInMin: number | null, isJochul: boolean): number | n
   return rawInMin;
 }
 
-// 적용 퇴근 계산
+// 적용 퇴근 계산 — X-ERP, PMIS 각각 49분 기준 적용 후 최대값
 function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
   const xOMin = parseMin(xerpOut);
   const pOMin = parseMin(pmisOut);
-  if (xOMin !== null && pOMin !== null) return Math.max(truncateHour(xOMin), roundUp10(pOMin));
-  if (xOMin !== null) return truncateHour(xOMin);
-  if (pOMin !== null) return roundUp10(pOMin);
+  if (xOMin !== null && pOMin !== null) return Math.max(roundBy49(xOMin), roundBy49(pOMin));
+  if (xOMin !== null) return roundBy49(xOMin);
+  if (pOMin !== null) return roundBy49(pOMin);
   return null;
 }
 
