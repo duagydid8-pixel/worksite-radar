@@ -176,7 +176,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
         const xerpInMin = parseMin(xerpInRaw);
         const pmisInMin = parseMin(pmisInRaw);
-        const rawInMin  = xerpInMin ?? pmisInMin;
+        // 둘 다 있으면 더 이른 시간 채택 (X-ERP 지각 시 PMIS 확인)
+        const rawInMin = xerpInMin !== null && pmisInMin !== null
+          ? Math.min(xerpInMin, pmisInMin)
+          : xerpInMin ?? pmisInMin;
         const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw);
         const effOut    = rawOutMin !== null ? minToStr(rawOutMin) : "";
 
