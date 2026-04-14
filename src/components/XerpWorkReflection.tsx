@@ -382,7 +382,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const lateCount   = rows.filter((r) => r.isLate).length;
 
   const cell = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-border/40 last:border-r-0";
-  const th   = "px-2 py-2 text-[11px] font-semibold text-muted-foreground bg-muted/50 text-center border-r border-border/40 last:border-r-0 sticky top-0 z-10";
+  const th   = "px-2 py-2 text-[11px] font-semibold text-foreground bg-muted text-center border-r border-border/40 last:border-r-0 sticky top-0 z-10";
 
   return (
     <div className="flex flex-col gap-4">
@@ -535,7 +535,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm" style={{ maxHeight: "calc(100vh - 330px)" }}>
           <table className="min-w-full text-xs border-collapse">
             <thead>
-              <tr className="border-b border-border bg-muted/50">
+              <tr className="border-b border-border bg-muted">
                 <th className={th}>팀명</th>
                 <th className={th}>성명</th>
                 <th className={`${th} bg-violet-50`}>조출근무</th>

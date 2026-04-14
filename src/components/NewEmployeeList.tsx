@@ -300,7 +300,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   };
 
   // sticky 열 공통 클래스
-  const thBase = "px-2 py-2.5 text-center font-semibold text-muted-foreground whitespace-nowrap bg-muted/50";
+  const thBase = "px-2 py-2.5 text-center font-semibold text-foreground whitespace-nowrap bg-muted";
   const thSticky = (left: string, shadow = false) =>
     `${thBase} sticky top-0 z-30 ${left}${shadow ? " shadow-[2px_0_4px_-1px_rgba(0,0,0,0.12)]" : ""}`;
   const thNormal = `${thBase} sticky top-0 z-20`;
@@ -522,7 +522,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
       >
         <table className="min-w-full text-xs border-collapse">
           <thead>
-            <tr className="bg-muted/50 border-b border-border">
+            <tr className="bg-muted border-b border-border">
               <th className={thSticky("left-0") + " w-[44px]"}>No</th>
               <th className={thSticky("left-[44px]") + " w-[90px]"}>현장구분</th>
               <th className={thSticky("left-[134px]", true)}>이름</th>
@@ -595,11 +595,18 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                         </span>
                       ) : <span className="text-muted-foreground/40 text-xs">—</span>}
                     </td>
-                    {RIGHT_FIELDS.map((field) => (
-                      <td key={field} className="px-3 py-1.5 text-xs whitespace-nowrap">
-                        {(row[field] as string) || <span className="text-muted-foreground/40">—</span>}
-                      </td>
-                    ))}
+                    {RIGHT_FIELDS.map((field) => {
+                      const raw = (row[field] as string) || "";
+                      const isMoney = field === "단가" || field === "단가변동";
+                      const display = isMoney && raw
+                        ? (() => { const n = parseFloat(raw.replace(/,/g, "")); return isNaN(n) ? raw : n.toLocaleString("ko-KR"); })()
+                        : raw;
+                      return (
+                        <td key={field} className={`px-3 py-1.5 text-xs whitespace-nowrap${isMoney ? " tabular-nums text-right" : ""}`}>
+                          {display || <span className="text-muted-foreground/40">—</span>}
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-1.5">
                       <button
                         onClick={() => deleteRow(row.id)}
