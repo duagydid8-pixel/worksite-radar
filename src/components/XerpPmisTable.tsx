@@ -391,9 +391,6 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     setCalendarYear(now.getFullYear());
     setCalendarMonth(now.getMonth() + 1);
     setCalendarEmp(emp);
-    toast.info(`${emp.성명}님의 상세 출퇴근기록과 공수를 달력에서 확인할 수 있습니다.`, {
-      duration: 2500,
-    });
   };
 
   const prevMonth = () => {
@@ -411,6 +408,13 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     const allAbsent = detectConsecutiveAbsences(dateMap);
     return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
   }, [dateMap, resignedNames]);
+
+  // 마운트 시 안내 알림
+  useEffect(() => {
+    toast.info("성명 옆 달력 아이콘을 클릭하면 상세한 출퇴근기록과 공수를 확인할 수 있습니다.", {
+      duration: 4000,
+    });
+  }, []);
 
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
