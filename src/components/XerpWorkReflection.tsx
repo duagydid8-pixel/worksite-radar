@@ -316,6 +316,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     return rows.filter((r) => r.성명.includes(q) || r.팀명.includes(q));
   }, [rows, search]);
 
+  const totalCount  = rows.length;
   const needCount   = rows.filter((r) => r.needsUpdate).length;
   const noRecCount  = rows.filter((r) => r.isNoRecord).length;
   const lateCount   = rows.filter((r) => r.isLate).length;
@@ -344,6 +345,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
         {rows.length > 0 && (
           <>
+            {/* 총인원 */}
+            <span className="flex items-center gap-1 text-xs font-semibold text-foreground bg-muted border border-border px-2.5 py-1.5 rounded-lg">
+              총 {totalCount}명
+            </span>
+
             {/* 요약 배지 */}
             {noRecCount > 0 && (
               <span className="flex items-center gap-1 text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-lg">

@@ -97,11 +97,11 @@ const NAV_PUBLIC: NavItem[] = [
 const NAV_ADMIN: NavItem[] = [
   { key: "주간일정", label: "주간일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
+  { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
 ];
 
 const NAV_SEMI_PUBLIC: NavItem[] = [
   { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: false },
-  { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: false },
 ];
 
 const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN];
