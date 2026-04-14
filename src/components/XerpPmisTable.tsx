@@ -391,6 +391,9 @@ export default function XerpPmisTable({ isAdmin }: Props) {
     setCalendarYear(now.getFullYear());
     setCalendarMonth(now.getMonth() + 1);
     setCalendarEmp(emp);
+    toast.info(`${emp.성명}님의 상세 출퇴근기록과 공수를 달력에서 확인할 수 있습니다.`, {
+      duration: 2500,
+    });
   };
 
   const prevMonth = () => {
