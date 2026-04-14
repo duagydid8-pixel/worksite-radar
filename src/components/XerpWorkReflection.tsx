@@ -4,11 +4,27 @@ import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
 // ── 시간 유틸 ─────────────────────────────────────────
-function parseMin(timeStr: string): number | null {
-  const s = String(timeStr ?? "").trim();
-  const m = s.match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return null;
-  return parseInt(m[1]) * 60 + parseInt(m[2]);
+function parseMin(val: unknown): number | null {
+  if (val === null || val === undefined || val === "") return null;
+
+  // Excel 시간 시리얼 (하루 = 1.0, 예: 17:00 = 0.7083...)
+  if (typeof val === "number") {
+    const totalMin = Math.round(val * 24 * 60);
+    return totalMin % (24 * 60);
+  }
+
+  const s = String(val).trim();
+  if (!s) return null;
+
+  // "HH:MM" 또는 "HH:MM:SS"
+  const hm = s.match(/^(\d{1,2}):(\d{2})/);
+  if (hm) return parseInt(hm[1]) * 60 + parseInt(hm[2]);
+
+  // "HHMM" 4자리 숫자 문자열
+  const d4 = s.match(/^(\d{2})(\d{2})$/);
+  if (d4) return parseInt(d4[1]) * 60 + parseInt(d4[2]);
+
+  return null;
 }
 
 function minToStr(min: number): string {
@@ -28,9 +44,12 @@ function roundUp10(min: number): number {
 }
 
 // 적용 출퇴근 계산
-function calcEffective(xerpIn: string, xerpOut: string, pmisIn: string, pmisOut: string) {
-  // 출근: X-ERP 우선
-  const effIn = xerpIn || pmisIn;
+function calcEffective(xerpIn: unknown, xerpOut: unknown, pmisIn: unknown, pmisOut: unknown) {
+  // 출근: X-ERP 우선 (표시용 문자열이 아닌 raw값으로 유무 판단)
+  const xerpInMin = parseMin(xerpIn);
+  const pmisInMin = parseMin(pmisIn);
+  const effInMin = xerpInMin ?? pmisInMin;
+  const effIn = effInMin !== null ? minToStr(effInMin) : "";
 
   // 퇴근: max(X-ERP 정각절사, PMIS 10분올림)
   const xOMin = parseMin(xerpOut);
@@ -100,7 +119,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const buffer = await file.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+      const rawFmt: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
 
       // 헤더 행 탐색
       let dataStart = 0;
@@ -115,17 +135,26 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const processed: ProcessedRow[] = [];
 
       for (let i = dataStart; i < raw.length; i++) {
-        const row = raw[i] as string[];
-        if ((row as unknown[]).every((c) => String(c).trim() === "")) continue;
+        const row    = raw[i]    as unknown[];
+        const rowFmt = rawFmt[i] as unknown[];
+        if (row.every((c) => String(c).trim() === "")) continue;
 
         const 팀명 = String(row[0] ?? "").trim();
         const 성명 = String(row[3] ?? "").trim();
         if (!성명) continue;
 
-        const xerpIn  = String(row[5]  ?? "").trim();
-        const xerpOut = String(row[6]  ?? "").trim();
-        const pmisIn  = String(row[7]  ?? "").trim();
-        const pmisOut = String(row[8]  ?? "").trim();
+        // 시간: raw값(숫자 시리얼 가능) 사용 — parseMin이 양쪽 처리
+        const xerpIn  = row[5]  ?? "";
+        const xerpOut = row[6]  ?? "";
+        const pmisIn  = row[7]  ?? "";
+        const pmisOut = row[8]  ?? "";
+
+        // 표시용 문자열: rawFmt(서식 적용)
+        const xerpInStr  = String(rowFmt[5]  ?? "").trim();
+        const xerpOutStr = String(rowFmt[6]  ?? "").trim();
+        const pmisInStr  = String(rowFmt[7]  ?? "").trim();
+        const pmisOutStr = String(rowFmt[8]  ?? "").trim();
+
         const xerpGongsuA = String(row[16] ?? "").trim();
 
         const { effIn, effOut, effOutMin } = calcEffective(xerpIn, xerpOut, pmisIn, pmisOut);
@@ -146,7 +175,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         processed.push({
           rowIndex: i,
           팀명, 성명,
-          xerpIn, xerpOut, pmisIn, pmisOut,
+          xerpIn: xerpInStr, xerpOut: xerpOutStr,
+          pmisIn: pmisInStr, pmisOut: pmisOutStr,
           effIn, effOut,
           xerpGongsuA,
           calcGongsuVal: calcVal,
