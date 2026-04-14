@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpFS, saveXerpFS, loadEmployeesPH4FS, loadEmployeesPH2FS } from "@/lib/firestoreService";
+import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS } from "@/lib/firestoreService";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -371,9 +371,11 @@ function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: C
 }
 
 // ── 컴포넌트 ──────────────────────────────────────────
-interface Props { isAdmin: boolean }
+interface Props { isAdmin: boolean; site?: "PH4" | "PH2" }
 
-export default function XerpPmisTable({ isAdmin }: Props) {
+export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
+  const loadXerp = site === "PH2" ? loadXerpPH2FS : loadXerpFS;
+  const saveXerp = site === "PH2" ? saveXerpPH2FS : saveXerpFS;
   const [dateMap, setDateMap] = useState<DateMap>({});
   const [selectedDate, setSelectedDate] = useState<string>(TODAY);
   const [resignedNames, setResignedNames] = useState<Set<string>>(new Set());
@@ -430,7 +432,7 @@ export default function XerpPmisTable({ isAdmin }: Props) {
       setResignedNames(names);
     });
 
-    loadXerpFS().then((fsMap) => {
+    loadXerp().then((fsMap) => {
       if (fsMap && typeof fsMap === "object" && Object.keys(fsMap).length > 0) {
         const typed = fsMap as DateMap;
         setDateMap(typed);
@@ -442,7 +444,7 @@ export default function XerpPmisTable({ isAdmin }: Props) {
 
   // Firestore 저장 헬퍼
   const syncXerpFS = (map: DateMap) => {
-    saveXerpFS(map).then((ok) => {
+    saveXerp(map).then((ok) => {
       if (!ok) toast.error("Firestore 저장 실패");
     });
   };

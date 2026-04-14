@@ -17,6 +17,31 @@ import HomePage from "@/components/HomePage";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
 
+function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
+  const [xerpSite, setXerpSite] = useState<"PH4" | "PH2">("PH4");
+  return (
+    <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-3">
+      {/* 서브탭 */}
+      <div className="flex gap-2">
+        {(["PH4", "PH2"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setXerpSite(s)}
+            className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border ${
+              xerpSite === s
+                ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                : "bg-white text-muted-foreground border-border hover:bg-muted/50"
+            }`}
+          >
+            P4-{s}
+          </button>
+        ))}
+      </div>
+      <XerpPmisTable isAdmin={isAdmin} site={xerpSite} key={xerpSite} />
+    </div>
+  );
+}
+
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
 function getMonday(date: Date): Date {
@@ -631,9 +656,7 @@ const Index = () => {
 
         {/* XERP & PMIS */}
         {activeTab === "XERP&PMIS" && (
-          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-            <XerpPmisTable isAdmin={isAdmin} />
-          </div>
+          <XerpPmisPageWrapper isAdmin={isAdmin} />
         )}
 
       </main>

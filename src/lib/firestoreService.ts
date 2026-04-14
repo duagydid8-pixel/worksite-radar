@@ -82,6 +82,13 @@ export async function loadXerpFS() {
 export async function saveXerpFS(dateMap: Record<string, unknown[]>) {
   return fsSet("xerp_pmis", { dateMap });
 }
+export async function loadXerpPH2FS() {
+  const data = await fsGet<{ dateMap: Record<string, unknown[]> }>("xerp_pmis_ph2");
+  return data?.dateMap ?? null;
+}
+export async function saveXerpPH2FS(dateMap: Record<string, unknown[]>) {
+  return fsSet("xerp_pmis_ph2", { dateMap });
+}
 
 // ── 작업 일정 ──────────────────────────────────────────
 export async function loadScheduleFS() {
