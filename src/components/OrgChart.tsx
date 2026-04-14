@@ -56,7 +56,7 @@ const SEED_DATA: OrgData = {
 };
 
 // 이미지 압축: 최대 150×150, JPEG 0.75 품질 → base64
-function compressImage(file: File, maxPx = 150, quality = 0.75): Promise<string> {
+function compressImage(file: File, maxPx = 300, quality = 0.88): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
