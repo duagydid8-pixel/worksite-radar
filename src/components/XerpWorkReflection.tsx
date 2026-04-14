@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpWorkFS, saveXerpWorkFS } from "@/lib/firestoreService";
+import { loadXerpWorkFS, saveXerpWorkFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS } from "@/lib/firestoreService";
 
 // ── 시간 유틸 ─────────────────────────────────────────
 function parseMin(val: unknown): number | null {
@@ -75,6 +75,25 @@ function calcDiff(calcVal: number | null, xerpGongsuA: string) {
   const d = Math.round((calcVal - aNum) * 100) / 100;
   if (d > 0.001) return { diff: d, needsUpdate: true };
   return { diff: null, needsUpdate: false };
+}
+
+// ── 파일명 유틸 ───────────────────────────────────────
+function extractDateFromFilename(filename: string): string | null {
+  const name = filename.replace(/\.[^.]+$/, "");
+  const sep = name.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
+  if (sep) return `${sep[1]}-${sep[2]}-${sep[3]}`;
+  const compact = name.match(/(\d{4})(\d{2})(\d{2})/);
+  if (compact) {
+    const [, y, m, d] = compact;
+    if (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) return `${y}-${m}-${d}`;
+  }
+  return null;
+}
+
+function detectSite(filename: string): "PH4" | "PH2" {
+  const upper = filename.toUpperCase();
+  if (upper.includes("PH2")) return "PH2";
+  return "PH4"; // 기본값
 }
 
 // ── 타입 ─────────────────────────────────────────────
@@ -225,10 +244,51 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const handleSave = async () => {
     if (!rows.length || !fileName) return;
     setIsSaving(true);
-    const ok = await saveXerpWorkFS(fileName, rows);
-    setIsSaving(false);
-    if (ok) toast.success("저장되었습니다.");
-    else toast.error("저장 실패");
+
+    try {
+      // 1) 공수반영 데이터 저장
+      await saveXerpWorkFS(fileName, rows);
+
+      // 2) XERP&PMIS 연동 — 파일명에서 날짜·사이트 감지
+      const dateKey = extractDateFromFilename(fileName);
+      const site    = detectSite(fileName);
+
+      if (dateKey) {
+        const loadFn = site === "PH2" ? loadXerpPH2FS : loadXerpFS;
+        const saveFn = site === "PH2" ? saveXerpPH2FS : saveXerpFS;
+
+        const dateMap = (await loadFn()) as Record<string, Record<string, string>[]> | null;
+
+        if (dateMap && dateMap[dateKey]) {
+          const updatable = rows.filter((r) => r.needsUpdate && r.diff !== null);
+
+          if (updatable.length > 0) {
+            const updated = dateMap[dateKey].map((pmisRow) => {
+              const match = updatable.find((r) =>
+                (pmisRow["사번"] && r["성명"] && pmisRow["성명"] === r["성명"]) ||
+                pmisRow["성명"] === r["성명"]
+              );
+              if (!match || match.diff === null) return pmisRow;
+              return { ...pmisRow, 가산신청: String(match.diff) };
+            });
+
+            const newMap = { ...dateMap, [dateKey]: updated };
+            await saveFn(newMap as Record<string, unknown[]>);
+            toast.success(`저장 완료 — XERP&PMIS (${site}, ${dateKey}) 가산신청 ${updatable.length}건 반영`);
+          } else {
+            toast.success("저장 완료 (가산신청 반영 대상 없음)");
+          }
+        } else {
+          toast.success(`저장 완료 — XERP&PMIS에 ${dateKey} 데이터가 없어 연동 생략`);
+        }
+      } else {
+        toast.success("저장 완료 (파일명에서 날짜를 찾을 수 없어 XERP&PMIS 연동 생략)");
+      }
+    } catch {
+      toast.error("저장 중 오류가 발생했습니다.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDownload = () => {
