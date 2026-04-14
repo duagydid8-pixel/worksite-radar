@@ -55,6 +55,28 @@ const SEED_DATA: OrgData = {
   ],
 };
 
+// 이미지 압축: 최대 150×150, JPEG 0.75 품질 → base64
+function compressImage(file: File, maxPx = 150, quality = 0.75): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(maxPx / img.width, maxPx / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = ev.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function lighten(hex: string, pct: number) {
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16), f = pct/100;
   return `rgb(${Math.round(r+(255-r)*f)},${Math.round(g+(255-g)*f)},${Math.round(b+(255-b)*f)})`;
@@ -260,16 +282,25 @@ export default function OrgChart() {
 
   const handleSiteManagerSave = useCallback((info: SiteManagerInfo) => { setSiteManager(info); setDirty(true); }, []);
 
-  const handlePhotoUpload = useCallback((memberId: string, file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, photo_url: dataUrl } : m)));
+  const handlePhotoUpload = useCallback(async (memberId: string, file: File) => {
+    try {
+      const dataUrl = await compressImage(file);
+      const nextMembers = members.map((m) => (m.id === memberId ? { ...m, photo_url: dataUrl } : m));
+      setMembers(nextMembers);
       setEditMember((prev) => prev?.id === memberId ? { ...prev, photo_url: dataUrl } : prev);
-      setDirty(true); toast.success("사진이 저장되었습니다.");
-    };
-    reader.readAsDataURL(file);
-  }, []);
+      // 즉시 Firestore 저장
+      const ok = await saveOrgFS({ teams, members: nextMembers, siteManager });
+      if (ok) {
+        setDirty(false);
+        toast.success("사진이 저장되었습니다.");
+      } else {
+        setDirty(true);
+        toast.error("사진 저장 실패 — 저장 버튼을 눌러주세요.");
+      }
+    } catch {
+      toast.error("사진을 불러오는 중 오류가 발생했습니다.");
+    }
+  }, [members, teams, siteManager]);
 
   const handleExportImage = useCallback(async () => {
     if (!chartRef.current) return;
