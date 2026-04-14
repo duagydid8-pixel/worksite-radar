@@ -111,9 +111,20 @@ function SiteManagerEditDialog({ info, onSave, onClose }: { info: SiteManagerInf
                 const reader = new FileReader();
                 reader.onload = (ev) => setDraft((d) => ({ ...d, photo_url: ev.target?.result as string }));
                 reader.readAsDataURL(f);
+                e.target.value = "";
               }} />
             </div>
-            <p className="text-xs text-muted-foreground">클릭하여 사진 업로드</p>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs text-muted-foreground">클릭하여 사진 업로드</p>
+              {draft.photo_url && (
+                <button
+                  onClick={() => setDraft((d) => ({ ...d, photo_url: "" }))}
+                  className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
+                >
+                  <X className="h-3 w-3" /> 사진 삭제
+                </button>
+              )}
+            </div>
           </div>
           {([ ["이름","name"], ["연락처","phone"], ["이메일","email"] ] as const).map(([label, key]) => (
             <label key={key} className="block">
@@ -133,7 +144,7 @@ function SiteManagerEditDialog({ info, onSave, onClose }: { info: SiteManagerInf
 }
 
 /* ━━━━━━━━━━━━━━━ EDIT DIALOG ━━━━━━━━━━━━━━━ */
-function EditDialog({ member, onSave, onClose, onPhotoUpload, uploading }: { member: OrgMember; onSave: (m: OrgMember) => void; onClose: () => void; onPhotoUpload: (memberId: string, file: File) => void; uploading: boolean }) {
+function EditDialog({ member, onSave, onClose, onPhotoUpload, onPhotoRemove, uploading }: { member: OrgMember; onSave: (m: OrgMember) => void; onClose: () => void; onPhotoUpload: (memberId: string, file: File) => void; onPhotoRemove: (memberId: string) => void; uploading: boolean }) {
   const [draft, setDraft] = useState<OrgMember>({ ...member });
   const fileRef = useRef<HTMLInputElement>(null);
   const set = (k: keyof OrgMember, v: string | boolean) => setDraft((d) => ({ ...d, [k]: v }));
@@ -158,9 +169,19 @@ function EditDialog({ member, onSave, onClose, onPhotoUpload, uploading }: { mem
                 className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 {uploading ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Camera className="h-5 w-5 text-white" />}
               </button>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onPhotoUpload(draft.id, f); }} />
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onPhotoUpload(draft.id, f); e.target.value = ""; }} />
             </div>
-            <p className="text-xs text-muted-foreground">클릭하여 사진 업로드</p>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs text-muted-foreground">클릭하여 사진 업로드</p>
+              {draft.photo_url && (
+                <button
+                  onClick={() => { onPhotoRemove(draft.id); setDraft((d) => ({ ...d, photo_url: "" })); }}
+                  className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
+                >
+                  <X className="h-3 w-3" /> 사진 삭제
+                </button>
+              )}
+            </div>
           </div>
           {([ ["이름","name","text"], ["직책","position","text"], ["연락처","phone","tel"], ["이메일","email","email"] ] as const).map(([label, key, type]) => (
             <label key={key} className="block">
@@ -281,6 +302,14 @@ export default function OrgChart() {
   const handleMemberSave = useCallback((updated: OrgMember) => { setMembers((prev) => prev.map((m) => (m.id === updated.id ? updated : m))); setEditMember(null); setDirty(true); }, []);
 
   const handleSiteManagerSave = useCallback((info: SiteManagerInfo) => { setSiteManager(info); setDirty(true); }, []);
+
+  const handlePhotoRemove = useCallback(async (memberId: string) => {
+    const nextMembers = members.map((m) => (m.id === memberId ? { ...m, photo_url: "" } : m));
+    setMembers(nextMembers);
+    const ok = await saveOrgFS({ teams, members: nextMembers, siteManager });
+    if (ok) { setDirty(false); toast.success("사진이 삭제되었습니다."); }
+    else { setDirty(true); toast.error("저장 실패 — 저장 버튼을 눌러주세요."); }
+  }, [members, teams, siteManager]);
 
   const handlePhotoUpload = useCallback(async (memberId: string, file: File) => {
     try {
@@ -525,7 +554,7 @@ export default function OrgChart() {
       )}
 
       {editSiteManager && <SiteManagerEditDialog info={siteManager} onSave={handleSiteManagerSave} onClose={() => setEditSiteManager(false)} />}
-      {editMember && <EditDialog member={editMember} onSave={handleMemberSave} onClose={() => setEditMember(null)} onPhotoUpload={handlePhotoUpload} uploading={false} />}
+      {editMember && <EditDialog member={editMember} onSave={handleMemberSave} onClose={() => setEditMember(null)} onPhotoUpload={handlePhotoUpload} onPhotoRemove={handlePhotoRemove} uploading={false} />}
       {showAddTeam && <AddTeamDialog onAdd={handleAddTeam} onClose={() => setShowAddTeam(false)} usedColors={teams.map((t) => t.color)} />}
     </div>
   );
