@@ -43,48 +43,58 @@ function roundUp10(min: number): number {
   return Math.ceil(min / 10) * 10;
 }
 
-// 적용 출퇴근 계산
-function calcEffective(xerpIn: unknown, xerpOut: unknown, pmisIn: unknown, pmisOut: unknown) {
-  // 출근: X-ERP 우선 (표시용 문자열이 아닌 raw값으로 유무 판단)
-  const xerpInMin = parseMin(xerpIn);
-  const pmisInMin = parseMin(pmisIn);
-  const effInMin = xerpInMin ?? pmisInMin;
-  const effIn = effInMin !== null ? minToStr(effInMin) : "";
+const STANDARD_START = 7 * 60;  // 420 (07:00)
+const STANDARD_END   = 17 * 60; // 1020 (17:00)
+const JOCHUL_CUTOFF  = 7 * 60 + 10; // 430 (07:10)
 
-  // 퇴근: max(X-ERP 정각절사, PMIS 10분올림)
+// 적용 출근 계산 (조출 여부에 따라 분기)
+function resolveEffInMin(rawInMin: number | null, isJochul: boolean): number | null {
+  if (rawInMin === null) return null;
+  if (!isJochul && rawInMin < JOCHUL_CUTOFF) return STANDARD_START; // 07:10 이전 → 07:00 고정
+  return rawInMin;
+}
+
+// 적용 퇴근 계산
+function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
   const xOMin = parseMin(xerpOut);
   const pOMin = parseMin(pmisOut);
-
-  let effOutMin: number | null = null;
-  if (xOMin !== null && pOMin !== null) {
-    effOutMin = Math.max(truncateHour(xOMin), roundUp10(pOMin));
-  } else if (xOMin !== null) {
-    effOutMin = truncateHour(xOMin);
-  } else if (pOMin !== null) {
-    effOutMin = roundUp10(pOMin);
-  }
-
-  const effOut = effOutMin !== null ? minToStr(effOutMin) : "";
-  return { effIn, effOut, effOutMin };
+  if (xOMin !== null && pOMin !== null) return Math.max(truncateHour(xOMin), roundUp10(pOMin));
+  if (xOMin !== null) return truncateHour(xOMin);
+  if (pOMin !== null) return roundUp10(pOMin);
+  return null;
 }
 
 // 공수 계산
-// 주간 07:00~17:00 (중식 2시간 제외) = 8시간 = 1.0공
-// 17:00 초과분 → 분 단위 올림 후 시간당 0.25공
-function calcGongsu(effIn: string, effOutMin: number | null): number | null {
-  if (!effIn || effOutMin === null) return null;
-  const inMin = parseMin(effIn);
-  if (inMin === null) return null;
+// · 조출 체크 O: 07:00 이전 시간 → 시간당 +0.25공
+// · 표준: 07:00~17:00 = 1.0공
+// · 연장: 17:00 초과 → 분 단위 올림 → 시간당 +0.25공
+function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul: boolean): number | null {
+  if (effInMin === null || effOutMin === null) return null;
 
-  const STANDARD_END = 17 * 60; // 1020
+  let total = 1.0;
 
-  // 표준 1.0공
-  if (effOutMin <= STANDARD_END) return 1.0;
+  // 조출 공수 (07:00 이전 근무)
+  if (isJochul && effInMin < STANDARD_START) {
+    const jochulMin = STANDARD_START - effInMin;
+    total += Math.ceil(jochulMin / 60) * 0.25;
+  }
 
-  // 연장 계산 (분 단위 올림)
-  const overtimeMin = effOutMin - STANDARD_END;
-  const overtimeHours = Math.ceil(overtimeMin / 60);
-  return Math.round((1.0 + overtimeHours * 0.25) * 100) / 100;
+  // 연장 공수 (17:00 이후 근무)
+  if (effOutMin > STANDARD_END) {
+    const overtimeMin = effOutMin - STANDARD_END;
+    total += Math.ceil(overtimeMin / 60) * 0.25;
+  }
+
+  return Math.round(total * 100) / 100;
+}
+
+// diff + needsUpdate 계산
+function calcDiff(calcVal: number | null, xerpGongsuA: string) {
+  const aNum = parseFloat(xerpGongsuA);
+  if (calcVal === null || isNaN(aNum)) return { diff: null, needsUpdate: false };
+  const d = Math.round((calcVal - aNum) * 100) / 100;
+  if (d > 0.001) return { diff: d, needsUpdate: true };
+  return { diff: null, needsUpdate: false };
 }
 
 // ── 타입 ─────────────────────────────────────────────
@@ -94,6 +104,9 @@ interface ProcessedRow {
   성명: string;
   xerpIn: string; xerpOut: string;
   pmisIn: string; pmisOut: string;
+  rawInMin: number | null;   // X-ERP 우선 / PMIS 폴백한 실제 출근 분
+  rawOutMin: number | null;  // 적용 퇴근 분 (고정)
+  isJochul: boolean;
   effIn: string; effOut: string;
   xerpGongsuA: string;
   calcGongsuVal: number | null;
@@ -109,6 +122,19 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 조출 토글 → 해당 행만 재계산
+  const toggleJochul = (rowIndex: number) => {
+    setRows((prev) => prev.map((r) => {
+      if (r.rowIndex !== rowIndex) return r;
+      const newJochul = !r.isJochul;
+      const effInMin  = resolveEffInMin(r.rawInMin, newJochul);
+      const effIn     = effInMin !== null ? minToStr(effInMin) : "";
+      const calcVal   = calcGongsu(effInMin, r.rawOutMin, newJochul);
+      const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate };
+    }));
+  };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -143,13 +169,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const 성명 = String(row[3] ?? "").trim();
         if (!성명) continue;
 
-        // 시간: raw값(숫자 시리얼 가능) 사용 — parseMin이 양쪽 처리
-        const xerpIn  = row[5]  ?? "";
-        const xerpOut = row[6]  ?? "";
-        const pmisIn  = row[7]  ?? "";
-        const pmisOut = row[8]  ?? "";
+        // 시간 raw (숫자 시리얼 포함)
+        const xerpInRaw  = row[5]  ?? "";
+        const xerpOutRaw = row[6]  ?? "";
+        const pmisInRaw  = row[7]  ?? "";
+        const pmisOutRaw = row[8]  ?? "";
 
-        // 표시용 문자열: rawFmt(서식 적용)
+        // 표시용 문자열
         const xerpInStr  = String(rowFmt[5]  ?? "").trim();
         const xerpOutStr = String(rowFmt[6]  ?? "").trim();
         const pmisInStr  = String(rowFmt[7]  ?? "").trim();
@@ -157,26 +183,30 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
         const xerpGongsuA = String(row[16] ?? "").trim();
 
-        const { effIn, effOut, effOutMin } = calcEffective(xerpIn, xerpOut, pmisIn, pmisOut);
-        const calcVal = calcGongsu(effIn, effOutMin);
+        // rawInMin: X-ERP 우선, 없으면 PMIS
+        const xerpInMin = parseMin(xerpInRaw);
+        const pmisInMin = parseMin(pmisInRaw);
+        const rawInMin  = xerpInMin ?? pmisInMin;
 
-        const aNum = parseFloat(xerpGongsuA);
-        let diff: number | null = null;
-        let needsUpdate = false;
+        // rawOutMin: 고정 (조출과 무관)
+        const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw);
+        const effOut    = rawOutMin !== null ? minToStr(rawOutMin) : "";
 
-        if (calcVal !== null && !isNaN(aNum)) {
-          const d = Math.round((calcVal - aNum) * 100) / 100;
-          if (d > 0.001) {
-            diff = d;
-            needsUpdate = true;
-          }
-        }
+        // 초기 isJochul = false
+        const isJochul  = false;
+        const effInMin  = resolveEffInMin(rawInMin, isJochul);
+        const effIn     = effInMin !== null ? minToStr(effInMin) : "";
+
+        const calcVal = calcGongsu(effInMin, rawOutMin, isJochul);
+        const { diff, needsUpdate } = calcDiff(calcVal, xerpGongsuA);
 
         processed.push({
           rowIndex: i,
           팀명, 성명,
           xerpIn: xerpInStr, xerpOut: xerpOutStr,
           pmisIn: pmisInStr, pmisOut: pmisOutStr,
+          rawInMin, rawOutMin,
+          isJochul,
           effIn, effOut,
           xerpGongsuA,
           calcGongsuVal: calcVal,
@@ -200,7 +230,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const handleDownload = () => {
     if (!workbook || !fileName) return;
 
-    // 원본 워크북을 깊은 복사해서 서식 그대로 유지
     const wbCopy = XLSX.read(XLSX.write(workbook, { type: "array", bookType: "xlsx", cellStyles: true }), {
       type: "array",
       cellStyles: true,
@@ -209,12 +238,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
     for (const row of rows) {
       if (row.needsUpdate && row.diff !== null) {
-        // 가산신청 열: 열 인덱스 19 → 엑셀 컬럼 주소 변환 (A=0)
-        const colAddr = XLSX.utils.encode_col(19);
-        const cellAddr = `${colAddr}${row.rowIndex + 1}`; // sheet_to_json는 0-based 행
-        const existingCell = ws[cellAddr];
+        const colAddr  = XLSX.utils.encode_col(19);
+        const cellAddr = `${colAddr}${row.rowIndex + 1}`;
+        const existing = ws[cellAddr];
         ws[cellAddr] = {
-          ...(existingCell ?? {}),   // 기존 서식(s) 유지
+          ...(existing ?? {}),
           t: "n",
           v: row.diff,
           w: String(row.diff),
@@ -228,7 +256,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
   const needCount = rows.filter((r) => r.needsUpdate).length;
   const cell = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-border/40 last:border-r-0";
-  const th = "px-2 py-2 text-[11px] font-semibold text-muted-foreground bg-muted/50 text-center border-r border-border/40 last:border-r-0 sticky top-0 z-10";
+  const th   = "px-2 py-2 text-[11px] font-semibold text-muted-foreground bg-muted/50 text-center border-r border-border/40 last:border-r-0 sticky top-0 z-10";
 
   return (
     <div className="flex flex-col gap-4">
@@ -280,9 +308,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <p className="font-bold text-blue-800 mb-2">공수 계산 규칙</p>
           <p>· <b>출근</b>: X-ERP 우선, 없으면 PMIS 적용</p>
           <p>· <b>퇴근</b>: X-ERP 정각절사 vs PMIS 10분올림 중 최대값</p>
-          <p>· <b>기본공수</b>: 주간 07:00 ~ 17:00 (중식 2시간 제외) = 8시간 = <b>1.0공</b></p>
+          <p>· <b>기본공수</b>: 07:00 ~ 17:00 (중식 2시간 제외) = 8시간 = <b>1.0공</b></p>
           <p>· <b>연장공수</b>: 17:00 초과분 → 분 단위 올림 → 시간당 <b>+0.25공</b></p>
-          <p>· X-ERP 공수(A)보다 계산값이 크면 차이를 <b>가산공수(B) 신청</b>에 자동 기입</p>
+          <p>· <b>조출근무</b>: 체크 시 07:00 이전 시간도 시간당 <b>+0.25공</b> 추가</p>
+          <p>· 조출 미체크 시 07:10 이전 출근은 적용출근을 <b>07:00으로 고정</b></p>
         </div>
       )}
 
@@ -294,6 +323,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               <tr className="border-b border-border bg-muted/50">
                 <th className={th}>팀명</th>
                 <th className={th}>성명</th>
+                <th className={`${th} bg-violet-50`}>조출근무</th>
                 <th className={th}>XERP 출근</th>
                 <th className={th}>XERP 퇴근</th>
                 <th className={th}>PMIS 출근</th>
@@ -315,12 +345,34 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 >
                   <td className={cell}>{row.팀명 || "—"}</td>
                   <td className={`${cell} font-medium`}>{row.성명}</td>
+
+                  {/* 조출근무 체크박스 */}
+                  <td className={`${cell} bg-violet-50/30`}>
+                    <label className="flex items-center justify-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={row.isJochul}
+                        onChange={() => toggleJochul(row.rowIndex)}
+                        className="w-3.5 h-3.5 accent-violet-600 cursor-pointer"
+                      />
+                    </label>
+                  </td>
+
                   <td className={`${cell} text-blue-600 tabular-nums`}>{row.xerpIn || "—"}</td>
                   <td className={`${cell} text-red-600 tabular-nums`}>{row.xerpOut || "—"}</td>
                   <td className={`${cell} text-blue-400 tabular-nums`}>{row.pmisIn || "—"}</td>
                   <td className={`${cell} text-red-400 tabular-nums`}>{row.pmisOut || "—"}</td>
-                  <td className={`${cell} bg-blue-50/40 font-semibold text-blue-700 tabular-nums`}>{row.effIn || "—"}</td>
+
+                  <td className={`${cell} bg-blue-50/40 font-semibold tabular-nums
+                    ${row.isJochul && row.rawInMin !== null && row.rawInMin < STANDARD_START
+                      ? "text-violet-700" : "text-blue-700"}`}>
+                    {row.effIn || "—"}
+                    {row.isJochul && row.rawInMin !== null && row.rawInMin < STANDARD_START && (
+                      <span className="ml-1 text-[9px] text-violet-500 font-bold">조출</span>
+                    )}
+                  </td>
                   <td className={`${cell} bg-blue-50/40 font-semibold text-blue-700 tabular-nums`}>{row.effOut || "—"}</td>
+
                   <td className={`${cell} tabular-nums`}>{row.xerpGongsuA || "—"}</td>
                   <td className={`${cell} bg-emerald-50/40 font-bold text-emerald-700 tabular-nums`}>
                     {row.calcGongsuVal !== null ? row.calcGongsuVal.toFixed(2) : "—"}
