@@ -90,6 +90,14 @@ export async function saveXerpPH2FS(dateMap: Record<string, unknown[]>) {
   return fsSet("xerp_pmis_ph2", { dateMap });
 }
 
+// ── XERP 공수 반영 저장 ───────────────────────────────
+export async function loadXerpWorkFS() {
+  return fsGet<{ fileName: string; savedAt: string; rows: unknown[] }>("xerp_work");
+}
+export async function saveXerpWorkFS(fileName: string, rows: unknown[]) {
+  return fsSet("xerp_work", { fileName, savedAt: new Date().toISOString(), rows });
+}
+
 // ── 작업 일정 ──────────────────────────────────────────
 export async function loadScheduleFS() {
   return fsGet<ScheduleData>("work_schedule");
