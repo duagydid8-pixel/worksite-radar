@@ -509,28 +509,28 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: Home
 
           {/* 히어로 카드 */}
           <div className="relative overflow-hidden rounded-3xl p-7"
-            style={{ background: "linear-gradient(135deg, #fff8ed 0%, #ffecd2 50%, #ffe0b8 100%)" }}>
+            style={{ background: "linear-gradient(135deg, #EEF4FF 0%, #E5EDFF 50%, #DDE6FF 100%)" }}>
             {/* 장식 원 */}
-            <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full opacity-30"
-              style={{ background: "radial-gradient(circle, #ffb347 0%, transparent 70%)" }} />
-            <div className="absolute right-16 bottom-0 w-32 h-32 rounded-full opacity-20"
-              style={{ background: "radial-gradient(circle, #ff7043 0%, transparent 70%)" }} />
+            <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full opacity-40"
+              style={{ background: "radial-gradient(circle, #a5b4fc 0%, transparent 70%)" }} />
+            <div className="absolute right-16 bottom-0 w-32 h-32 rounded-full opacity-25"
+              style={{ background: "radial-gradient(circle, #818cf8 0%, transparent 70%)" }} />
 
             <div className="relative z-10 flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold text-amber-600/70 tracking-widest uppercase mb-1">평택 초순수 P4 현장</p>
+                <p className="text-xs font-bold text-indigo-400 tracking-widest uppercase mb-1">평택 초순수 P4 현장</p>
                 <h1 className="text-2xl font-bold text-gray-800 mb-1">현장 관리 시스템</h1>
                 <p className="text-sm text-gray-500 font-medium">{dateLabel}</p>
                 {lastUploadedAt && (
                   <div className="flex items-center gap-1.5 mt-3">
-                    <div className="flex items-center gap-1.5 bg-white/60 backdrop-blur-sm rounded-xl px-3 py-1.5 border border-white/80">
-                      <Clock className="h-3 w-3 text-amber-600" />
+                    <div className="flex items-center gap-1.5 bg-white/70 backdrop-blur-sm rounded-xl px-3 py-1.5 border border-white/90">
+                      <Clock className="h-3 w-3 text-indigo-400" />
                       <span className="text-[11px] font-semibold text-gray-600">최근 업데이트 · {lastUploadedAt}</span>
                     </div>
                   </div>
                 )}
               </div>
-              <div className="hidden sm:flex items-center justify-center w-20 h-20 rounded-3xl bg-white/40 backdrop-blur-sm border border-white/60 shadow-sm text-4xl select-none">
+              <div className="hidden sm:flex items-center justify-center w-20 h-20 rounded-3xl bg-white/50 backdrop-blur-sm border border-white/70 shadow-sm text-4xl select-none">
                 🏗️
               </div>
             </div>
