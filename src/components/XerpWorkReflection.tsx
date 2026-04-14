@@ -116,11 +116,18 @@ interface ProcessedRow {
   isLate: boolean;
 }
 
+// 엑셀 원본 전체 컬럼 (XERP&PMIS와 동일 구조)
+interface RawExcelRow {
+  rowIndex: number;
+  cols: string[]; // 0~22 컬럼 전체
+}
+
 // ── 컴포넌트 ─────────────────────────────────────────
 interface Props { isAdmin: boolean }
 
 export default function XerpWorkReflection({ isAdmin }: Props) {
   const [rows, setRows] = useState<ProcessedRow[]>([]);
+  const [rawExcelRows, setRawExcelRows] = useState<RawExcelRow[]>([]);
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -257,6 +264,19 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         });
       }
 
+      // 전체 컬럼 원본 저장 (XERP&PMIS 동기화용)
+      const allRawExcel: RawExcelRow[] = [];
+      for (let i = dataStart; i < rawFmt.length; i++) {
+        const rowFmt2 = rawFmt[i] as unknown[];
+        if (rowFmt2.every((c) => String(c).trim() === "")) continue;
+        if (!String(rowFmt2[3] ?? "").trim()) continue;
+        allRawExcel.push({
+          rowIndex: i,
+          cols: Array.from({ length: 25 }, (_, ci) => String(rowFmt2[ci] ?? "").trim()),
+        });
+      }
+      setRawExcelRows(allRawExcel);
+
       setRows(processed);
       setWorkbook(wb);
       setFileName(file.name);
@@ -286,41 +306,46 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     else toast.error("저장 실패");
   };
 
-  // XERP&PMIS 가산신청 반영
+  // XERP&PMIS 전체 명단 반영 (파일 전체 데이터 교체)
   const handleSync = async () => {
-    if (!rows.length) return;
+    if (!rows.length || !rawExcelRows.length) return;
     setIsSyncing(true);
     try {
       const loadFn = syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
       const saveFn = syncSite === "PH2" ? saveXerpPH2FS : saveXerpFS;
 
-      const dateMap = await loadFn() as Record<string, Record<string, string>[]> | null;
+      const dateMap = (await loadFn() as Record<string, unknown[]> | null) ?? {};
 
-      if (!dateMap) {
-        toast.error("XERP&PMIS 데이터를 불러올 수 없습니다.");
-        return;
-      }
-      if (!dateMap[syncDate]) {
-        toast.error(`XERP&PMIS (${syncSite})에 ${syncDate} 날짜 데이터가 없습니다.\n날짜를 다시 확인해주세요.`);
-        return;
-      }
+      // 엑셀 전체 컬럼으로 완전한 XERP&PMIS 레코드 구성
+      const newEntries = rawExcelRows.map((re) => {
+        const c = re.cols;
+        // ProcessedRow에서 계산된 값 찾기
+        const pr = rows.find((r) => r.rowIndex === re.rowIndex);
+        const gongsuA = parseFloat(c[16]) || 0;
+        const gasanB  = pr?.diff ?? null;
+        const gongsuAB = gasanB !== null
+          ? String(Math.round((gongsuA + gasanB) * 100) / 100)
+          : c[21];
 
-      const updatable = rows.filter((r) => r.diff !== null);
-      if (updatable.length === 0) {
-        toast.info("반영할 가산공수가 없습니다.");
-        return;
-      }
-
-      let matched = 0;
-      const updated = dateMap[syncDate].map((pmisRow) => {
-        const hit = updatable.find((r) => String(pmisRow["성명"]).trim() === r.성명.trim());
-        if (!hit || hit.diff === null) return pmisRow;
-        matched++;
-        return { ...pmisRow, 가산신청: String(hit.diff) };
+        return {
+          id: crypto.randomUUID(),
+          팀명: c[0],  직종: c[1],  사번: c[2],  성명: c[3],  생년월일: c[4],
+          xerp출근: c[5],  xerp퇴근: c[6],
+          pmis출근: c[7],  pmis퇴근: c[8],
+          조출: c[9],  오전: c[10], 오후: c[11], 연장: c[12],
+          야간: c[13], 철야: c[14], 점심: c[15],
+          공수합계A: c[16],
+          초과당일: c[17], 초과합계: c[18],
+          가산신청: gasanB !== null ? String(gasanB) : c[19],
+          가산승인: c[20],
+          공수합계AB: gongsuAB,
+          월누계: c[22],
+        };
       });
 
-      await saveFn({ ...dateMap, [syncDate]: updated } as Record<string, unknown[]>);
-      toast.success(`XERP&PMIS (${syncSite}, ${syncDate}) 반영 완료 — ${matched}명 가산신청 업데이트`);
+      const updated = { ...dateMap, [syncDate]: newEntries };
+      await saveFn(updated as Record<string, unknown[]>);
+      toast.success(`XERP&PMIS (${syncSite}, ${syncDate}) 반영 완료 — ${newEntries.length}명 전체 업데이트`);
     } catch (err) {
       toast.error("반영 중 오류: " + String(err));
     } finally {
