@@ -54,8 +54,8 @@ function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
 function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul: boolean): number | null {
   if (effInMin === null || effOutMin === null) return null;
   let total = 1.0;
-  if (isJochul && effInMin < STANDARD_START) {
-    total += Math.ceil((STANDARD_START - effInMin) / 60) * 0.25;
+  if (isJochul) {
+    total += 0.5;
   }
   if (effOutMin > STANDARD_END) {
     total += ((effOutMin - STANDARD_END) / 60) * 0.25;
