@@ -37,11 +37,12 @@ const STANDARD_START = 7 * 60;  // 420 (07:00)
 const STANDARD_END   = 17 * 60; // 1020 (17:00)
 const JOCHUL_CUTOFF  = 7 * 60 + 10; // 430 (07:10)
 
-// 퇴근 49분 기준 반올림: 분 >= 49 → 올림, 분 <= 48 → 내림
-function roundBy49(min: number): number {
+// 퇴근 50분 기준 반올림: 분 >= 50 → 올림, 분 < 50 → 내림
+// 예) 17:50 → 18:00 / 17:49 → 17:00 / 18:50 → 19:00 / 18:49 → 18:00
+function roundBy50(min: number): number {
   const h = Math.floor(min / 60);
   const m = min % 60;
-  return m >= 49 ? (h + 1) * 60 : h * 60;
+  return m >= 50 ? (h + 1) * 60 : h * 60;
 }
 
 // 적용 출근 계산 (조출 여부에 따라 분기)
@@ -55,9 +56,9 @@ function resolveEffInMin(rawInMin: number | null, isJochul: boolean): number | n
 function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
   const xOMin = parseMin(xerpOut);
   const pOMin = parseMin(pmisOut);
-  if (xOMin !== null && pOMin !== null) return Math.max(roundBy49(xOMin), roundBy49(pOMin));
-  if (xOMin !== null) return roundBy49(xOMin);
-  if (pOMin !== null) return roundBy49(pOMin);
+  if (xOMin !== null && pOMin !== null) return Math.max(roundBy50(xOMin), roundBy50(pOMin));
+  if (xOMin !== null) return roundBy50(xOMin);
+  if (pOMin !== null) return roundBy50(pOMin);
   return null;
 }
 
