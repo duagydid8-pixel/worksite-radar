@@ -329,15 +329,15 @@ function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: C
                     <div className="text-[10px] text-muted-foreground/50 leading-tight">▼ —</div>
                   ) : null}
 
-                  {/* 공수합계A */}
-                  {rec?.공수합계A && rec.공수합계A !== "0" && (
+                  {/* 공수합계AB */}
+                  {rec?.공수합계AB && rec.공수합계AB !== "0" && (
                     <div className="text-[10px] font-bold text-emerald-600 leading-tight tabular-nums mt-auto">
-                      공 {rec.공수합계A}
+                      공 {rec.공수합계AB}
                     </div>
                   )}
 
                   {/* PMIS 표시 */}
-                  {isPmis && !rec?.공수합계A && (
+                  {isPmis && !rec?.공수합계AB && (
                     <div className="text-[9px] text-muted-foreground/60 leading-tight mt-auto">PMIS</div>
                   )}
                 </div>
