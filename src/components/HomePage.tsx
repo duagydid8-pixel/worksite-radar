@@ -8,6 +8,10 @@ import {
   Clock, CloudUpload, HardHat,
   Wind, Droplets, Thermometer,
 } from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell,
+} from "recharts";
 
 interface ScheduleData {
   weekStart: string;
@@ -371,23 +375,122 @@ function WeatherCard() {
   );
 }
 
+// ── 일일 출력인원 그래프 ──────────────────────────────
+interface DailyPoint { date: string; label: string; present: number; total: number; isToday: boolean }
+
+function DailyAttendanceChart({ dateMap }: { dateMap: Record<string, XerpRow[]> }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const data: DailyPoint[] = useMemo(() => {
+    return Object.keys(dateMap)
+      .sort()
+      .slice(-14) // 최근 14일
+      .map(date => {
+        const rows = dateMap[date] as XerpRow[];
+        const present = rows.filter(r => r.xerp출근?.trim() || r.pmis출근?.trim()).length;
+        const [, m, d] = date.split("-").map(Number);
+        return { date, label: `${m}/${d}`, present, total: rows.length, isToday: date === todayStr };
+      });
+  }, [dateMap, todayStr]);
+
+  if (!data.length) return null;
+
+  const maxVal = Math.max(...data.map(d => d.present), 1);
+
+  return (
+    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-2xl bg-violet-50 flex items-center justify-center">
+            <HardHat className="h-4.5 w-4.5 text-violet-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-gray-800">일일 출력인원</h3>
+            <p className="text-[11px] text-gray-400">최근 {data.length}일 출근 기준</p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xl font-bold text-violet-600 tabular-nums">{data[data.length - 1].present}<span className="text-xs font-medium text-gray-400 ml-0.5">명</span></p>
+          <p className="text-[10px] text-gray-400">최근일 출근</p>
+        </div>
+      </div>
+
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barCategoryGap="30%">
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            axisLine={false}
+            tickLine={false}
+            domain={[0, Math.ceil(maxVal * 1.15)]}
+            allowDecimals={false}
+          />
+          <Tooltip
+            cursor={{ fill: "#f5f3ff" }}
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null;
+              const d = payload[0].payload as DailyPoint;
+              return (
+                <div className="bg-white border border-gray-100 rounded-2xl shadow-lg px-3 py-2 text-xs">
+                  <p className="font-bold text-gray-700 mb-1">{d.date}</p>
+                  <p className="text-violet-600 font-semibold">출근 {d.present}명</p>
+                  <p className="text-gray-400">전체 {d.total}명</p>
+                </div>
+              );
+            }}
+          />
+          <Bar dataKey="present" radius={[6, 6, 0, 0]} maxBarSize={36}>
+            {data.map((entry) => (
+              <Cell
+                key={entry.date}
+                fill={entry.isToday ? "#7c3aed" : "#c4b5fd"}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+
+      <div className="flex items-center gap-3 mt-2">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm bg-[#7c3aed] inline-block" />
+          <span className="text-[10px] text-gray-400">오늘</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm bg-[#c4b5fd] inline-block" />
+          <span className="text-[10px] text-gray-400">이전 날짜</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── 메인 ─────────────────────────────────────────────
 export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: HomePageProps) {
   const today = new Date();
   const dateLabel = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 ${DAY_KO[today.getDay()]}요일`;
 
-  const [xerpRows,  setXerpRows]  = useState<XerpRow[]>([]);
-  const [xerpLoaded, setXerpLoaded] = useState(false);
+  const [xerpDateMap, setXerpDateMap] = useState<Record<string, XerpRow[]>>({});
+  const [xerpLoaded,  setXerpLoaded]  = useState(false);
 
   useEffect(() => {
     loadXerpFS().then(dm => {
       if (dm && typeof dm === "object") {
-        const dates = Object.keys(dm).sort();
-        if (dates.length) setXerpRows((dm[dates[dates.length-1]] ?? []) as XerpRow[]);
+        setXerpDateMap(dm as Record<string, XerpRow[]>);
       }
       setXerpLoaded(true);
     });
   }, []);
+
+  const xerpRows = useMemo(() => {
+    const dates = Object.keys(xerpDateMap).sort();
+    return dates.length ? (xerpDateMap[dates[dates.length - 1]] ?? []) : [];
+  }, [xerpDateMap]);
 
   const stats = useMemo(() => calcStats(xerpRows), [xerpRows]);
 
@@ -448,6 +551,11 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: Home
               </div>
             ))}
           </div>
+
+          {/* 일일 출력인원 그래프 */}
+          {xerpLoaded && Object.keys(xerpDateMap).length > 0 && (
+            <DailyAttendanceChart dateMap={xerpDateMap} />
+          )}
 
           {/* 주간 작업 일정 */}
           <WorkScheduleSection isAdmin={isAdmin} />
