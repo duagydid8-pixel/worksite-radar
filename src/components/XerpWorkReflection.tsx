@@ -117,7 +117,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
     try {
       const buffer = await file.arrayBuffer();
-      const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
+      const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellStyles: true, cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
       const rawFmt: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
@@ -200,19 +200,29 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const handleDownload = () => {
     if (!workbook || !fileName) return;
 
-    const ws = workbook.Sheets[workbook.SheetNames[0]];
-    const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    // 원본 워크북을 깊은 복사해서 서식 그대로 유지
+    const wbCopy = XLSX.read(XLSX.write(workbook, { type: "array", bookType: "xlsx", cellStyles: true }), {
+      type: "array",
+      cellStyles: true,
+    });
+    const ws = wbCopy.Sheets[wbCopy.SheetNames[0]];
 
     for (const row of rows) {
       if (row.needsUpdate && row.diff !== null) {
-        (raw[row.rowIndex] as unknown[])[19] = row.diff; // 가산신청 열
+        // 가산신청 열: 열 인덱스 19 → 엑셀 컬럼 주소 변환 (A=0)
+        const colAddr = XLSX.utils.encode_col(19);
+        const cellAddr = `${colAddr}${row.rowIndex + 1}`; // sheet_to_json는 0-based 행
+        const existingCell = ws[cellAddr];
+        ws[cellAddr] = {
+          ...(existingCell ?? {}),   // 기존 서식(s) 유지
+          t: "n",
+          v: row.diff,
+          w: String(row.diff),
+        };
       }
     }
 
-    const newWs = XLSX.utils.aoa_to_sheet(raw);
-    const newWb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(newWb, newWs, workbook.SheetNames[0]);
-    XLSX.writeFile(newWb, fileName.replace(/\.xlsx?$/i, "") + "_공수반영.xlsx");
+    XLSX.writeFile(wbCopy, fileName.replace(/\.xlsx?$/i, "") + "_공수반영.xlsx", { cellStyles: true, bookType: "xlsx" });
     toast.success("수정된 파일을 다운로드했습니다.");
   };
 
