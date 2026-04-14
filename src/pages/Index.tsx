@@ -5,11 +5,12 @@ import AttendanceTable from "@/components/AttendanceTable";
 import AnnualLeavePanel from "@/components/AnnualLeavePanel";
 import NewEmployeeList from "@/components/NewEmployeeList";
 import XerpPmisTable from "@/components/XerpPmisTable";
+import XerpWorkReflection from "@/components/XerpWorkReflection";
 import { WeeklySchedule } from "@/components/WeeklySchedule";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -65,7 +66,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "홈" | "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS" | "주간일정";
+type ActiveTab = "홈" | "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -100,6 +101,7 @@ const NAV_ADMIN: NavItem[] = [
 
 const NAV_SEMI_PUBLIC: NavItem[] = [
   { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: false },
+  { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: false },
 ];
 
 const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN];
@@ -657,6 +659,13 @@ const Index = () => {
         {/* XERP & PMIS */}
         {activeTab === "XERP&PMIS" && (
           <XerpPmisPageWrapper isAdmin={isAdmin} />
+        )}
+
+        {/* XERP 공수 반영 */}
+        {activeTab === "XERP공수반영" && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+            <XerpWorkReflection isAdmin={isAdmin} />
+          </div>
         )}
 
       </main>
