@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX } from "lucide-react";
+import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { loadXerpWorkFS, saveXerpWorkFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS } from "@/lib/firestoreService";
@@ -26,25 +26,22 @@ function minToStr(min: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-const STANDARD_START = 7 * 60;   // 420 (07:00)
-const STANDARD_END   = 17 * 60;  // 1020 (17:00)
-const JOCHUL_CUTOFF  = 7 * 60 + 10; // 430 (07:10)
+const STANDARD_START = 7 * 60;
+const STANDARD_END   = 17 * 60;
+const JOCHUL_CUTOFF  = 7 * 60 + 10;
 
-// 퇴근 50분 기준: 분 >= 50 → 올림, 분 < 50 → 내림
 function roundBy50(min: number): number {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m >= 50 ? (h + 1) * 60 : h * 60;
 }
 
-// 적용 출근 (조출 여부에 따라 분기)
 function resolveEffInMin(rawInMin: number | null, isJochul: boolean): number | null {
   if (rawInMin === null) return null;
   if (!isJochul && rawInMin < JOCHUL_CUTOFF) return STANDARD_START;
   return rawInMin;
 }
 
-// 적용 퇴근 (X-ERP, PMIS 각각 50분 기준 후 최대값)
 function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
   const xOMin = parseMin(xerpOut);
   const pOMin = parseMin(pmisOut);
@@ -54,17 +51,14 @@ function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
   return null;
 }
 
-// 공수 계산 (주간 8시간 충족 기준, 17:00 이후만 연장)
 function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul: boolean): number | null {
   if (effInMin === null || effOutMin === null) return null;
   let total = 1.0;
   if (isJochul && effInMin < STANDARD_START) {
-    const jochulMin = STANDARD_START - effInMin;
-    total += Math.ceil(jochulMin / 60) * 0.25;
+    total += Math.ceil((STANDARD_START - effInMin) / 60) * 0.25;
   }
   if (effOutMin > STANDARD_END) {
-    const overtimeMin = effOutMin - STANDARD_END;
-    total += (overtimeMin / 60) * 0.25; // 50분 반올림으로 이미 정각이므로 정확히 나눔
+    total += ((effOutMin - STANDARD_END) / 60) * 0.25;
   }
   return Math.round(total * 100) / 100;
 }
@@ -80,32 +74,28 @@ function calcDiff(calcVal: number | null, xerpGongsuA: string) {
 // ── 파일명 유틸 ───────────────────────────────────────
 function extractDateFromFilename(filename: string): string | null {
   const name = filename.replace(/\.[^.]+$/, "");
-
-  // 4자리 연도: YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD
   const sep4 = name.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
   if (sep4) return `${sep4[1]}-${sep4[2]}-${sep4[3]}`;
-
-  // 2자리 연도: YY.MM.DD / YY-MM-DD → 20YY (예: 26.04.13 → 2026-04-13)
   const sep2 = name.match(/(\d{2})[-./](\d{2})[-./](\d{2})/);
   if (sep2) {
     const [, y, m, d] = sep2;
     if (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) return `20${y}-${m}-${d}`;
   }
-
-  // 8자리 연속: YYYYMMDD
   const compact = name.match(/(\d{4})(\d{2})(\d{2})/);
   if (compact) {
     const [, y, m, d] = compact;
     if (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) return `${y}-${m}-${d}`;
   }
-
   return null;
 }
 
 function detectSite(filename: string): "PH4" | "PH2" {
-  const upper = filename.toUpperCase();
-  if (upper.includes("PH2")) return "PH2";
-  return "PH4"; // 기본값
+  return filename.toUpperCase().includes("PH2") ? "PH2" : "PH4";
+}
+
+function today(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
 // ── 타입 ─────────────────────────────────────────────
@@ -122,9 +112,8 @@ interface ProcessedRow {
   calcGongsuVal: number | null;
   diff: number | null;
   needsUpdate: boolean;
-  // 상태 플래그
-  isNoRecord: boolean;  // 출근 or 퇴근 기록 없음
-  isLate: boolean;      // 지각 (적용 출근 > 07:00)
+  isNoRecord: boolean;
+  isLate: boolean;
 }
 
 // ── 컴포넌트 ─────────────────────────────────────────
@@ -136,7 +125,30 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editingVal, setEditingVal] = useState("");
+
+  // XERP&PMIS 연동 설정
+  const [syncSite, setSyncSite] = useState<"PH4" | "PH2">("PH4");
+  const [syncDate, setSyncDate] = useState<string>(today());
+  const [xerpDates, setXerpDates] = useState<string[]>([]);
+
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 사이트 변경 시 XERP&PMIS 날짜 목록 로드
+  useEffect(() => {
+    const loadFn = syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
+    loadFn().then((dm) => {
+      if (dm && typeof dm === "object") {
+        const dates = Object.keys(dm).sort().reverse();
+        setXerpDates(dates);
+        if (dates.length > 0 && !dates.includes(syncDate)) setSyncDate(dates[0]);
+      } else {
+        setXerpDates([]);
+      }
+    });
+  }, [syncSite]);
 
   // 마운트 시 저장된 데이터 로드
   useEffect(() => {
@@ -144,30 +156,47 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (data?.rows && data.rows.length > 0) {
         setRows(data.rows as ProcessedRow[]);
         setFileName(data.fileName ?? null);
-        toast.info(`저장된 데이터를 불러왔습니다. (${data.fileName})`);
+        toast.info(`저장된 데이터 불러옴 (${data.fileName})`);
       }
     });
   }, []);
 
-  // 조출 토글 → 해당 행만 재계산
+  // 조출 토글
   const toggleJochul = (rowIndex: number) => {
     setRows((prev) => prev.map((r) => {
       if (r.rowIndex !== rowIndex) return r;
-      const newJochul   = !r.isJochul;
-      const effInMin    = resolveEffInMin(r.rawInMin, newJochul);
-      const effIn       = effInMin !== null ? minToStr(effInMin) : "";
-      const calcVal     = calcGongsu(effInMin, r.rawOutMin, newJochul);
+      const newJochul = !r.isJochul;
+      const effInMin  = resolveEffInMin(r.rawInMin, newJochul);
+      const effIn     = effInMin !== null ? minToStr(effInMin) : "";
+      const calcVal   = calcGongsu(effInMin, r.rawOutMin, newJochul);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const isLate      = effInMin !== null && effInMin > STANDARD_START;
+      const isLate    = effInMin !== null && effInMin > STANDARD_START;
       return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate };
     }));
+  };
+
+  // 가산B 수기 편집
+  const startEdit = (row: ProcessedRow) => {
+    setEditingIdx(row.rowIndex);
+    setEditingVal(row.diff !== null ? String(row.diff) : "");
+  };
+
+  const commitEdit = (rowIndex: number) => {
+    const num = parseFloat(editingVal);
+    setRows((prev) => prev.map((r) => {
+      if (r.rowIndex !== rowIndex) return r;
+      if (isNaN(num) || num <= 0) {
+        return { ...r, diff: null, needsUpdate: false };
+      }
+      return { ...r, diff: Math.round(num * 100) / 100, needsUpdate: true };
+    }));
+    setEditingIdx(null);
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
-
     try {
       const buffer = await file.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellStyles: true, cellDates: true });
@@ -183,12 +212,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       }
 
       const processed: ProcessedRow[] = [];
-
       for (let i = dataStart; i < raw.length; i++) {
         const row    = raw[i]    as unknown[];
         const rowFmt = rawFmt[i] as unknown[];
         if (row.every((c) => String(c).trim() === "")) continue;
-
         const 팀명 = String(row[0] ?? "").trim();
         const 성명 = String(row[3] ?? "").trim();
         if (!성명) continue;
@@ -202,13 +229,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const xerpOutStr = String(rowFmt[6] ?? "").trim();
         const pmisInStr  = String(rowFmt[7] ?? "").trim();
         const pmisOutStr = String(rowFmt[8] ?? "").trim();
-
         const xerpGongsuA = String(row[16] ?? "").trim();
 
         const xerpInMin = parseMin(xerpInRaw);
         const pmisInMin = parseMin(pmisInRaw);
-        // 둘 다 있으면 더 이른 시간 채택 (X-ERP 지각 시 PMIS 확인)
-        const rawInMin = xerpInMin !== null && pmisInMin !== null
+        const rawInMin  = xerpInMin !== null && pmisInMin !== null
           ? Math.min(xerpInMin, pmisInMin)
           : xerpInMin ?? pmisInMin;
         const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw);
@@ -217,26 +242,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const isJochul  = false;
         const effInMin  = resolveEffInMin(rawInMin, isJochul);
         const effIn     = effInMin !== null ? minToStr(effInMin) : "";
-
-        const calcVal = calcGongsu(effInMin, rawOutMin, isJochul);
+        const calcVal   = calcGongsu(effInMin, rawOutMin, isJochul);
         const { diff, needsUpdate } = calcDiff(calcVal, xerpGongsuA);
-
-        // 상태 판단
         const isNoRecord = rawInMin === null || rawOutMin === null;
         const isLate     = !isNoRecord && effInMin !== null && effInMin > STANDARD_START;
 
         processed.push({
-          rowIndex: i,
-          팀명, 성명,
+          rowIndex: i, 팀명, 성명,
           xerpIn: xerpInStr, xerpOut: xerpOutStr,
           pmisIn: pmisInStr, pmisOut: pmisOutStr,
-          rawInMin, rawOutMin,
-          isJochul,
-          effIn, effOut,
-          xerpGongsuA,
-          calcGongsuVal: calcVal,
-          diff, needsUpdate,
-          isNoRecord, isLate,
+          rawInMin, rawOutMin, isJochul,
+          effIn, effOut, xerpGongsuA,
+          calcGongsuVal: calcVal, diff, needsUpdate, isNoRecord, isLate,
         });
       }
 
@@ -244,59 +261,70 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       setWorkbook(wb);
       setFileName(file.name);
 
-      const noRec  = processed.filter((r) => r.isNoRecord).length;
-      const late   = processed.filter((r) => r.isLate).length;
-      const needs  = processed.filter((r) => r.needsUpdate).length;
+      // 자동 사이트/날짜 감지
+      const detectedSite = detectSite(file.name);
+      const detectedDate = extractDateFromFilename(file.name);
+      setSyncSite(detectedSite);
+      if (detectedDate) setSyncDate(detectedDate);
+
+      const noRec = processed.filter((r) => r.isNoRecord).length;
+      const late  = processed.filter((r) => r.isLate).length;
+      const needs = processed.filter((r) => r.needsUpdate).length;
       toast.success(`${processed.length}명 불러옴 — 기록없음 ${noRec}명 · 지각 ${late}명 · 가산필요 ${needs}명`);
     } catch {
       toast.error("파일을 읽는 중 오류가 발생했습니다.");
     }
   };
 
+  // 공수반영 데이터 저장 (Firestore xerp_work)
   const handleSave = async () => {
     if (!rows.length || !fileName) return;
     setIsSaving(true);
+    const ok = await saveXerpWorkFS(fileName, rows);
+    setIsSaving(false);
+    if (ok) toast.success("저장되었습니다.");
+    else toast.error("저장 실패");
+  };
 
+  // XERP&PMIS 가산신청 반영
+  const handleSync = async () => {
+    if (!rows.length) return;
+    setIsSyncing(true);
     try {
-      // 1) 공수반영 데이터 저장
-      await saveXerpWorkFS(fileName, rows);
+      const loadFn = syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
+      const saveFn = syncSite === "PH2" ? saveXerpPH2FS : saveXerpFS;
 
-      // 2) XERP&PMIS 연동 — 파일명에서 날짜·사이트 감지
-      const dateKey = extractDateFromFilename(fileName);
-      const site    = detectSite(fileName);
+      const dateMap = await loadFn() as Record<string, Record<string, string>[]> | null;
 
-      if (dateKey) {
-        const loadFn = site === "PH2" ? loadXerpPH2FS : loadXerpFS;
-        const saveFn = site === "PH2" ? saveXerpPH2FS : saveXerpFS;
-
-        const dateMap = (await loadFn()) as Record<string, Record<string, string>[]> | null;
-
-        if (dateMap && dateMap[dateKey]) {
-          const updatable = rows.filter((r) => r.needsUpdate && r.diff !== null);
-
-          if (updatable.length > 0) {
-            const updated = dateMap[dateKey].map((pmisRow) => {
-              const match = updatable.find((r) => pmisRow["성명"] === r.성명);
-              if (!match || match.diff === null) return pmisRow;
-              return { ...pmisRow, 가산신청: String(match.diff) };
-            });
-
-            const newMap = { ...dateMap, [dateKey]: updated };
-            await saveFn(newMap as Record<string, unknown[]>);
-            toast.success(`저장 완료 — XERP&PMIS (${site}, ${dateKey}) 가산신청 ${updatable.length}건 반영`);
-          } else {
-            toast.success("저장 완료 (가산신청 반영 대상 없음)");
-          }
-        } else {
-          toast.success(`저장 완료 — XERP&PMIS에 ${dateKey} 데이터가 없어 연동 생략`);
-        }
-      } else {
-        toast.success("저장 완료 (파일명에서 날짜를 찾을 수 없어 XERP&PMIS 연동 생략)");
+      if (!dateMap) {
+        toast.error("XERP&PMIS 데이터를 불러올 수 없습니다.");
+        return;
       }
-    } catch {
-      toast.error("저장 중 오류가 발생했습니다.");
+      if (!dateMap[syncDate]) {
+        toast.error(`XERP&PMIS (${syncSite})에 ${syncDate} 날짜 데이터가 없습니다.\n날짜를 다시 확인해주세요.`);
+        return;
+      }
+
+      const updatable = rows.filter((r) => r.diff !== null);
+      if (updatable.length === 0) {
+        toast.info("반영할 가산공수가 없습니다.");
+        return;
+      }
+
+      let matched = 0;
+      const updated = dateMap[syncDate].map((pmisRow) => {
+        const hit = updatable.find((r) => String(pmisRow["성명"]).trim() === r.성명.trim());
+        if (!hit || hit.diff === null) return pmisRow;
+        matched++;
+        return { ...pmisRow, 가산신청: String(hit.diff) };
+      });
+
+      await saveFn({ ...dateMap, [syncDate]: updated } as Record<string, unknown[]>);
+      toast.success(`XERP&PMIS (${syncSite}, ${syncDate}) 반영 완료 — ${matched}명 가산신청 업데이트`);
+    } catch (err) {
+      toast.error("반영 중 오류: " + String(err));
     } finally {
-      setIsSaving(false);
+      setIsSyncing(false);
     }
   };
 
@@ -307,9 +335,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     });
     const ws = wbCopy.Sheets[wbCopy.SheetNames[0]];
     for (const row of rows) {
-      if (row.needsUpdate && row.diff !== null) {
-        const colAddr  = XLSX.utils.encode_col(19);
-        const cellAddr = `${colAddr}${row.rowIndex + 1}`;
+      if (row.diff !== null) {
+        const cellAddr = `${XLSX.utils.encode_col(19)}${row.rowIndex + 1}`;
         const existing = ws[cellAddr];
         ws[cellAddr] = { ...(existing ?? {}), t: "n", v: row.diff, w: String(row.diff) };
       }
@@ -318,7 +345,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     toast.success("수정된 파일을 다운로드했습니다.");
   };
 
-  // 검색 필터
   const displayRows = useMemo(() => {
     const q = search.trim();
     if (!q) return rows;
@@ -354,12 +380,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
         {rows.length > 0 && (
           <>
-            {/* 총인원 */}
             <span className="flex items-center gap-1 text-xs font-semibold text-foreground bg-muted border border-border px-2.5 py-1.5 rounded-lg">
               총 {totalCount}명
             </span>
-
-            {/* 요약 배지 */}
             {noRecCount > 0 && (
               <span className="flex items-center gap-1 text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-2.5 py-1.5 rounded-lg">
                 <UserX className="h-3.5 w-3.5" /> 기록없음 {noRecCount}명
@@ -380,7 +403,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               </span>
             )}
 
-            {/* 저장 버튼 */}
             <button
               onClick={handleSave}
               disabled={isSaving}
@@ -390,7 +412,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               {isSaving ? "저장 중..." : "저장"}
             </button>
 
-            {/* 다운로드 버튼 (원본 엑셀 있을 때만) */}
             {workbook && (
               <button
                 onClick={handleDownload}
@@ -404,31 +425,71 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         )}
       </div>
 
-      {/* 검색창 */}
+      {/* XERP&PMIS 연동 패널 */}
       {rows.length > 0 && (
-        <div className="relative w-full max-w-xs shrink-0">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="이름 / 팀명 검색..."
-            className="w-full pl-9 pr-9 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-          />
-          {search && (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
+        <div className="flex flex-wrap items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 shrink-0">
+          <span className="text-xs font-bold text-emerald-800">XERP&PMIS 반영</span>
+
+          <select
+            value={syncSite}
+            onChange={(e) => setSyncSite(e.target.value as "PH4" | "PH2")}
+            className="border border-emerald-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none"
+          >
+            <option value="PH4">P4-PH4</option>
+            <option value="PH2">P4-PH2</option>
+          </select>
+
+          {xerpDates.length > 0 ? (
+            <select
+              value={syncDate}
+              onChange={(e) => setSyncDate(e.target.value)}
+              className="border border-emerald-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none"
+            >
+              {xerpDates.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-xs text-emerald-600">XERP&PMIS에 저장된 날짜 없음</span>
           )}
+
+          <button
+            onClick={handleSync}
+            disabled={isSyncing || xerpDates.length === 0}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+            {isSyncing ? "반영 중..." : "XERP&PMIS에 반영"}
+          </button>
+
+          <span className="text-[11px] text-emerald-600">가산B 신청값을 선택한 날짜에 업데이트합니다</span>
         </div>
       )}
 
-      {/* 범례 */}
+      {/* 검색창 + 범례 */}
       {rows.length > 0 && (
-        <div className="flex items-center gap-4 text-[11px] text-muted-foreground shrink-0">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-100 border border-rose-300 inline-block" /> 기록없음 (출·퇴근 중 하나 이상 미기록)</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 border border-orange-300 inline-block" /> 지각 (적용 출근 07:00 초과)</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-300 inline-block" /> 가산공수 필요</span>
+        <div className="flex flex-wrap items-center gap-4 shrink-0">
+          <div className="relative w-full max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="이름 / 팀명 검색..."
+              className="w-full pl-9 pr-9 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+            {search && (
+              <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-100 border border-rose-300 inline-block" /> 기록없음</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 border border-orange-300 inline-block" /> 지각</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-300 inline-block" /> 가산필요</span>
+            <span className="text-[11px] text-muted-foreground">· 가산B 셀 클릭 시 수기 입력 가능</span>
+          </div>
         </div>
       )}
 
@@ -436,17 +497,17 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       {rows.length === 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 text-sm text-blue-700 space-y-1.5 shrink-0">
           <p className="font-bold text-blue-800 mb-2">공수 계산 규칙</p>
-          <p>· <b>출근</b>: X-ERP 우선, 없으면 PMIS / 07:10 이전은 07:00 고정 (조출 미체크 시)</p>
+          <p>· <b>출근</b>: X-ERP·PMIS 중 더 이른 시간 / 07:10 이전은 07:00 고정 (조출 미체크)</p>
           <p>· <b>퇴근</b>: X-ERP·PMIS 각각 50분 기준 반올림 후 최대값</p>
           <p>· <b>기본공수</b>: 07:00 ~ 17:00 = <b>1.0공</b></p>
-          <p>· <b>연장공수</b>: 17:00 초과 → 시간당 <b>+0.25공</b> (50분 미만 미인정)</p>
+          <p>· <b>연장공수</b>: 17:00 초과 시간당 <b>+0.25공</b> (50분 미만 미인정)</p>
           <p>· <b>조출공수</b>: 체크 시 07:00 이전 시간당 <b>+0.25공</b></p>
         </div>
       )}
 
       {/* 결과 테이블 */}
       {rows.length > 0 && (
-        <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm" style={{ maxHeight: "calc(100vh - 300px)" }}>
+        <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm" style={{ maxHeight: "calc(100vh - 330px)" }}>
           <table className="min-w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-border bg-muted/50">
@@ -474,7 +535,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 </tr>
               ) : (
                 displayRows.map((row) => {
-                  // 행 배경색 우선순위: 기록없음 > 지각 > 가산필요
                   const rowBg = row.isNoRecord
                     ? "bg-rose-50/60 hover:bg-rose-50"
                     : row.isLate
@@ -488,32 +548,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       <td className={cell}>{row.팀명 || "—"}</td>
                       <td className={`${cell} font-medium`}>{row.성명}</td>
 
-                      {/* 조출 체크박스 */}
                       <td className={`${cell} bg-violet-50/30`}>
                         <label className="flex items-center justify-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={row.isJochul}
-                            onChange={() => toggleJochul(row.rowIndex)}
-                            className="w-3.5 h-3.5 accent-violet-600 cursor-pointer"
-                          />
+                          <input type="checkbox" checked={row.isJochul} onChange={() => toggleJochul(row.rowIndex)}
+                            className="w-3.5 h-3.5 accent-violet-600 cursor-pointer" />
                         </label>
                       </td>
 
-                      <td className={`${cell} tabular-nums ${!row.xerpIn ? "text-rose-400 font-semibold" : "text-blue-600"}`}>
-                        {row.xerpIn || "미기록"}
-                      </td>
-                      <td className={`${cell} tabular-nums ${!row.xerpOut ? "text-rose-400 font-semibold" : "text-red-600"}`}>
-                        {row.xerpOut || "미기록"}
-                      </td>
-                      <td className={`${cell} tabular-nums ${!row.pmisIn ? "text-rose-400 font-semibold" : "text-blue-400"}`}>
-                        {row.pmisIn || "미기록"}
-                      </td>
-                      <td className={`${cell} tabular-nums ${!row.pmisOut ? "text-rose-400 font-semibold" : "text-red-400"}`}>
-                        {row.pmisOut || "미기록"}
-                      </td>
+                      <td className={`${cell} tabular-nums ${!row.xerpIn ? "text-rose-400 font-semibold" : "text-blue-600"}`}>{row.xerpIn || "미기록"}</td>
+                      <td className={`${cell} tabular-nums ${!row.xerpOut ? "text-rose-400 font-semibold" : "text-red-600"}`}>{row.xerpOut || "미기록"}</td>
+                      <td className={`${cell} tabular-nums ${!row.pmisIn ? "text-rose-400 font-semibold" : "text-blue-400"}`}>{row.pmisIn || "미기록"}</td>
+                      <td className={`${cell} tabular-nums ${!row.pmisOut ? "text-rose-400 font-semibold" : "text-red-400"}`}>{row.pmisOut || "미기록"}</td>
 
-                      {/* 적용 출근 — 지각 시 강조 */}
                       <td className={`${cell} bg-blue-50/40 font-semibold tabular-nums
                         ${row.isLate ? "text-orange-600" :
                           row.isJochul && row.rawInMin !== null && row.rawInMin < STANDARD_START ? "text-violet-700" : "text-blue-700"}`}>
@@ -531,38 +577,40 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       <td className={`${cell} bg-emerald-50/40 font-bold text-emerald-700 tabular-nums`}>
                         {row.calcGongsuVal !== null ? row.calcGongsuVal.toFixed(2) : "—"}
                       </td>
-                      <td className={`${cell} bg-amber-50/40 font-bold tabular-nums ${row.needsUpdate ? "text-amber-700" : "text-muted-foreground"}`}>
-                        {row.needsUpdate && row.diff !== null ? `+${row.diff.toFixed(2)}` : "—"}
+
+                      {/* 가산B — 클릭 시 수기 입력 */}
+                      <td className={`${cell} bg-amber-50/40 p-0`}>
+                        {editingIdx === row.rowIndex ? (
+                          <input
+                            type="number"
+                            step="0.25"
+                            min="0"
+                            value={editingVal}
+                            autoFocus
+                            onChange={(e) => setEditingVal(e.target.value)}
+                            onBlur={() => commitEdit(row.rowIndex)}
+                            onKeyDown={(e) => { if (e.key === "Enter") commitEdit(row.rowIndex); if (e.key === "Escape") setEditingIdx(null); }}
+                            className="w-full px-2 py-1.5 text-xs text-center bg-amber-100 border-0 outline-none focus:ring-1 focus:ring-amber-400 tabular-nums"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => startEdit(row)}
+                            className={`w-full px-2 py-1.5 text-center font-bold tabular-nums hover:bg-amber-100 transition-colors
+                              ${row.needsUpdate ? "text-amber-700" : "text-muted-foreground"}`}
+                            title="클릭하여 수기 입력"
+                          >
+                            {row.diff !== null ? `+${row.diff.toFixed(2)}` : "—"}
+                          </button>
+                        )}
                       </td>
 
-                      {/* 상태 */}
                       <td className={cell}>
                         <div className="flex flex-col items-center gap-0.5">
-                          {row.isNoRecord && (
-                            <span className="inline-flex items-center gap-1 text-rose-600 font-semibold">
-                              <UserX className="h-3 w-3" /> 기록없음
-                            </span>
-                          )}
-                          {row.isLate && (
-                            <span className="inline-flex items-center gap-1 text-orange-600 font-semibold">
-                              <Clock className="h-3 w-3" /> 지각
-                            </span>
-                          )}
-                          {!row.isNoRecord && row.needsUpdate && (
-                            <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">
-                              <AlertTriangle className="h-3 w-3" /> 가산필요
-                            </span>
-                          )}
-                          {!row.isNoRecord && !row.isLate && !row.needsUpdate && row.calcGongsuVal !== null && (
-                            <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
-                              <CheckCircle className="h-3 w-3" /> 정상
-                            </span>
-                          )}
-                          {row.calcGongsuVal === null && !row.isNoRecord && (
-                            <span className="inline-flex items-center gap-1 text-muted-foreground">
-                              <MinusCircle className="h-3 w-3" /> 데이터없음
-                            </span>
-                          )}
+                          {row.isNoRecord && <span className="inline-flex items-center gap-1 text-rose-600 font-semibold"><UserX className="h-3 w-3" /> 기록없음</span>}
+                          {row.isLate && <span className="inline-flex items-center gap-1 text-orange-600 font-semibold"><Clock className="h-3 w-3" /> 지각</span>}
+                          {!row.isNoRecord && row.needsUpdate && <span className="inline-flex items-center gap-1 text-amber-600 font-semibold"><AlertTriangle className="h-3 w-3" /> 가산필요</span>}
+                          {!row.isNoRecord && !row.isLate && !row.needsUpdate && row.calcGongsuVal !== null && <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold"><CheckCircle className="h-3 w-3" /> 정상</span>}
+                          {row.calcGongsuVal === null && !row.isNoRecord && <span className="inline-flex items-center gap-1 text-muted-foreground"><MinusCircle className="h-3 w-3" /> 데이터없음</span>}
                         </div>
                       </td>
                     </tr>
