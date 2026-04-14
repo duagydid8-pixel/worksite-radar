@@ -80,13 +80,25 @@ function calcDiff(calcVal: number | null, xerpGongsuA: string) {
 // ── 파일명 유틸 ───────────────────────────────────────
 function extractDateFromFilename(filename: string): string | null {
   const name = filename.replace(/\.[^.]+$/, "");
-  const sep = name.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
-  if (sep) return `${sep[1]}-${sep[2]}-${sep[3]}`;
+
+  // 4자리 연도: YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD
+  const sep4 = name.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
+  if (sep4) return `${sep4[1]}-${sep4[2]}-${sep4[3]}`;
+
+  // 2자리 연도: YY.MM.DD / YY-MM-DD → 20YY (예: 26.04.13 → 2026-04-13)
+  const sep2 = name.match(/(\d{2})[-./](\d{2})[-./](\d{2})/);
+  if (sep2) {
+    const [, y, m, d] = sep2;
+    if (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) return `20${y}-${m}-${d}`;
+  }
+
+  // 8자리 연속: YYYYMMDD
   const compact = name.match(/(\d{4})(\d{2})(\d{2})/);
   if (compact) {
     const [, y, m, d] = compact;
     if (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) return `${y}-${m}-${d}`;
   }
+
   return null;
 }
 
@@ -264,10 +276,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
           if (updatable.length > 0) {
             const updated = dateMap[dateKey].map((pmisRow) => {
-              const match = updatable.find((r) =>
-                (pmisRow["사번"] && r["성명"] && pmisRow["성명"] === r["성명"]) ||
-                pmisRow["성명"] === r["성명"]
-              );
+              const match = updatable.find((r) => pmisRow["성명"] === r.성명);
               if (!match || match.diff === null) return pmisRow;
               return { ...pmisRow, 가산신청: String(match.diff) };
             });
