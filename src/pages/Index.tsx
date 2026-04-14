@@ -320,8 +320,17 @@ const Index = () => {
     );
   }
 
+  // 모바일 하단 네비 아이템 (5개)
+  const MOBILE_NAV: NavItem[] = [
+    { key: "홈",      label: "홈",      icon: <Home className="h-5 w-5" />,          adminOnly: false },
+    { key: "근태보고", label: "근태보고", icon: <ClipboardList className="h-5 w-5" />, adminOnly: false },
+    { key: "연차관리", label: "연차",    icon: <CalendarDays className="h-5 w-5" />,   adminOnly: false },
+    { key: "조직도",  label: "조직도",  icon: <GitBranch className="h-5 w-5" />,      adminOnly: false },
+    { key: "XERP&PMIS", label: "XERP", icon: <Database className="h-5 w-5" />,       adminOnly: false },
+  ];
+
   return (
-    <div className="flex h-screen bg-[#F0F2F5]">
+    <div className="flex flex-col h-[100dvh] bg-[#F0F3FA]">
       {/* 관리자 로그인 다이얼로그 */}
       <Dialog open={loginDialogOpen} onOpenChange={setLoginDialogOpen}>
         <DialogContent className="sm:max-w-[340px]">
@@ -361,102 +370,133 @@ const Index = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ── SIDEBAR ─────────────────────────────── */}
-      <aside className="w-56 shrink-0 bg-white flex flex-col shadow-[2px_0_12px_rgba(0,0,0,0.06)] z-20">
-
-        {/* 로고 */}
-        <div
-          className="px-5 py-5 border-b border-gray-100 cursor-pointer shrink-0"
-          onClick={() => window.location.reload()}
-        >
+      {/* ── 모바일 상단 헤더 (md 이하) ───────────── */}
+      <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100 shrink-0 z-30 shadow-sm">
+        <div onClick={() => window.location.reload()} className="cursor-pointer">
           <div
-            className="text-2xl font-extrabold leading-tight tracking-tight"
+            className="text-lg font-extrabold leading-tight tracking-tight"
             style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
           >
             한성크린텍
           </div>
-          <div className="text-[13px] text-gray-400 font-medium mt-1">현장 관리 시스템</div>
+          <div className="text-[10px] text-gray-400 font-medium">현장 관리 시스템</div>
         </div>
+        {isAdmin ? (
+          <button
+            onClick={() => { logout(); toast.info("로그아웃 되었습니다."); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-medium text-gray-500"
+          >
+            <LogOut className="h-3.5 w-3.5" /> 로그아웃
+          </button>
+        ) : (
+          <button
+            onClick={() => setLoginDialogOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#c8d8f8] text-xs font-semibold text-[#4a6aaa] bg-[#f0f4ff]"
+          >
+            <KeyRound className="h-3.5 w-3.5" /> 관리자
+          </button>
+        )}
+      </header>
 
-        {/* 네비게이션 */}
-        <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-0.5">
-          {[...NAV_PUBLIC, ...NAV_SEMI_PUBLIC].map(({ key, label, icon }) => {
-            const isActive = activeTab === key;
-            return (
-              <button
-                key={key}
-                onClick={() => handleNavClick(key, false)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
-                  isActive ? "text-[#2d3a8a] font-semibold shadow-[0_2px_8px_rgba(168,200,248,0.35)]" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-                }`}
-                style={isActive ? { background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" } : {}}
-              >
-                <span className="shrink-0">{icon}</span>
-                <span>{label}</span>
-              </button>
-            );
-          })}
+      {/* ── 데스크탑 레이아웃 ────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
 
-          {/* 관리자 전용 구분선 */}
-          <div className="flex items-center gap-2 px-2 pt-4 pb-1">
-            <div className="flex-1 h-px bg-gray-100" />
-            <span className="text-[10px] text-gray-300 font-semibold uppercase tracking-wider whitespace-nowrap">관리자 전용</span>
-            <div className="flex-1 h-px bg-gray-100" />
+        {/* ── SIDEBAR (md 이상) ─────────────────── */}
+        <aside className="hidden md:flex w-56 shrink-0 bg-white flex-col shadow-[2px_0_12px_rgba(0,0,0,0.06)] z-20">
+
+          {/* 로고 */}
+          <div
+            className="px-5 py-5 border-b border-gray-100 cursor-pointer shrink-0"
+            onClick={() => window.location.reload()}
+          >
+            <div
+              className="text-2xl font-extrabold leading-tight tracking-tight"
+              style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
+            >
+              한성크린텍
+            </div>
+            <div className="text-[13px] text-gray-400 font-medium mt-1">현장 관리 시스템</div>
           </div>
 
-          {NAV_ADMIN.map(({ key, label, icon, adminOnly }) => {
-            const isActive = activeTab === key;
-            const locked = !isAdmin;
-            return (
+          {/* 네비게이션 */}
+          <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-0.5">
+            {[...NAV_PUBLIC, ...NAV_SEMI_PUBLIC].map(({ key, label, icon }) => {
+              const isActive = activeTab === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleNavClick(key, false)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
+                    isActive ? "text-[#2d3a8a] font-semibold shadow-[0_2px_8px_rgba(168,200,248,0.35)]" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                  }`}
+                  style={isActive ? { background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" } : {}}
+                >
+                  <span className="shrink-0">{icon}</span>
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+
+            {/* 관리자 전용 구분선 */}
+            <div className="flex items-center gap-2 px-2 pt-4 pb-1">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-[10px] text-gray-300 font-semibold uppercase tracking-wider whitespace-nowrap">관리자 전용</span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
+
+            {NAV_ADMIN.map(({ key, label, icon, adminOnly }) => {
+              const isActive = activeTab === key;
+              const locked = !isAdmin;
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleNavClick(key, adminOnly)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
+                    isActive
+                      ? "text-[#2d3a8a] font-semibold shadow-[0_2px_8px_rgba(168,200,248,0.35)]"
+                      : locked
+                        ? "text-gray-300 hover:bg-gray-50"
+                        : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                  }`}
+                  style={isActive ? { background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" } : {}}
+                >
+                  <span className="shrink-0">{icon}</span>
+                  <span className="flex-1">{label}</span>
+                  {locked && <Lock className="h-3 w-3 opacity-30 shrink-0" />}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* 하단 로그인/로그아웃 */}
+          <div className="px-4 py-4 border-t border-gray-100 shrink-0">
+            {isAdmin ? (
               <button
-                key={key}
-                onClick={() => handleNavClick(key, adminOnly)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
-                  isActive
-                    ? "text-[#2d3a8a] font-semibold shadow-[0_2px_8px_rgba(168,200,248,0.35)]"
-                    : locked
-                      ? "text-gray-300 hover:bg-gray-50"
-                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-                }`}
-                style={isActive ? { background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" } : {}}
+                onClick={() => { logout(); toast.info("로그아웃 되었습니다."); }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
               >
-                <span className="shrink-0">{icon}</span>
-                <span className="flex-1">{label}</span>
-                {locked && <Lock className="h-3 w-3 opacity-30 shrink-0" />}
+                <LogOut className="h-4 w-4" />
+                로그아웃
               </button>
-            );
-          })}
-        </nav>
+            ) : (
+              <button
+                onClick={() => setLoginDialogOpen(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[#c8d8f8] text-sm font-semibold text-[#4a6aaa] hover:bg-[#f0f4ff] transition-colors"
+              >
+                <KeyRound className="h-4 w-4" />
+                관리자 로그인
+              </button>
+            )}
+          </div>
+        </aside>
 
-        {/* 하단 로그인/로그아웃 */}
-        <div className="px-4 py-4 border-t border-gray-100 shrink-0">
-          {isAdmin ? (
-            <button
-              onClick={() => { logout(); toast.info("로그아웃 되었습니다."); }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
-            >
-              <LogOut className="h-4 w-4" />
-              로그아웃
-            </button>
-          ) : (
-            <button
-              onClick={() => setLoginDialogOpen(true)}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[#c8d8f8] text-sm font-semibold text-[#4a6aaa] hover:bg-[#f0f4ff] transition-colors"
-            >
-              <KeyRound className="h-4 w-4" />
-              관리자 로그인
-            </button>
+        {/* ── MAIN ──────────────────────────────── */}
+        <main className="flex-1 overflow-auto pb-16 md:pb-0">
+
+          {/* 홈 */}
+          {activeTab === "홈" && (
+            <HomePage lastUploadedAt={lastUploadedAt ? formatUploadTime(lastUploadedAt) : null} selectedDate={selectedDate} isAdmin={isAdmin} />
           )}
-        </div>
-      </aside>
-
-      {/* ── MAIN ────────────────────────────────── */}
-      <main className="flex-1 overflow-auto">
-
-        {/* 홈 */}
-        {activeTab === "홈" && (
-          <HomePage lastUploadedAt={lastUploadedAt ? formatUploadTime(lastUploadedAt) : null} selectedDate={selectedDate} isAdmin={isAdmin} />
-        )}
 
         {/* 신규자 명단 (관리자 전용) */}
         {activeTab === "신규자명단" && isAdmin && (
@@ -645,14 +685,35 @@ const Index = () => {
           <XerpPmisPageWrapper isAdmin={isAdmin} />
         )}
 
-        {/* XERP 공수 반영 */}
-        {activeTab === "XERP공수반영" && (
-          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-            <XerpWorkReflection isAdmin={isAdmin} />
-          </div>
-        )}
+          {/* XERP 공수 반영 */}
+          {activeTab === "XERP공수반영" && (
+            <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+              <XerpWorkReflection isAdmin={isAdmin} />
+            </div>
+          )}
 
-      </main>
+        </main>
+      </div>
+
+      {/* ── 모바일 하단 네비게이션 (md 이하) ──────── */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 shadow-[0_-2px_12px_rgba(0,0,0,0.06)] z-30 flex items-stretch">
+        {MOBILE_NAV.map(({ key, label, icon }) => {
+          const isActive = activeTab === key;
+          return (
+            <button
+              key={key}
+              onClick={() => handleNavClick(key, false)}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-semibold transition-colors ${
+                isActive ? "text-primary" : "text-gray-400"
+              }`}
+            >
+              <span className={`transition-transform ${isActive ? "scale-110" : ""}`}>{icon}</span>
+              <span>{label}</span>
+              {isActive && <span className="absolute bottom-0 w-8 h-0.5 rounded-full bg-primary" />}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 };
