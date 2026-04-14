@@ -3,9 +3,10 @@ import { loadXerpFS, loadScheduleFS, saveScheduleFS } from "@/lib/firestoreServi
 import { toast } from "sonner";
 import {
   Loader2, CalendarDays, FileJson,
-  Users, CheckCircle2, XCircle,
+  CheckCircle2, XCircle,
   ChevronLeft, ChevronRight,
   Clock, CloudUpload, HardHat,
+  Wind, Droplets, Thermometer,
 } from "lucide-react";
 
 interface ScheduleData {
@@ -264,6 +265,112 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+// ── 날씨 코드 → 한국어·이모지 매핑 ──────────────────
+function getWeatherInfo(code: number, isDay: number) {
+  if (code === 0)               return { label:"맑음",      emoji: isDay ? "☀️" : "🌙", color:"text-amber-500",  bg:"bg-amber-50"  };
+  if (code <= 2)                return { label:"구름 조금",  emoji:"⛅",                   color:"text-sky-500",    bg:"bg-sky-50"    };
+  if (code === 3)               return { label:"흐림",       emoji:"☁️",                  color:"text-gray-500",   bg:"bg-gray-100"  };
+  if (code <= 49)               return { label:"안개",       emoji:"🌫️",                  color:"text-gray-400",   bg:"bg-gray-100"  };
+  if (code <= 59)               return { label:"이슬비",     emoji:"🌦️",                  color:"text-blue-400",   bg:"bg-blue-50"   };
+  if (code <= 69)               return { label:"비",         emoji:"🌧️",                  color:"text-blue-500",   bg:"bg-blue-50"   };
+  if (code <= 79)               return { label:"눈",         emoji:"❄️",                  color:"text-indigo-400", bg:"bg-indigo-50" };
+  if (code <= 82)               return { label:"소나기",     emoji:"🌦️",                  color:"text-blue-500",   bg:"bg-blue-50"   };
+  if (code <= 86)               return { label:"눈 소나기",  emoji:"🌨️",                  color:"text-indigo-400", bg:"bg-indigo-50" };
+  if (code >= 95)               return { label:"뇌우",       emoji:"⛈️",                  color:"text-purple-500", bg:"bg-purple-50" };
+  return                               { label:"알 수 없음", emoji:"🌡️",                  color:"text-gray-500",   bg:"bg-gray-100"  };
+}
+
+interface WeatherData {
+  temp: number;
+  feelsLike: number;
+  humidity: number;
+  windSpeed: number;
+  weatherCode: number;
+  isDay: number;
+}
+
+function WeatherCard() {
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(false);
+
+  useEffect(() => {
+    // 평택시 좌표
+    fetch(
+      "https://api.open-meteo.com/v1/forecast?latitude=36.9923&longitude=127.1124" +
+      "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day" +
+      "&timezone=Asia%2FSeoul"
+    )
+      .then(r => r.json())
+      .then(data => {
+        const c = data.current;
+        setWeather({
+          temp:        Math.round(c.temperature_2m),
+          feelsLike:   Math.round(c.apparent_temperature),
+          humidity:    c.relative_humidity_2m,
+          windSpeed:   Math.round(c.wind_speed_10m * 10) / 10,
+          weatherCode: c.weather_code,
+          isDay:       c.is_day,
+        });
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const info = weather ? getWeatherInfo(weather.weatherCode, weather.isDay) : null;
+
+  return (
+    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+      <div className="flex items-center gap-2.5 mb-4">
+        <div className="w-9 h-9 rounded-2xl bg-sky-50 flex items-center justify-center">
+          <span className="text-base">🌤️</span>
+        </div>
+        <div>
+          <p className="text-sm font-bold text-gray-800">현장 날씨</p>
+          <p className="text-[11px] text-gray-400">평택시 현재 기상</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-6 gap-2 text-gray-400 text-xs">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> 불러오는 중...
+        </div>
+      ) : error || !weather || !info ? (
+        <div className="py-6 text-center text-xs text-gray-400">날씨 정보를 가져올 수 없습니다.</div>
+      ) : (
+        <>
+          {/* 메인 기온 */}
+          <div className={`rounded-2xl ${info.bg} p-4 flex items-center justify-between mb-3`}>
+            <div>
+              <p className={`text-4xl font-bold tabular-nums ${info.color}`}>{weather.temp}°</p>
+              <p className={`text-sm font-semibold mt-0.5 ${info.color}`}>{info.label}</p>
+            </div>
+            <span className="text-5xl select-none">{info.emoji}</span>
+          </div>
+          {/* 세부 정보 3칸 */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="bg-gray-50 rounded-2xl p-2.5 text-center">
+              <Thermometer className="h-3.5 w-3.5 text-orange-400 mx-auto mb-1" />
+              <p className="text-xs font-bold text-gray-700">{weather.feelsLike}°</p>
+              <p className="text-[10px] text-gray-400">체감</p>
+            </div>
+            <div className="bg-gray-50 rounded-2xl p-2.5 text-center">
+              <Droplets className="h-3.5 w-3.5 text-blue-400 mx-auto mb-1" />
+              <p className="text-xs font-bold text-gray-700">{weather.humidity}%</p>
+              <p className="text-[10px] text-gray-400">습도</p>
+            </div>
+            <div className="bg-gray-50 rounded-2xl p-2.5 text-center">
+              <Wind className="h-3.5 w-3.5 text-teal-400 mx-auto mb-1" />
+              <p className="text-xs font-bold text-gray-700">{weather.windSpeed}</p>
+              <p className="text-[10px] text-gray-400">m/s</p>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── 메인 ─────────────────────────────────────────────
 export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: HomePageProps) {
   const today = new Date();
@@ -384,45 +491,8 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: Home
             </div>
           </div>
 
-          {/* 인력 현황 요약 카드 */}
-          {xerpLoaded && stats.total > 0 && (
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-9 h-9 rounded-2xl bg-violet-50 flex items-center justify-center">
-                  <Users className="h-4.5 w-4.5 text-violet-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-gray-800">인력 현황</p>
-                  <p className="text-[11px] text-gray-400">최근 데이터 기준</p>
-                </div>
-              </div>
-              {/* 출근율 바 */}
-              <div className="mb-3">
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-gray-500 font-medium">출근율</span>
-                  <span className="font-bold text-emerald-600">
-                    {stats.total > 0 ? Math.round(stats.present / stats.total * 100) : 0}%
-                  </span>
-                </div>
-                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-700"
-                    style={{ width: stats.total > 0 ? `${Math.round(stats.present / stats.total * 100)}%` : "0%" }}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <div className="bg-emerald-50 rounded-2xl p-3 text-center">
-                  <p className="text-lg font-bold text-emerald-600">{stats.present}</p>
-                  <p className="text-[10px] text-emerald-500 font-medium">출근</p>
-                </div>
-                <div className="bg-rose-50 rounded-2xl p-3 text-center">
-                  <p className="text-lg font-bold text-rose-500">{stats.absent}</p>
-                  <p className="text-[10px] text-rose-400 font-medium">결근</p>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* 날씨 카드 */}
+          <WeatherCard />
         </div>
       </div>
     </div>
