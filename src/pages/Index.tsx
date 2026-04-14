@@ -496,37 +496,38 @@ const Index = () => {
                 {data && (
                   <>
                     {/* 통합 컨트롤 바 */}
-                    <div className="bg-white border border-border rounded-xl px-4 py-3 shadow-sm space-y-2.5">
-                      {/* 상단 행: 날짜 + 주간범위 + 팀필터 */}
-                      <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
+                      {/* 상단: 날짜 + 주간범위 + 팀필터 */}
+                      <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border/60">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">보고기준일</span>
+                          <span className="text-[11px] font-bold text-muted-foreground tracking-wide uppercase whitespace-nowrap">기준일</span>
                           <input
                             type="date"
                             value={pendingDate}
                             onChange={(e) => setPendingDate(e.target.value)}
-                            className="bg-white border border-border text-foreground text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            className="bg-muted/40 border border-border text-foreground text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-colors"
                           />
                           <button
                             onClick={() => { setSelectedDate(pendingDate); localStorage.setItem("attendance_selected_date", pendingDate); }}
                             disabled={pendingDate === selectedDate}
-                            className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors"
+                            className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary/90 disabled:opacity-40 transition-colors"
                           >
                             적용
                           </button>
                         </div>
-                        <div className="text-xs font-semibold text-secondary bg-secondary/10 border border-secondary/20 px-3 py-1.5 rounded-lg whitespace-nowrap">
-                          {formatWeekRange(monday)}
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-secondary bg-secondary/10 border border-secondary/20 px-3 py-1.5 rounded-lg whitespace-nowrap">
+                          <span>📅</span>
+                          <span>{formatWeekRange(monday)}</span>
                         </div>
-                        <div className="flex gap-1.5 ml-auto">
+                        <div className="flex gap-1 ml-auto bg-muted rounded-lg p-0.5">
                           {(["전체", "한성", "태화"] as TeamFilter[]).map((v) => (
                             <button
                               key={v}
                               onClick={() => setTeamFilter(v)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
+                              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
                                 teamFilter === v
-                                  ? "bg-primary border-primary text-white shadow-sm"
-                                  : "bg-muted border-border text-muted-foreground hover:text-foreground"
+                                  ? "bg-white text-foreground shadow-sm"
+                                  : "text-muted-foreground hover:text-foreground"
                               }`}
                             >
                               {v}
@@ -535,8 +536,8 @@ const Index = () => {
                         </div>
                       </div>
 
-                      {/* 하단 행: 검색 + 다운로드 */}
-                      <div className="flex items-center gap-2 pt-0.5 border-t border-border/60">
+                      {/* 하단: 검색 + 다운로드 */}
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/20">
                         <div className="relative flex-1">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                           <input
@@ -544,7 +545,7 @@ const Index = () => {
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="이름으로 검색..."
-                            className="w-full bg-muted/40 border border-border rounded-lg pl-9 pr-9 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-colors"
+                            className="w-full bg-white border border-border rounded-lg pl-9 pr-9 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
                           />
                           {searchQuery && (
                             <button
@@ -557,7 +558,7 @@ const Index = () => {
                         </div>
                         <button
                           onClick={() => exportMonthlyExcel(data.employees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth)}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors shrink-0"
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white border border-border text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors shrink-0 shadow-sm"
                         >
                           <Download className="h-4 w-4 text-muted-foreground" />
                           엑셀 다운로드
@@ -566,7 +567,7 @@ const Index = () => {
                     </div>
 
                     {filteredEmployees.length === 0 && searchQuery ? (
-                      <div className="py-12 text-center bg-white border border-border rounded-xl">
+                      <div className="py-12 text-center bg-white border border-border rounded-2xl shadow-sm">
                         <Search className="h-8 w-8 text-muted-foreground/40 mx-auto mb-3" />
                         <p className="text-sm font-semibold text-muted-foreground">검색 결과가 없습니다</p>
                         <p className="text-xs text-muted-foreground mt-1">
