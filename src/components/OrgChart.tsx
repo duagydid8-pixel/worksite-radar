@@ -4,6 +4,7 @@ import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
 import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2 } from "lucide-react";
 import { toPng } from "html-to-image";
 import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 /* ── types ── */
 interface OrgTeam { id: string; name: string; color: string; sort_order: number; }
@@ -279,23 +280,89 @@ export default function OrgChart() {
     } catch { toast.error("이미지 저장 실패"); }
   }, []);
 
-  const handleExportExcel = useCallback(() => {
+  const handleExportExcel = useCallback(async () => {
     if (teams.length === 0) { toast.error("내보낼 데이터가 없습니다."); return; }
-    type Cell = string | null;
-    const aoa: Cell[][] = [];
-    const merges: { s: { r: number; c: number }; e: { r: number; c: number } }[] = [];
-    for (const team of [...teams].sort((a, b) => a.sort_order - b.sort_order)) {
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("조직도");
+
+    // 컬럼 설정: 사진(A) | 팀명(B) | 성명(C) | 직종(D) | 직급(E) | 연락처(F) | 이메일(G)
+    ws.columns = [
+      { width: 10 }, // A: 사진
+      { width: 14 }, // B: 팀명
+      { width: 10 }, // C: 성명
+      { width: 10 }, // D: 직종
+      { width: 8  }, // E: 직급
+      { width: 16 }, // F: 연락처
+      { width: 28 }, // G: 이메일
+    ];
+
+    // 헤더 행
+    const hdr = ws.addRow(["사진", "팀명", "성명", "직종", "직급", "연락처", "이메일"]);
+    hdr.height = 20;
+    hdr.eachCell((cell) => {
+      cell.font = { bold: true, size: 10 };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.border = {
+        top: { style: "thin" }, bottom: { style: "thin" },
+        left: { style: "thin" }, right: { style: "thin" },
+      };
+    });
+
+    const sortedTeams = [...teams].sort((a, b) => a.sort_order - b.sort_order);
+
+    for (const team of sortedTeams) {
       const tm = members.filter((m) => m.team_id === team.id);
-      for (const m of [...tm.filter((x) => x.is_leader), ...tm.filter((x) => !x.is_leader)].sort((a,b)=>a.sort_order-b.sort_order)) {
-        const r = aoa.length;
-        aoa.push([`${team.name} 담당`, null]); merges.push({ s:{r,c:0}, e:{r,c:1} });
-        aoa.push([m.rank, m.name]); aoa.push(["E-MAIL", m.email||""]); aoa.push(["H.P", m.phone||""]); aoa.push([null,null]);
+      const sorted = [
+        ...tm.filter((x) => x.is_leader),
+        ...tm.filter((x) => !x.is_leader),
+      ].sort((a, b) => a.sort_order - b.sort_order);
+
+      for (const m of sorted) {
+        const row = ws.addRow(["", team.name, m.name, m.position, m.rank, m.phone, m.email]);
+        row.height = 56; // 사진 크기 맞춤
+
+        // 텍스트 셀 스타일
+        row.eachCell((cell, colNum) => {
+          cell.alignment = { vertical: "middle", horizontal: colNum === 1 ? "center" : "left" };
+          cell.font = { size: 10 };
+          cell.border = {
+            top: { style: "thin", color: { argb: "FFE2E8F0" } },
+            bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+            left: { style: "thin", color: { argb: "FFE2E8F0" } },
+            right: { style: "thin", color: { argb: "FFE2E8F0" } },
+          };
+        });
+
+        // 사진 삽입
+        if (m.photo_url) {
+          try {
+            const match = m.photo_url.match(/^data:image\/(jpeg|jpg|png|gif|webp);base64,(.+)$/);
+            if (match) {
+              const ext = (match[1] === "jpg" ? "jpeg" : match[1]) as "jpeg" | "png" | "gif";
+              const imageId = wb.addImage({ base64: match[2], extension: ext });
+              const rowIdx = row.number - 1; // 0-based
+              ws.addImage(imageId, {
+                tl: { col: 0.1, row: rowIdx + 0.1 } as ExcelJS.Anchor,
+                ext: { width: 52, height: 52 },
+              });
+            }
+          } catch { /* 사진 삽입 실패 시 무시 */ }
+        }
       }
-      aoa.push([null,null]);
     }
-    const ws = XLSX.utils.aoa_to_sheet(aoa); ws["!merges"] = merges; ws["!cols"] = [{wch:14},{wch:26}];
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "조직도");
-    const d = new Date(); XLSX.writeFile(wb, `조직도_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.xlsx`);
+
+    // 다운로드
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const d = new Date();
+    a.href = url;
+    a.download = `조직도_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
     toast.success("엑셀로 내보냈습니다.");
   }, [teams, members]);
 
