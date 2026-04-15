@@ -545,73 +545,79 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       )}
 
       {/* 특이자 명단 패널 */}
-      {showSpecialList && rows.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden shrink-0">
-          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
-            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-              특이사항 명단
-            </span>
-            <button onClick={() => setShowSpecialList(false)} className="text-muted-foreground hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
+      {showSpecialList && rows.length > 0 && (() => {
+        const specialRows = rows.filter((r) => r.isNoRecord || r.isLate || r.needsUpdate);
+        const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-slate-100 border-r border-slate-200 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
+        const stc = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-slate-100 last:border-r-0";
+        return (
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden shrink-0">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                특이사항 명단 — {specialRows.length}명
+                <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                  {noRecCount > 0 && <span className="text-rose-500 mr-2">기록없음 {noRecCount}명</span>}
+                  {lateCount > 0 && <span className="text-orange-500 mr-2">지각 {lateCount}명</span>}
+                  {needCount > 0 && <span className="text-amber-500">가산공수 {needCount}명</span>}
+                </span>
+              </span>
+              <button onClick={() => setShowSpecialList(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="overflow-auto" style={{ maxHeight: "320px" }}>
+              <table className="min-w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className={sth}>구분</th>
+                    <th className={sth}>팀명</th>
+                    <th className={sth}>성명</th>
+                    <th className={sth}>XERP 출근</th>
+                    <th className={sth}>XERP 퇴근</th>
+                    <th className={sth}>PMIS 출근</th>
+                    <th className={sth}>PMIS 퇴근</th>
+                    <th className={sth}>적용 출근</th>
+                    <th className={sth}>적용 퇴근</th>
+                    <th className={sth}>공수A</th>
+                    <th className={sth}>계산공수</th>
+                    <th className={sth}>가산B</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {specialRows.map((r) => {
+                    const tags: React.ReactNode[] = [];
+                    if (r.isNoRecord) tags.push(<span key="nr" className="inline-flex items-center gap-0.5 text-rose-600 font-bold"><UserX className="h-3 w-3" /> 기록없음</span>);
+                    if (r.isLate)     tags.push(<span key="lt" className="inline-flex items-center gap-0.5 text-orange-600 font-bold"><Clock className="h-3 w-3" /> 지각</span>);
+                    if (!r.isNoRecord && r.needsUpdate) tags.push(<span key="gs" className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><AlertTriangle className="h-3 w-3" /> 가산</span>);
+                    const rowBg = r.isNoRecord ? "bg-rose-50/60" : r.isLate ? "bg-orange-50/60" : "bg-amber-50/40";
+                    return (
+                      <tr key={r.rowIndex} className={`border-b border-slate-100 last:border-0 ${rowBg}`}>
+                        <td className={stc}>
+                          <div className="flex flex-col items-center gap-0.5">{tags}</div>
+                        </td>
+                        <td className={`${stc} text-muted-foreground`}>{r.팀명 || "—"}</td>
+                        <td className={`${stc} font-semibold`}>{r.성명}</td>
+                        <td className={`${stc} tabular-nums ${!r.xerpIn ? "text-rose-400" : "text-blue-600"}`}>{r.xerpIn || "미기록"}</td>
+                        <td className={`${stc} tabular-nums ${!r.xerpOut ? "text-rose-400" : "text-red-600"}`}>{r.xerpOut || "미기록"}</td>
+                        <td className={`${stc} tabular-nums ${!r.pmisIn ? "text-rose-400" : "text-blue-400"}`}>{r.pmisIn || "미기록"}</td>
+                        <td className={`${stc} tabular-nums ${!r.pmisOut ? "text-rose-400" : "text-red-400"}`}>{r.pmisOut || "미기록"}</td>
+                        <td className={`${stc} font-semibold tabular-nums ${r.isLate ? "text-orange-600" : "text-blue-700"}`}>
+                          {r.effIn || "—"}
+                          {r.isLate && <span className="ml-0.5 text-[9px] text-orange-500 font-bold">▲지각</span>}
+                        </td>
+                        <td className={`${stc} font-semibold tabular-nums ${!r.effOut ? "text-rose-400" : "text-blue-700"}`}>{r.effOut || "—"}</td>
+                        <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
+                        <td className={`${stc} font-bold text-emerald-700 tabular-nums`}>{r.calcGongsuVal !== null ? r.calcGongsuVal.toFixed(2) : "—"}</td>
+                        <td className={`${stc} font-bold text-amber-700 tabular-nums`}>{r.diff !== null ? `+${r.diff.toFixed(2)}` : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-4 p-4">
-            {noRecCount > 0 && (
-              <div className="flex-1 min-w-[160px]">
-                <p className="text-[11px] font-bold text-rose-600 mb-2 flex items-center gap-1">
-                  <UserX className="h-3.5 w-3.5" /> 기록없음 ({noRecCount}명)
-                </p>
-                <ul className="space-y-1">
-                  {rows.filter((r) => r.isNoRecord).map((r) => (
-                    <li key={r.rowIndex} className="flex items-center gap-2 text-xs">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
-                      <span className="text-rose-700 font-semibold">{r.성명}</span>
-                      <span className="text-muted-foreground">{r.팀명}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {lateCount > 0 && (
-              <div className="flex-1 min-w-[160px]">
-                <p className="text-[11px] font-bold text-orange-600 mb-2 flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5" /> 지각 ({lateCount}명)
-                </p>
-                <ul className="space-y-1">
-                  {rows.filter((r) => r.isLate).map((r) => (
-                    <li key={r.rowIndex} className="flex items-center gap-2 text-xs">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
-                      <span className="text-orange-700 font-semibold">{r.성명}</span>
-                      <span className="text-muted-foreground">{r.팀명}</span>
-                      <span className="text-orange-500 tabular-nums">{r.effIn}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {needCount > 0 && (
-              <div className="flex-1 min-w-[160px]">
-                <p className="text-[11px] font-bold text-amber-600 mb-2 flex items-center gap-1">
-                  <AlertTriangle className="h-3.5 w-3.5" /> 가산공수 ({needCount}명)
-                </p>
-                <ul className="space-y-1">
-                  {rows.filter((r) => r.needsUpdate).map((r) => (
-                    <li key={r.rowIndex} className="flex items-center gap-2 text-xs">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                      <span className="text-amber-700 font-semibold">{r.성명}</span>
-                      <span className="text-muted-foreground">{r.팀명}</span>
-                      {r.diff !== null && (
-                        <span className="text-amber-600 font-bold tabular-nums">+{r.diff.toFixed(2)}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 검색창 + 범례 */}
       {rows.length > 0 && (
