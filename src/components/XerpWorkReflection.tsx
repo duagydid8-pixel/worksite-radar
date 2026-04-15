@@ -26,14 +26,21 @@ function minToStr(min: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-const STANDARD_START = 7 * 60;
-const STANDARD_END   = 17 * 60;
-const JOCHUL_CUTOFF  = 7 * 60 + 10;
+const STANDARD_START     = 7 * 60;   // 07:00
+const STANDARD_END       = 17 * 60;  // 17:00
+const JOCHUL_CUTOFF      = 7 * 60 + 10;
+const STANDARD_WORK_MIN  = 8 * 60;   // 주간 1.0 공수 기준 = 8시간(480분)
 
 function roundBy50(min: number): number {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m >= 50 ? (h + 1) * 60 : h * 60;
+}
+
+/** 지각 시 출근 시간을 다음 정각으로 올림 (ex. 16:37 → 17:00) */
+function ceilToHour(min: number): number {
+  const m = min % 60;
+  return m === 0 ? min : (Math.floor(min / 60) + 1) * 60;
 }
 
 function resolveEffInMin(rawInMin: number | null, isJochul: boolean): number | null {
@@ -51,16 +58,40 @@ function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
   return null;
 }
 
+/**
+ * 공수 계산
+ *
+ * ① 출근 시간이 07:00 이후 지각이면 다음 정각으로 올림 (16:37 → 17:00)
+ * ② 07:00~17:00 표준 시간대 내 근무분 / 480분 = 주간 공수 (최대 1.0)
+ * ③ 17:00 이후 연장 시간:
+ *    - 주간 8시간 충족(공수 1.0) 시 → 0.25/h (연장 단가)
+ *    - 주간 8시간 미충족 시         → 0.125/h (기본 단가, 연장 할증 없음)
+ * ④ 조출: +0.5
+ */
 function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul: boolean): number | null {
   if (effInMin === null || effOutMin === null) return null;
-  let total = 1.0;
-  if (isJochul) {
-    total += 0.5;
-  }
-  if (effOutMin > STANDARD_END) {
-    total += ((effOutMin - STANDARD_END) / 60) * 0.25;
-  }
-  return Math.round(total * 100) / 100;
+
+  // 지각 시 출근 올림 처리 (07:00 이후 지각만 적용)
+  const ceiledIn = effInMin > STANDARD_START ? ceilToHour(effInMin) : effInMin;
+
+  // 표준 시간대(07:00~17:00) 내 실근무 분
+  const stdFrom    = Math.max(ceiledIn, STANDARD_START);
+  const stdMinutes = Math.max(0, Math.min(effOutMin, STANDARD_END) - stdFrom);
+
+  // 주간 공수 (8시간 = 1.0 기준, 0.125/h)
+  const stdGongsu = Math.min(stdMinutes / STANDARD_WORK_MIN, 1.0);
+
+  // 연장 시간 (17:00 이후) — 주간 충족 여부에 따라 단가 분기
+  const overtimeMin   = Math.max(0, effOutMin - STANDARD_END);
+  const isStdMet      = stdGongsu >= 1.0;
+  const overtimeGongsu = (overtimeMin / 60) * (isStdMet ? 0.25 : 0.125);
+
+  // 조출 보너스: 07:00 이전 1시간마다 0.25 (체크 시에만, 실제 조기 출근 시간 기준)
+  const jochulBonus = isJochul
+    ? Math.max(0, Math.floor((STANDARD_START - effInMin) / 60)) * 0.25
+    : 0;
+
+  return Math.round((jochulBonus + stdGongsu + overtimeGongsu) * 100) / 100;
 }
 
 function calcDiff(calcVal: number | null, xerpGongsuA: string) {
