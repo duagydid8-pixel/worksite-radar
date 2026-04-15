@@ -177,6 +177,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editingVal, setEditingVal] = useState("");
   const [showSpecialList, setShowSpecialList] = useState(false);
+  const [showNewEmpList, setShowNewEmpList] = useState(false);
   const [newEmployeeNames, setNewEmployeeNames] = useState<Set<string>>(new Set());
   const [newEmpFileName, setNewEmpFileName] = useState<string | null>(null);
 
@@ -540,7 +541,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               {newEmployeeNames.size}명 등록
             </span>
             <button
-              onClick={() => { setNewEmployeeNames(new Set()); setNewEmpFileName(null); }}
+              onClick={() => setShowNewEmpList((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-300 bg-sky-100 text-xs font-semibold text-sky-700 hover:bg-sky-200 transition-colors"
+            >
+              {showNewEmpList ? "명단 닫기" : "명단 보기"}
+            </button>
+            <button
+              onClick={() => { setNewEmployeeNames(new Set()); setNewEmpFileName(null); setShowNewEmpList(false); }}
               className="flex items-center gap-1 text-xs text-sky-500 hover:text-sky-700"
             >
               <X className="h-3.5 w-3.5" /> 초기화
@@ -550,6 +557,90 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <span className="text-[11px] text-sky-600">신규자 명단을 업로드하면 해당 인원은 출퇴근 무관 1.0공수 적용됩니다</span>
         )}
       </div>
+
+      {/* 신규자 명단 패널 */}
+      {showNewEmpList && newEmployeeNames.size > 0 && (() => {
+        const newEmpRows = rows.filter((r) => r.isNewEmployee);
+        const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-sky-50 border-r border-sky-100 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
+        const stc = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-sky-50 last:border-r-0";
+        return (
+          <div className="rounded-xl border border-sky-200 bg-white shadow-sm overflow-hidden shrink-0">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-sky-50 border-b border-sky-200">
+              <span className="text-xs font-bold text-sky-800 flex items-center gap-1.5">
+                신규자 명단 — {newEmployeeNames.size}명 등록
+                {newEmpRows.length > 0 && newEmpRows.length < newEmployeeNames.size && (
+                  <span className="text-[11px] font-normal text-sky-500">
+                    (공수 데이터 매칭 {newEmpRows.length}명 / 미매칭 {newEmployeeNames.size - newEmpRows.length}명)
+                  </span>
+                )}
+              </span>
+              <button onClick={() => setShowNewEmpList(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex gap-0 overflow-auto" style={{ maxHeight: "340px" }}>
+              {/* 좌: 공수 데이터 있는 신규자 */}
+              <div className="flex-1 min-w-[400px]">
+                {newEmpRows.length > 0 ? (
+                  <table className="min-w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-sky-100">
+                        <th className={sth}>팀명</th>
+                        <th className={sth}>성명</th>
+                        <th className={sth}>XERP 출근</th>
+                        <th className={sth}>XERP 퇴근</th>
+                        <th className={sth}>PMIS 출근</th>
+                        <th className={sth}>PMIS 퇴근</th>
+                        <th className={sth}>공수A</th>
+                        <th className={sth}>적용공수</th>
+                        <th className={sth}>가산B</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {newEmpRows.map((r) => (
+                        <tr key={r.rowIndex} className="border-b border-sky-50 last:border-0 bg-sky-50/40 hover:bg-sky-50">
+                          <td className={`${stc} text-muted-foreground`}>{r.팀명 || "—"}</td>
+                          <td className={`${stc} font-semibold text-sky-800`}>{r.성명}</td>
+                          <td className={`${stc} tabular-nums ${!r.xerpIn ? "text-rose-400" : "text-blue-600"}`}>{r.xerpIn || "미기록"}</td>
+                          <td className={`${stc} tabular-nums ${!r.xerpOut ? "text-rose-400" : "text-red-600"}`}>{r.xerpOut || "미기록"}</td>
+                          <td className={`${stc} tabular-nums ${!r.pmisIn ? "text-rose-400" : "text-blue-400"}`}>{r.pmisIn || "미기록"}</td>
+                          <td className={`${stc} tabular-nums ${!r.pmisOut ? "text-rose-400" : "text-red-400"}`}>{r.pmisOut || "미기록"}</td>
+                          <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
+                          <td className={`${stc} font-bold text-sky-700 tabular-nums`}>1.00</td>
+                          <td className={`${stc} font-bold text-amber-600 tabular-nums`}>{r.diff !== null ? `+${r.diff.toFixed(2)}` : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="px-4 py-6 text-xs text-muted-foreground">XERP 공수 데이터와 매칭된 신규자가 없습니다. 메인 엑셀을 업로드하세요.</p>
+                )}
+              </div>
+              {/* 우: 미매칭 신규자 (XERP 데이터 없음) */}
+              {(() => {
+                const matchedNames = new Set(newEmpRows.map((r) => r.성명));
+                const unmatched = [...newEmployeeNames].filter((n) => !matchedNames.has(n));
+                if (unmatched.length === 0) return null;
+                return (
+                  <div className="border-l border-sky-200 min-w-[140px] bg-slate-50/60">
+                    <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 border-b border-sky-100 sticky top-0 bg-slate-50">
+                      XERP 미매칭 ({unmatched.length}명)
+                    </div>
+                    <ul className="p-2 space-y-1">
+                      {unmatched.map((name) => (
+                        <li key={name} className="flex items-center gap-1.5 text-xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
+                          <span className="text-slate-600 font-medium">{name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 업로드 / 저장 / 다운로드 바 */}
       <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-3 shadow-sm shrink-0">
