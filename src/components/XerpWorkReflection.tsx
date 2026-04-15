@@ -160,6 +160,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [rows, setRows] = useState<ProcessedRow[]>([]);
   const [rawExcelRows, setRawExcelRows] = useState<RawExcelRow[]>([]);
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [originalBuffer, setOriginalBuffer] = useState<ArrayBuffer | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -237,6 +238,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     e.target.value = "";
     try {
       const buffer = await file.arrayBuffer();
+      setOriginalBuffer(buffer);
       const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellStyles: true, cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
@@ -385,18 +387,27 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   };
 
   const handleDownload = () => {
-    if (!workbook || !fileName) return;
-    const wbCopy = XLSX.read(XLSX.write(workbook, { type: "array", bookType: "xlsx", cellStyles: true }), {
-      type: "array", cellStyles: true,
-    });
+    if (!originalBuffer || !fileName) return;
+    // 원본 버퍼에서 직접 읽어 서식(테두리 등) 완전 보존
+    const wbCopy = XLSX.read(new Uint8Array(originalBuffer), { type: "array", cellStyles: true });
     const ws = wbCopy.Sheets[wbCopy.SheetNames[0]];
+
     for (const row of rows) {
-      if (row.diff !== null) {
-        const cellAddr = `${XLSX.utils.encode_col(19)}${row.rowIndex + 1}`;
-        const existing = ws[cellAddr];
-        ws[cellAddr] = { ...(existing ?? {}), t: "n", v: row.diff, w: String(row.diff) };
-      }
+      if (row.diff === null) continue;
+
+      // T열 (index 19): 가산공수(B) 신청
+      const tAddr = `${XLSX.utils.encode_col(19)}${row.rowIndex + 1}`;
+      const tCell = ws[tAddr];
+      ws[tAddr] = { ...(tCell ?? {}), t: "n", v: row.diff, w: String(row.diff) };
+
+      // V열 (index 21): 공수합계 (A+B) = Q열 + T열
+      const gongsuA = parseFloat(row.xerpGongsuA) || 0;
+      const gongsuAB = Math.round((gongsuA + row.diff) * 100) / 100;
+      const vAddr = `${XLSX.utils.encode_col(21)}${row.rowIndex + 1}`;
+      const vCell = ws[vAddr];
+      ws[vAddr] = { ...(vCell ?? {}), t: "n", v: gongsuAB, w: String(gongsuAB) };
     }
+
     XLSX.writeFile(wbCopy, fileName.replace(/\.xlsx?$/i, "") + "_공수반영.xlsx", { cellStyles: true, bookType: "xlsx" });
     toast.success("수정된 파일을 다운로드했습니다.");
   };
@@ -468,7 +479,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               {isSaving ? "저장 중..." : "저장"}
             </button>
 
-            {workbook && (
+            {originalBuffer && (
               <button
                 onClick={handleDownload}
                 className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
