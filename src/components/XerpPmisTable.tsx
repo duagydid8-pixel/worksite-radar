@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
+import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS } from "@/lib/firestoreService";
@@ -208,6 +208,154 @@ const DOW = ["일","월","화","수","목","금","토"];
 const cell = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-border/40 last:border-r-0";
 const cellNum = `${cell} tabular-nums`;
 
+// ── 행 상세 검증 모달 ─────────────────────────────────
+interface RowDetailModalProps {
+  row: XerpPmisRow;
+  date: string;
+  onClose: () => void;
+}
+
+function PunchBadge({ label, time, color }: { label: string; time: string; color: string }) {
+  const has = time && time !== "—" && time !== "0" && time !== "";
+  return (
+    <div className={`flex flex-col items-center justify-center rounded-2xl border p-3 gap-1 ${has ? color : "border-gray-100 bg-gray-50"}`}>
+      <span className={`text-[10px] font-semibold ${has ? "" : "text-gray-300"}`}>{label}</span>
+      <span className={`text-lg font-bold tabular-nums tracking-tight ${has ? "" : "text-gray-300"}`}>
+        {has ? time : "—"}
+      </span>
+    </div>
+  );
+}
+
+function GongsuChip({ label, value }: { label: string; value: string }) {
+  const active = value && value !== "N" && value !== "0" && value !== "" && value !== "—";
+  return (
+    <div className={`flex flex-col items-center rounded-xl border px-2.5 py-2 gap-0.5 min-w-[44px]
+      ${active ? "border-primary/30 bg-primary/5" : "border-gray-100 bg-gray-50"}`}>
+      <span className="text-[10px] text-gray-400 font-semibold">{label}</span>
+      {active
+        ? <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+        : <XCircle className="h-3.5 w-3.5 text-gray-200" />}
+      {active && value !== "Y" && value !== "N" && (
+        <span className="text-[11px] font-bold text-primary tabular-nums">{value}</span>
+      )}
+    </div>
+  );
+}
+
+function RowDetailModal({ row, date, onClose }: RowDetailModalProps) {
+  const [y, m, d] = date.split("-");
+  const dateLabel = `${y}년 ${Number(m)}월 ${Number(d)}일`;
+
+  const gongsuA   = parseFloat(row.공수합계A)  || 0;
+  const gaasan    = parseFloat(row.가산신청)   || 0;
+  const gaasanOK  = parseFloat(row.가산승인)   || 0;
+  const gongsuAB  = parseFloat(row.공수합계AB) || 0;
+  const wolNuGye  = parseFloat(row.월누계)     || 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
+
+        {/* 헤더 */}
+        <div className="flex items-start justify-between px-5 py-4 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold text-gray-900">{row.성명}</span>
+              {row.팀명 && <span className="text-xs text-gray-400 font-medium">{row.팀명}</span>}
+              {row.직종 && <span className="text-xs text-gray-400">· {row.직종}</span>}
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <Clock className="h-3 w-3 text-gray-400" />
+              <span className="text-xs text-gray-400">{dateLabel}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-gray-100 transition-colors mt-0.5">
+            <X className="h-4 w-4 text-gray-400" />
+          </button>
+        </div>
+
+        <div className="p-5 flex flex-col gap-4 overflow-y-auto">
+
+          {/* 타각 시간 */}
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">타각 시간</p>
+            <div className="grid grid-cols-2 gap-2">
+              <PunchBadge label="XERP 출근" time={row.xerp출근} color="border-blue-200 bg-blue-50 text-blue-700" />
+              <PunchBadge label="XERP 퇴근" time={row.xerp퇴근} color="border-red-200 bg-red-50 text-red-700" />
+              <PunchBadge label="PMIS 출근" time={row.pmis출근} color="border-blue-100 bg-blue-50/60 text-blue-500" />
+              <PunchBadge label="PMIS 퇴근" time={row.pmis퇴근} color="border-red-100 bg-red-50/60 text-red-400" />
+            </div>
+          </div>
+
+          {/* 공수 체크 A */}
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">공수 체크 (A)</p>
+            <div className="flex flex-wrap gap-1.5">
+              <GongsuChip label="조출" value={row.조출} />
+              <GongsuChip label="오전" value={row.오전} />
+              <GongsuChip label="오후" value={row.오후} />
+              <GongsuChip label="연장" value={row.연장} />
+              <GongsuChip label="야간" value={row.야간} />
+              <GongsuChip label="철야" value={row.철야} />
+              <GongsuChip label="점심" value={row.점심} />
+            </div>
+          </div>
+
+          {/* 공수 수치 */}
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">공수 내역</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: "공수합계 A",  value: row.공수합계A,  color: "text-gray-800" },
+                { label: "초과 당일",   value: row.초과당일,   color: "text-gray-600" },
+                { label: "초과 합계",   value: row.초과합계,   color: "text-gray-600" },
+                { label: "가산 신청",   value: row.가산신청,   color: "text-amber-600" },
+                { label: "가산 승인",   value: row.가산승인,   color: "text-emerald-600" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2 border border-gray-100">
+                  <span className="text-xs text-gray-500">{label}</span>
+                  <span className={`text-sm font-bold tabular-nums ${color}`}>{value || "0"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 최종 공수합계 */}
+          <div className="rounded-2xl border-2 border-primary/20 bg-primary/5 p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-primary/60">공수합계 (A+B)</p>
+              <p className="text-3xl font-bold text-primary tabular-nums">{gongsuAB || "0"}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-semibold text-gray-400">월누계</p>
+              <p className="text-2xl font-bold text-gray-700 tabular-nums">{wolNuGye || "0"}</p>
+            </div>
+          </div>
+
+          {/* 검증 요약 */}
+          {(() => {
+            const calcAB = Math.round((gongsuA + gaasan) * 100) / 100;
+            const match  = Math.abs(calcAB - gongsuAB) < 0.01;
+            return (
+              <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold
+                ${match ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
+                        : "bg-amber-50 border border-amber-200 text-amber-700"}`}>
+                {match
+                  ? <><CheckCircle2 className="h-4 w-4 shrink-0" /> 공수합계 일치 (A {gongsuA} + 가산 {gaasan} = {calcAB})</>
+                  : <><AlertTriangle className="h-4 w-4 shrink-0" /> 공수합계 불일치 — A {gongsuA} + 가산 {gaasan} = {calcAB}, 기록값 {gongsuAB}</>}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── 달력 모달 컴포넌트 ─────────────────────────────────
 interface CalendarModalProps {
   emp: XerpPmisRow;
@@ -387,6 +535,9 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [calendarEmp, setCalendarEmp] = useState<XerpPmisRow | null>(null);
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth() + 1);
+
+  // 행 상세 모달 상태
+  const [detailRow, setDetailRow] = useState<XerpPmisRow | null>(null);
 
   const openCalendar = (emp: XerpPmisRow) => {
     const now = new Date();
@@ -705,14 +856,22 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                   <td className={cell}>{row.직종||"—"}</td>
                   <td className={cell}>{row.사번||"—"}</td>
                   <td className={`${cell} font-medium p-0`}>
-                    <button
-                      onClick={() => openCalendar(row)}
-                      className="w-full h-full px-2 py-1.5 flex items-center justify-center gap-1 text-primary hover:text-primary/80 transition-colors font-medium group"
-                      title="달력으로 출퇴근 현황 보기"
-                    >
-                      {row.성명||"—"}
-                      <CalendarDays className="h-3 w-3 opacity-40 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                    </button>
+                    <div className="flex items-center justify-center gap-0.5">
+                      <button
+                        onClick={() => setDetailRow(row)}
+                        className="px-2 py-1.5 text-primary hover:text-primary/80 font-medium transition-colors hover:underline underline-offset-2"
+                        title="공수 상세 검증"
+                      >
+                        {row.성명||"—"}
+                      </button>
+                      <button
+                        onClick={() => openCalendar(row)}
+                        className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                        title="달력으로 출퇴근 현황 보기"
+                      >
+                        <CalendarDays className="h-3 w-3" />
+                      </button>
+                    </div>
                   </td>
                   <td className={cell}>{maskResidentNum(row.생년월일 || "—", isAdmin)}</td>
                   <td className={`${cellNum} text-blue-600 font-semibold`}>{row.xerp출근||"—"}</td>
@@ -731,7 +890,15 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                   <td className={`${cellNum} font-semibold`}>{row.초과합계||"—"}</td>
                   <td className={cellNum}>{row.가산신청||"—"}</td>
                   <td className={cellNum}>{row.가산승인||"—"}</td>
-                  <td className={`${cellNum} font-bold bg-primary/5 text-primary`}>{row.공수합계AB||"—"}</td>
+                  <td className={`${cellNum} font-bold bg-primary/5 text-primary p-0`}>
+                    <button
+                      onClick={() => setDetailRow(row)}
+                      className="w-full h-full px-2 py-1.5 hover:bg-primary/10 transition-colors tabular-nums font-bold"
+                      title="공수 상세 검증"
+                    >
+                      {row.공수합계AB||"—"}
+                    </button>
+                  </td>
                   <td className={`${cellNum} font-bold`}>{row.월누계||"—"}</td>
                 </tr>
               ))
@@ -757,6 +924,15 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           onPrev={prevMonth}
           onNext={nextMonth}
           onClose={() => setCalendarEmp(null)}
+        />
+      )}
+
+      {/* ── 행 상세 검증 모달 ── */}
+      {detailRow && (
+        <RowDetailModal
+          row={detailRow}
+          date={selectedDate}
+          onClose={() => setDetailRow(null)}
         />
       )}
     </div>
