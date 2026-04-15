@@ -188,6 +188,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   const [rows, setRows] = useState<NewEmployee[]>([emptyRow()]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"전체" | "재직중" | "퇴사">("전체");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<NewEmployee | null>(null);
 
@@ -229,9 +230,15 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   }, [draft, rows, syncFS]);
 
   const displayRows = useMemo(() => {
-    if (!search.trim()) return rows;
-    return rows.filter((r) => r.이름.includes(search.trim()));
-  }, [rows, search]);
+    return rows.filter((r) => {
+      if (search.trim() && !r.이름.includes(search.trim())) return false;
+      if (statusFilter !== "전체") {
+        const { status } = calcTenure(r.입사일, r.퇴사일);
+        if (status !== statusFilter) return false;
+      }
+      return true;
+    });
+  }, [rows, search, statusFilter]);
 
   const addRow = () => {
     const next = [...rows, emptyRow()];
@@ -492,6 +499,26 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
             </button>
           )}
         </div>
+        {/* 재직/퇴사 필터 */}
+        <div className="flex items-center gap-1 p-0.5 bg-muted rounded-lg border border-border">
+          {(["전체", "재직중", "퇴사"] as const).map((opt) => (
+            <button
+              key={opt}
+              onClick={() => setStatusFilter(opt)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                statusFilter === opt
+                  ? opt === "퇴사"
+                    ? "bg-rose-500 text-white shadow-sm"
+                    : opt === "재직중"
+                    ? "bg-green-500 text-white shadow-sm"
+                    : "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
         <button
           onClick={addRow}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
@@ -526,8 +553,9 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
               <th className={thSticky("left-0") + " w-[44px]"}>No</th>
               <th className={thSticky("left-[44px]") + " w-[90px]"}>현장구분</th>
               <th className={thSticky("left-[134px]", true)}>이름</th>
+              <th className={thNormal + " min-w-[150px]"}>주민번호</th>
               {[
-                "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
+                "연락처", "연령", "남/여", "입사일", "퇴사일",
                 "근속일수", "근속개월", "근속현황",
                 "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "",
               ].map((col, i) => (
@@ -539,8 +567,8 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
             {displayRows.length === 0 ? (
               <tr>
                 <td colSpan={19} className="py-16 text-center text-muted-foreground text-sm">
-                  {search
-                    ? `"${search}"에 해당하는 직원이 없습니다`
+                  {search || statusFilter !== "전체"
+                    ? `조건에 해당하는 직원이 없습니다`
                     : "데이터가 없습니다. 행 추가 버튼을 눌러 입력하세요."}
                 </td>
               </tr>
@@ -577,8 +605,8 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                     <td className="px-3 py-1.5 text-xs whitespace-nowrap">
                       {row.입사일 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-                    <td className="px-3 py-1.5 text-xs whitespace-nowrap">
-                      {row.퇴사일 || <span className="text-muted-foreground/40">—</span>}
+                    <td className={`px-3 py-1.5 text-xs whitespace-nowrap font-semibold ${row.퇴사일 ? "bg-rose-50 text-rose-600" : ""}`}>
+                      {row.퇴사일 || <span className="text-muted-foreground/40 font-normal">—</span>}
                     </td>
                     <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">
                       {days ? `${days}일` : "—"}
@@ -625,7 +653,9 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
       </div>
 
       <p className="text-xs text-muted-foreground shrink-0">
-        총 {rows.length}명 · 연령 / 근속일수 / 근속개월 / 근속현황은 자동 계산됩니다
+        {displayRows.length !== rows.length
+          ? `${displayRows.length}명 표시 / 전체 ${rows.length}명`
+          : `총 ${rows.length}명`} · 연령 / 근속일수 / 근속개월 / 근속현황은 자동 계산됩니다
       </p>
     </div>
   );
