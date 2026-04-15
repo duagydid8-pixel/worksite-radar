@@ -29,6 +29,19 @@ function minToStr(min: number): string {
 const STANDARD_END       = 17 * 60;  // 17:00
 const STANDARD_WORK_MIN  = 8 * 60;   // 주간 1.0 공수 기준 = 8시간(480분)
 
+// ── 신규자 정보 타입 ──────────────────────────────────
+interface NewEmpInfo { 생년월일: string; 단가: string; }
+
+function excelSerialToDateStr(serial: unknown): string {
+  const n = typeof serial === "number" ? serial : parseFloat(String(serial));
+  if (isNaN(n) || n <= 0) return "";
+  const date = new Date((n - 25569) * 86400 * 1000);
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 // ── 팀별 출근 기준 시간 ────────────────────────────────
 interface TeamConfig { standardStart: number; jochulCutoff: number; }
 function getTeamConfig(팀명: string): TeamConfig {
@@ -178,7 +191,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [editingVal, setEditingVal] = useState("");
   const [showSpecialList, setShowSpecialList] = useState(false);
   const [showNewEmpList, setShowNewEmpList] = useState(false);
-  const [newEmployeeNames, setNewEmployeeNames] = useState<Set<string>>(new Set());
+  const [newEmpData, setNewEmpData] = useState<Map<string, NewEmpInfo>>(new Map());
   const [newEmpFileName, setNewEmpFileName] = useState<string | null>(null);
 
   // XERP&PMIS 연동 설정
@@ -223,27 +236,41 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const buffer = await file.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
 
-      // "성명" 또는 "이름" 헤더 컬럼 탐색
-      let nameColIdx = -1;
-      let dataStart  = 0;
-      for (let i = 0; i < Math.min(raw.length, 5); i++) {
+      // 헤더 행 탐색 — 이름/성명/단가 컬럼 인덱스 찾기
+      let nameColIdx  = -1;
+      let bdayColIdx  = -1;  // 나이(생년월일) 컬럼
+      let dankaColIdx = -1;  // 단가 컬럼
+      let dataStart   = 0;
+      for (let i = 0; i < Math.min(raw.length, 6); i++) {
         const row = raw[i] as unknown[];
-        const found = row.findIndex((c) => ["성명", "이름", "name"].includes(String(c).trim()));
-        if (found !== -1) { nameColIdx = found; dataStart = i + 1; break; }
+        const nameIdx  = row.findIndex((c) => ["성명", "이름", "name"].includes(String(c).trim()));
+        const bdayIdx  = row.findIndex((c) => ["나이", "생년월일", "생년"].includes(String(c).trim()));
+        const dankaIdx = row.findIndex((c) => String(c).trim().startsWith("단가"));
+        if (nameIdx !== -1) {
+          nameColIdx  = nameIdx;
+          if (bdayIdx  !== -1) bdayColIdx  = bdayIdx;
+          if (dankaIdx !== -1) dankaColIdx = dankaIdx;
+          dataStart = i + 1;
+          break;
+        }
       }
-      if (nameColIdx === -1) { nameColIdx = 0; dataStart = 1; } // 헤더 없으면 첫 컬럼 사용
+      if (nameColIdx === -1) { nameColIdx = 0; dataStart = 1; }
 
-      const names = new Set<string>();
+      const data = new Map<string, NewEmpInfo>();
       for (let i = dataStart; i < raw.length; i++) {
-        const val = String((raw[i] as unknown[])[nameColIdx] ?? "").trim();
-        if (val) names.add(val);
+        const row  = raw[i] as unknown[];
+        const name = String(row[nameColIdx] ?? "").trim();
+        if (!name) continue;
+        const 생년월일 = bdayColIdx  !== -1 ? excelSerialToDateStr(row[bdayColIdx])       : "";
+        const 단가     = dankaColIdx !== -1 ? String(row[dankaColIdx] ?? "").trim()        : "";
+        data.set(name, { 생년월일, 단가 });
       }
 
-      setNewEmployeeNames(names);
+      setNewEmpData(data);
       setNewEmpFileName(file.name);
-      toast.success(`신규자 명단 ${names.size}명 등록됨`);
+      toast.success(`신규자 명단 ${data.size}명 등록됨`);
     } catch {
       toast.error("신규자 명단 파일 읽기 오류");
     }
@@ -253,7 +280,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   useEffect(() => {
     if (rows.length === 0) return;
     setRows((prev) => prev.map((r) => {
-      const isNew = newEmployeeNames.has(r.성명);
+      const isNew = newEmpData.has(r.성명);
       if (isNew) {
         const gongsuA = parseFloat(r.xerpGongsuA) || 0;
         const diff = Math.round((1.0 - gongsuA) * 100) / 100;
@@ -270,7 +297,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       return r;
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newEmployeeNames]);
+  }, [newEmpData]);
 
   // 조출 토글
   const toggleJochul = (rowIndex: number) => {
@@ -356,7 +383,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const cfg           = getTeamConfig(팀명);
         const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg);
         const effIn         = effInMin !== null ? minToStr(effInMin) : "";
-        const isNewEmployee = newEmployeeNames.has(성명);
+        const isNewEmployee = newEmpData.has(성명);
         const isNoRecord    = rawInMin === null || rawOutMin === null;
         const isLate        = !isNoRecord && effInMin !== null && effInMin > cfg.standardStart;
 
@@ -538,7 +565,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <>
             <span className="text-xs text-sky-700 font-medium truncate max-w-[220px]">{newEmpFileName}</span>
             <span className="text-xs font-bold text-sky-800 bg-sky-100 border border-sky-200 px-2 py-1 rounded-lg">
-              {newEmployeeNames.size}명 등록
+              {newEmpData.size}명 등록
             </span>
             <button
               onClick={() => setShowNewEmpList((v) => !v)}
@@ -559,7 +586,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       </div>
 
       {/* 신규자 명단 패널 */}
-      {showNewEmpList && newEmployeeNames.size > 0 && (() => {
+      {showNewEmpList && newEmpData.size > 0 && (() => {
         const newEmpRows = rows.filter((r) => r.isNewEmployee);
         const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-sky-50 border-r border-sky-100 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
         const stc = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-sky-50 last:border-r-0";
@@ -567,10 +594,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <div className="rounded-xl border border-sky-200 bg-white shadow-sm overflow-hidden shrink-0">
             <div className="flex items-center justify-between px-4 py-2.5 bg-sky-50 border-b border-sky-200">
               <span className="text-xs font-bold text-sky-800 flex items-center gap-1.5">
-                신규자 명단 — {newEmployeeNames.size}명 등록
-                {newEmpRows.length > 0 && newEmpRows.length < newEmployeeNames.size && (
+                신규자 명단 — {newEmpData.size}명 등록
+                {newEmpRows.length > 0 && newEmpRows.length < newEmpData.size && (
                   <span className="text-[11px] font-normal text-sky-500">
-                    (공수 데이터 매칭 {newEmpRows.length}명 / 미매칭 {newEmployeeNames.size - newEmpRows.length}명)
+                    (공수 데이터 매칭 {newEmpRows.length}명 / 미매칭 {newEmpData.size - newEmpRows.length}명)
                   </span>
                 )}
               </span>
@@ -587,6 +614,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       <tr className="border-b border-sky-100">
                         <th className={sth}>팀명</th>
                         <th className={sth}>성명</th>
+                        <th className={sth}>생년월일</th>
+                        <th className={sth}>단가</th>
                         <th className={sth}>XERP 출근</th>
                         <th className={sth}>XERP 퇴근</th>
                         <th className={sth}>PMIS 출근</th>
@@ -597,19 +626,24 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       </tr>
                     </thead>
                     <tbody>
-                      {newEmpRows.map((r) => (
-                        <tr key={r.rowIndex} className="border-b border-sky-50 last:border-0 bg-sky-50/40 hover:bg-sky-50">
-                          <td className={`${stc} text-muted-foreground`}>{r.팀명 || "—"}</td>
-                          <td className={`${stc} font-semibold text-sky-800`}>{r.성명}</td>
-                          <td className={`${stc} tabular-nums ${!r.xerpIn ? "text-rose-400" : "text-blue-600"}`}>{r.xerpIn || "미기록"}</td>
-                          <td className={`${stc} tabular-nums ${!r.xerpOut ? "text-rose-400" : "text-red-600"}`}>{r.xerpOut || "미기록"}</td>
-                          <td className={`${stc} tabular-nums ${!r.pmisIn ? "text-rose-400" : "text-blue-400"}`}>{r.pmisIn || "미기록"}</td>
-                          <td className={`${stc} tabular-nums ${!r.pmisOut ? "text-rose-400" : "text-red-400"}`}>{r.pmisOut || "미기록"}</td>
-                          <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
-                          <td className={`${stc} font-bold text-sky-700 tabular-nums`}>1.00</td>
-                          <td className={`${stc} font-bold text-amber-600 tabular-nums`}>{r.diff !== null ? `+${r.diff.toFixed(2)}` : "—"}</td>
-                        </tr>
-                      ))}
+                      {newEmpRows.map((r) => {
+                        const info = newEmpData.get(r.성명);
+                        return (
+                          <tr key={r.rowIndex} className="border-b border-sky-50 last:border-0 bg-sky-50/40 hover:bg-sky-50">
+                            <td className={`${stc} text-muted-foreground`}>{r.팀명 || "—"}</td>
+                            <td className={`${stc} font-semibold text-sky-800`}>{r.성명}</td>
+                            <td className={`${stc} tabular-nums text-slate-600`}>{info?.생년월일 || "—"}</td>
+                            <td className={`${stc} tabular-nums text-emerald-700 font-semibold`}>{info?.단가 ? Number(info.단가).toLocaleString() : "—"}</td>
+                            <td className={`${stc} tabular-nums ${!r.xerpIn ? "text-rose-400" : "text-blue-600"}`}>{r.xerpIn || "미기록"}</td>
+                            <td className={`${stc} tabular-nums ${!r.xerpOut ? "text-rose-400" : "text-red-600"}`}>{r.xerpOut || "미기록"}</td>
+                            <td className={`${stc} tabular-nums ${!r.pmisIn ? "text-rose-400" : "text-blue-400"}`}>{r.pmisIn || "미기록"}</td>
+                            <td className={`${stc} tabular-nums ${!r.pmisOut ? "text-rose-400" : "text-red-400"}`}>{r.pmisOut || "미기록"}</td>
+                            <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
+                            <td className={`${stc} font-bold text-sky-700 tabular-nums`}>1.00</td>
+                            <td className={`${stc} font-bold text-amber-600 tabular-nums`}>{r.diff !== null ? `+${r.diff.toFixed(2)}` : "—"}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 ) : (
@@ -619,20 +653,27 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               {/* 우: 미매칭 신규자 (XERP 데이터 없음) */}
               {(() => {
                 const matchedNames = new Set(newEmpRows.map((r) => r.성명));
-                const unmatched = [...newEmployeeNames].filter((n) => !matchedNames.has(n));
+                const unmatched = [...newEmpData.keys()].filter((n) => !matchedNames.has(n));
                 if (unmatched.length === 0) return null;
                 return (
                   <div className="border-l border-sky-200 min-w-[140px] bg-slate-50/60">
                     <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 border-b border-sky-100 sticky top-0 bg-slate-50">
                       XERP 미매칭 ({unmatched.length}명)
                     </div>
-                    <ul className="p-2 space-y-1">
-                      {unmatched.map((name) => (
-                        <li key={name} className="flex items-center gap-1.5 text-xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
-                          <span className="text-slate-600 font-medium">{name}</span>
-                        </li>
-                      ))}
+                    <ul className="p-2 space-y-1.5">
+                      {unmatched.map((name) => {
+                        const info = newEmpData.get(name);
+                        return (
+                          <li key={name} className="text-xs space-y-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
+                              <span className="text-slate-700 font-semibold">{name}</span>
+                            </div>
+                            {info?.생년월일 && <div className="pl-3 text-slate-400">{info.생년월일}</div>}
+                            {info?.단가 && <div className="pl-3 text-emerald-600 font-medium">{Number(info.단가).toLocaleString()}원</div>}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 );
