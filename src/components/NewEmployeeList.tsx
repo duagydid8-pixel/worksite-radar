@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Plus, Trash2, Search, X, Download, Upload, Pencil } from "lucide-react";
+import { Plus, Trash2, Search, X, Download, Upload, Pencil, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import {
@@ -280,6 +280,21 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
     });
   }, [rows, search, statusFilter]);
 
+  // 근속 10개월 이상 재직중 인원 경고
+  const warningRows = useMemo(() => {
+    return rows
+      .filter((r) => {
+        const { months, status } = calcTenure(r.입사일, r.퇴사일);
+        return status === "재직중" && Number(months) >= 10;
+      })
+      .map((r) => {
+        const { days, months } = calcTenure(r.입사일, r.퇴사일);
+        const remaining = Math.max(0, 365 - Number(days));
+        return { ...r, months: Number(months), days: Number(days), remaining };
+      })
+      .sort((a, b) => b.days - a.days); // 근속 많은 순
+  }, [rows]);
+
   const addRow = () => {
     const next = [...rows, emptyRow()];
     setRows(next);
@@ -506,6 +521,42 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                 저장
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 근속 경고 배너 ── */}
+      {warningRows.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 shrink-0">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+            <span className="text-sm font-bold text-amber-800">
+              계약 기간 만료 임박 — {warningRows.length}명
+            </span>
+            <span className="text-xs text-amber-600 ml-1">(근속 10개월 이상 재직중)</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {warningRows.map((r) => (
+              <div
+                key={r.id}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+                  r.remaining <= 30
+                    ? "bg-red-100 border-red-300 text-red-700"
+                    : "bg-amber-100 border-amber-300 text-amber-800"
+                }`}
+              >
+                <span>{r.이름}</span>
+                <span className="opacity-60">·</span>
+                <span>{r.months}개월 ({r.days}일)</span>
+                {r.remaining <= 60 && (
+                  <span className={`ml-0.5 px-1 py-0.5 rounded text-[10px] ${
+                    r.remaining <= 30 ? "bg-red-200 text-red-800" : "bg-amber-200 text-amber-900"
+                  }`}>
+                    D-{r.remaining}
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
