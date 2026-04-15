@@ -167,6 +167,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editingVal, setEditingVal] = useState("");
+  const [showSpecialList, setShowSpecialList] = useState(false);
 
   // XERP&PMIS 연동 설정
   const [syncSite, setSyncSite] = useState<"PH4" | "PH2">("PH4");
@@ -470,6 +471,16 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               </span>
             )}
 
+            {(noRecCount > 0 || lateCount > 0 || needCount > 0) && (
+              <button
+                onClick={() => setShowSpecialList((v) => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                {showSpecialList ? "명단 닫기" : "특이자 명단 보기"}
+              </button>
+            )}
+
             <button
               onClick={handleSave}
               disabled={isSaving}
@@ -530,6 +541,75 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           </button>
 
           <span className="text-[11px] text-emerald-600">가산B 신청값을 선택한 날짜에 업데이트합니다</span>
+        </div>
+      )}
+
+      {/* 특이자 명단 패널 */}
+      {showSpecialList && rows.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden shrink-0">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              특이사항 명단
+            </span>
+            <button onClick={() => setShowSpecialList(false)} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-4 p-4">
+            {noRecCount > 0 && (
+              <div className="flex-1 min-w-[160px]">
+                <p className="text-[11px] font-bold text-rose-600 mb-2 flex items-center gap-1">
+                  <UserX className="h-3.5 w-3.5" /> 기록없음 ({noRecCount}명)
+                </p>
+                <ul className="space-y-1">
+                  {rows.filter((r) => r.isNoRecord).map((r) => (
+                    <li key={r.rowIndex} className="flex items-center gap-2 text-xs">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
+                      <span className="text-rose-700 font-semibold">{r.성명}</span>
+                      <span className="text-muted-foreground">{r.팀명}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {lateCount > 0 && (
+              <div className="flex-1 min-w-[160px]">
+                <p className="text-[11px] font-bold text-orange-600 mb-2 flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" /> 지각 ({lateCount}명)
+                </p>
+                <ul className="space-y-1">
+                  {rows.filter((r) => r.isLate).map((r) => (
+                    <li key={r.rowIndex} className="flex items-center gap-2 text-xs">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+                      <span className="text-orange-700 font-semibold">{r.성명}</span>
+                      <span className="text-muted-foreground">{r.팀명}</span>
+                      <span className="text-orange-500 tabular-nums">{r.effIn}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {needCount > 0 && (
+              <div className="flex-1 min-w-[160px]">
+                <p className="text-[11px] font-bold text-amber-600 mb-2 flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5" /> 가산공수 ({needCount}명)
+                </p>
+                <ul className="space-y-1">
+                  {rows.filter((r) => r.needsUpdate).map((r) => (
+                    <li key={r.rowIndex} className="flex items-center gap-2 text-xs">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                      <span className="text-amber-700 font-semibold">{r.성명}</span>
+                      <span className="text-muted-foreground">{r.팀명}</span>
+                      {r.diff !== null && (
+                        <span className="text-amber-600 font-bold tabular-nums">+{r.diff.toFixed(2)}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
