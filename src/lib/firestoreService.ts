@@ -120,6 +120,27 @@ export async function saveXerpWorkFS(fileName: string, rows: unknown[]) {
   return fsSet("xerp_work", { fileName, savedAt: new Date().toISOString(), rows });
 }
 
+// ── 신규자 명단 (날짜별) ───────────────────────────────
+interface NewEmpEntry { fileName: string; savedAt: string; data: Record<string, { 생년월일: string; 단가: string }> }
+type NewEmpDateMap = Record<string, NewEmpEntry>;
+
+export async function loadNewEmpDateMapFS(): Promise<NewEmpDateMap | null> {
+  const result = await fsGet<{ dateMap: NewEmpDateMap }>("xerp_newemp_dates");
+  return result?.dateMap ?? null;
+}
+export async function saveNewEmpDateFS(
+  date: string,
+  fileName: string,
+  data: Record<string, { 생년월일: string; 단가: string }>
+): Promise<boolean> {
+  const current = (await loadNewEmpDateMapFS()) ?? {};
+  const updated: NewEmpDateMap = {
+    ...current,
+    [date]: { fileName, savedAt: new Date().toISOString(), data },
+  };
+  return fsSet("xerp_newemp_dates", { dateMap: updated });
+}
+
 // ── 작업 일정 ──────────────────────────────────────────
 export async function loadScheduleFS() {
   return fsGet<ScheduleData>("work_schedule");

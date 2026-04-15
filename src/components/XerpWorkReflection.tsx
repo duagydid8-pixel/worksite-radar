@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS } from "@/lib/firestoreService";
 
 // ── 시간 유틸 ─────────────────────────────────────────
 function parseMin(val: unknown): number | null {
@@ -193,6 +193,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [showNewEmpList, setShowNewEmpList] = useState(false);
   const [newEmpData, setNewEmpData] = useState<Map<string, NewEmpInfo>>(new Map());
   const [newEmpFileName, setNewEmpFileName] = useState<string | null>(null);
+  const [isSavingNewEmp, setIsSavingNewEmp] = useState(false);
+  const [newEmpSavedCount, setNewEmpSavedCount] = useState<number | null>(null);
 
   // 공수반영 날짜 관리
   const [workDate, setWorkDate] = useState<string>(today());
@@ -233,6 +235,20 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     });
   }, [syncSite]);
 
+  // 신규자 명단 날짜별 로드 헬퍼
+  const loadNewEmpForDate = async (date: string) => {
+    const newEmpMap = await loadNewEmpDateMapFS();
+    if (newEmpMap?.[date]) {
+      const entry = newEmpMap[date];
+      const loaded = new Map<string, NewEmpInfo>(Object.entries(entry.data));
+      setNewEmpData(loaded);
+      setNewEmpFileName(entry.fileName);
+      setNewEmpSavedCount(loaded.size);
+    } else {
+      setNewEmpSavedCount(null);
+    }
+  };
+
   // 마운트 시 날짜 목록 + 가장 최근 날짜 데이터 로드
   useEffect(() => {
     (async () => {
@@ -246,6 +262,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           setFileName(entry.fileName ?? null);
           toast.info(`저장된 데이터 불러옴 (${latest} / ${entry.fileName})`);
         }
+        await loadNewEmpForDate(latest);
       } else {
         // 레거시 단일 저장 마이그레이션
         loadXerpWorkFS().then((data) => {
@@ -257,6 +274,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         });
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 신규자 명단 업로드
@@ -302,9 +320,25 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       setNewEmpData(data);
       setNewEmpFileName(file.name);
+      setNewEmpSavedCount(null);
       toast.success(`신규자 명단 ${data.size}명 등록됨`);
     } catch {
       toast.error("신규자 명단 파일 읽기 오류");
+    }
+  };
+
+  // 신규자 명단 저장
+  const handleSaveNewEmp = async () => {
+    if (!newEmpData.size || !newEmpFileName) return;
+    setIsSavingNewEmp(true);
+    const plainData = Object.fromEntries(newEmpData);
+    const ok = await saveNewEmpDateFS(workDate, newEmpFileName, plainData);
+    setIsSavingNewEmp(false);
+    if (ok) {
+      setNewEmpSavedCount(newEmpData.size);
+      toast.success(`신규자 명단 저장됨 (${workDate} / ${newEmpData.size}명)`);
+    } else {
+      toast.error("신규자 명단 저장 실패");
     }
   };
 
@@ -497,7 +531,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setWorkDate(date);
     if (!date) return;
     setIsLoadingDate(true);
-    const dm = await loadXerpWorkDateMapFS();
+    const [dm] = await Promise.all([
+      loadXerpWorkDateMapFS(),
+      loadNewEmpForDate(date),
+    ]);
     setIsLoadingDate(false);
     if (dm?.[date]) {
       const entry = dm[date];
@@ -645,6 +682,19 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             <span className="text-xs font-bold text-sky-800 bg-sky-100 border border-sky-200 px-2 py-1 rounded-lg">
               {newEmpData.size}명 등록
             </span>
+            {newEmpSavedCount !== null && (
+              <span className="text-xs text-sky-600 bg-sky-50 border border-sky-200 px-2 py-1 rounded-lg">
+                저장됨 {newEmpSavedCount}명
+              </span>
+            )}
+            <button
+              onClick={handleSaveNewEmp}
+              disabled={isSavingNewEmp}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-semibold hover:bg-sky-700 transition-colors disabled:opacity-50"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {isSavingNewEmp ? "저장 중..." : `저장 (${workDate})`}
+            </button>
             <button
               onClick={() => setShowNewEmpList((v) => !v)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-300 bg-sky-100 text-xs font-semibold text-sky-700 hover:bg-sky-200 transition-colors"
@@ -652,14 +702,21 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               {showNewEmpList ? "명단 닫기" : "명단 보기"}
             </button>
             <button
-              onClick={() => { setNewEmployeeNames(new Set()); setNewEmpFileName(null); setShowNewEmpList(false); }}
+              onClick={() => { setNewEmpData(new Map()); setNewEmpFileName(null); setNewEmpSavedCount(null); setShowNewEmpList(false); }}
               className="flex items-center gap-1 text-xs text-sky-500 hover:text-sky-700"
             >
               <X className="h-3.5 w-3.5" /> 초기화
             </button>
           </>
         ) : (
-          <span className="text-[11px] text-sky-600">신규자 명단을 업로드하면 해당 인원은 출퇴근 무관 1.0공수 적용됩니다</span>
+          <>
+            <span className="text-[11px] text-sky-600">신규자 명단을 업로드하면 해당 인원은 출퇴근 무관 1.0공수 적용됩니다</span>
+            {newEmpSavedCount !== null && (
+              <span className="text-xs text-sky-600 bg-sky-50 border border-sky-200 px-2 py-1 rounded-lg">
+                {workDate} 저장됨 {newEmpSavedCount}명
+              </span>
+            )}
+          </>
         )}
       </div>
 
