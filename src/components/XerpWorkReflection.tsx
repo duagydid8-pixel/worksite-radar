@@ -26,10 +26,15 @@ function minToStr(min: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-const STANDARD_START     = 7 * 60;   // 07:00
 const STANDARD_END       = 17 * 60;  // 17:00
-const JOCHUL_CUTOFF      = 7 * 60 + 10;
 const STANDARD_WORK_MIN  = 8 * 60;   // 주간 1.0 공수 기준 = 8시간(480분)
+
+// ── 팀별 출근 기준 시간 ────────────────────────────────
+interface TeamConfig { standardStart: number; jochulCutoff: number; }
+function getTeamConfig(팀명: string): TeamConfig {
+  if (팀명.includes("태화_S")) return { standardStart: 7 * 60 + 30, jochulCutoff: 7 * 60 + 40 };
+  return { standardStart: 7 * 60, jochulCutoff: 7 * 60 + 10 };
+}
 
 function roundBy50(min: number): number {
   const h = Math.floor(min / 60);
@@ -43,9 +48,9 @@ function ceilToHour(min: number): number {
   return m === 0 ? min : (Math.floor(min / 60) + 1) * 60;
 }
 
-function resolveEffInMin(rawInMin: number | null, isJochul: boolean): number | null {
+function resolveEffInMin(rawInMin: number | null, isJochul: boolean, cfg: TeamConfig): number | null {
   if (rawInMin === null) return null;
-  if (!isJochul && rawInMin < JOCHUL_CUTOFF) return STANDARD_START;
+  if (!isJochul && rawInMin < cfg.jochulCutoff) return cfg.standardStart;
   return rawInMin;
 }
 
@@ -61,34 +66,36 @@ function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
 /**
  * 공수 계산
  *
- * ① 출근 시간이 07:00 이후 지각이면 다음 정각으로 올림 (16:37 → 17:00)
- * ② 07:00~17:00 표준 시간대 내 근무분 / 480분 = 주간 공수 (최대 1.0)
+ * ① 출근 시간이 standardStart 이후 지각이면 다음 정각으로 올림
+ * ② standardStart~17:00 표준 시간대 내 근무분 / 480분 = 주간 공수 (최대 1.0)
  * ③ 17:00 이후 연장 시간:
  *    - 주간 8시간 충족(공수 1.0) 시 → 0.25/h (연장 단가)
  *    - 주간 8시간 미충족 시         → 0.125/h (기본 단가, 연장 할증 없음)
- * ④ 조출: +0.5
+ * ④ 조출: standardStart 이전 1시간마다 +0.25
  */
-function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul: boolean): number | null {
+function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul: boolean, cfg: TeamConfig): number | null {
   if (effInMin === null || effOutMin === null) return null;
 
-  // 지각 시 출근 올림 처리 (07:00 이후 지각만 적용)
-  const ceiledIn = effInMin > STANDARD_START ? ceilToHour(effInMin) : effInMin;
+  const { standardStart } = cfg;
 
-  // 표준 시간대(07:00~17:00) 내 실근무 분
-  const stdFrom    = Math.max(ceiledIn, STANDARD_START);
+  // 지각 시 출근 올림 처리 (standardStart 이후 지각만 적용)
+  const ceiledIn = effInMin > standardStart ? ceilToHour(effInMin) : effInMin;
+
+  // 표준 시간대(standardStart~17:00) 내 실근무 분
+  const stdFrom    = Math.max(ceiledIn, standardStart);
   const stdMinutes = Math.max(0, Math.min(effOutMin, STANDARD_END) - stdFrom);
 
   // 주간 공수 (8시간 = 1.0 기준, 0.125/h)
   const stdGongsu = Math.min(stdMinutes / STANDARD_WORK_MIN, 1.0);
 
   // 연장 시간 (17:00 이후) — 주간 충족 여부에 따라 단가 분기
-  const overtimeMin   = Math.max(0, effOutMin - STANDARD_END);
-  const isStdMet      = stdGongsu >= 1.0;
+  const overtimeMin    = Math.max(0, effOutMin - STANDARD_END);
+  const isStdMet       = stdGongsu >= 1.0;
   const overtimeGongsu = (overtimeMin / 60) * (isStdMet ? 0.25 : 0.125);
 
-  // 조출 보너스: 07:00 이전 1시간마다 0.25 (체크 시에만, 실제 조기 출근 시간 기준)
+  // 조출 보너스: standardStart 이전 1시간마다 0.25 (체크 시에만)
   const jochulBonus = isJochul
-    ? Math.max(0, Math.floor((STANDARD_START - effInMin) / 60)) * 0.25
+    ? Math.max(0, Math.floor((standardStart - effInMin) / 60)) * 0.25
     : 0;
 
   return Math.round((jochulBonus + stdGongsu + overtimeGongsu) * 100) / 100;
@@ -145,6 +152,7 @@ interface ProcessedRow {
   needsUpdate: boolean;
   isNoRecord: boolean;
   isLate: boolean;
+  standardStart: number;
 }
 
 // 엑셀 원본 전체 컬럼 (XERP&PMIS와 동일 구조)
@@ -206,11 +214,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setRows((prev) => prev.map((r) => {
       if (r.rowIndex !== rowIndex) return r;
       const newJochul = !r.isJochul;
-      const effInMin  = resolveEffInMin(r.rawInMin, newJochul);
+      const cfg       = getTeamConfig(r.팀명);
+      const effInMin  = resolveEffInMin(r.rawInMin, newJochul, cfg);
       const effIn     = effInMin !== null ? minToStr(effInMin) : "";
-      const calcVal   = calcGongsu(effInMin, r.rawOutMin, newJochul);
+      const calcVal   = calcGongsu(effInMin, r.rawOutMin, newJochul, cfg);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const isLate    = effInMin !== null && effInMin > STANDARD_START;
+      const isLate    = effInMin !== null && effInMin > cfg.standardStart;
       return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate };
     }));
   };
@@ -281,12 +290,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const effOut    = rawOutMin !== null ? minToStr(rawOutMin) : "";
 
         const isJochul  = false;
-        const effInMin  = resolveEffInMin(rawInMin, isJochul);
+        const cfg       = getTeamConfig(팀명);
+        const effInMin  = resolveEffInMin(rawInMin, isJochul, cfg);
         const effIn     = effInMin !== null ? minToStr(effInMin) : "";
-        const calcVal   = calcGongsu(effInMin, rawOutMin, isJochul);
+        const calcVal   = calcGongsu(effInMin, rawOutMin, isJochul, cfg);
         const { diff, needsUpdate } = calcDiff(calcVal, xerpGongsuA);
         const isNoRecord = rawInMin === null || rawOutMin === null;
-        const isLate     = !isNoRecord && effInMin !== null && effInMin > STANDARD_START;
+        const isLate     = !isNoRecord && effInMin !== null && effInMin > cfg.standardStart;
 
         processed.push({
           rowIndex: i, 팀명, 성명,
@@ -295,6 +305,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           rawInMin, rawOutMin, isJochul,
           effIn, effOut, xerpGongsuA,
           calcGongsuVal: calcVal, diff, needsUpdate, isNoRecord, isLate,
+          standardStart: cfg.standardStart,
         });
       }
 
@@ -715,10 +726,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
                       <td className={`${cell} bg-blue-50/40 font-semibold tabular-nums
                         ${row.isLate ? "text-orange-600" :
-                          row.isJochul && row.rawInMin !== null && row.rawInMin < STANDARD_START ? "text-violet-700" : "text-blue-700"}`}>
+                          row.isJochul && row.rawInMin !== null && row.rawInMin < row.standardStart ? "text-violet-700" : "text-blue-700"}`}>
                         {row.effIn || "—"}
                         {row.isLate && <span className="ml-1 text-[9px] font-bold text-orange-500">지각</span>}
-                        {row.isJochul && row.rawInMin !== null && row.rawInMin < STANDARD_START && (
+                        {row.standardStart !== 7 * 60 && (
+                          <span className="ml-1 text-[9px] font-semibold text-slate-400">({minToStr(row.standardStart)}기준)</span>
+                        )}
+                        {row.isJochul && row.rawInMin !== null && row.rawInMin < row.standardStart && (
                           <span className="ml-1 text-[9px] font-bold text-violet-500">조출</span>
                         )}
                       </td>
