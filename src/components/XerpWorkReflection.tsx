@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpWorkFS, saveXerpWorkFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS } from "@/lib/firestoreService";
 
 // ── 시간 유틸 ─────────────────────────────────────────
 function parseMin(val: unknown): number | null {
@@ -194,6 +194,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [newEmpData, setNewEmpData] = useState<Map<string, NewEmpInfo>>(new Map());
   const [newEmpFileName, setNewEmpFileName] = useState<string | null>(null);
 
+  // 공수반영 날짜 관리
+  const [workDate, setWorkDate] = useState<string>(today());
+  const [workDates, setWorkDates] = useState<string[]>([]);
+  const [isLoadingDate, setIsLoadingDate] = useState(false);
+
   // XERP&PMIS 연동 설정
   const [syncSite, setSyncSite] = useState<"PH4" | "PH2">("PH4");
   const [syncDate, setSyncDate] = useState<string>(today());
@@ -201,6 +206,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
   const fileRef    = useRef<HTMLInputElement>(null);
   const newEmpRef  = useRef<HTMLInputElement>(null);
+
+  // 저장된 날짜 목록 로드 헬퍼
+  const refreshWorkDates = async () => {
+    const dm = await loadXerpWorkDateMapFS();
+    if (dm) {
+      const dates = Object.keys(dm).sort().reverse();
+      setWorkDates(dates);
+      return { dm, dates };
+    }
+    setWorkDates([]);
+    return { dm: null, dates: [] };
+  };
 
   // 사이트 변경 시 XERP&PMIS 날짜 목록 로드
   useEffect(() => {
@@ -216,15 +233,30 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     });
   }, [syncSite]);
 
-  // 마운트 시 저장된 데이터 로드
+  // 마운트 시 날짜 목록 + 가장 최근 날짜 데이터 로드
   useEffect(() => {
-    loadXerpWorkFS().then((data) => {
-      if (data?.rows && data.rows.length > 0) {
-        setRows(data.rows as ProcessedRow[]);
-        setFileName(data.fileName ?? null);
-        toast.info(`저장된 데이터 불러옴 (${data.fileName})`);
+    (async () => {
+      const { dm, dates } = await refreshWorkDates();
+      if (dm && dates.length > 0) {
+        const latest = dates[0];
+        setWorkDate(latest);
+        const entry = dm[latest];
+        if (entry?.rows?.length > 0) {
+          setRows(entry.rows as ProcessedRow[]);
+          setFileName(entry.fileName ?? null);
+          toast.info(`저장된 데이터 불러옴 (${latest} / ${entry.fileName})`);
+        }
+      } else {
+        // 레거시 단일 저장 마이그레이션
+        loadXerpWorkFS().then((data) => {
+          if (data?.rows && data.rows.length > 0) {
+            setRows(data.rows as ProcessedRow[]);
+            setFileName(data.fileName ?? null);
+            toast.info(`저장된 데이터 불러옴 (${data.fileName})`);
+          }
+        });
       }
-    });
+    })();
   }, []);
 
   // 신규자 명단 업로드
@@ -435,7 +467,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const detectedSite = detectSite(file.name);
       const detectedDate = extractDateFromFilename(file.name);
       setSyncSite(detectedSite);
-      if (detectedDate) setSyncDate(detectedDate);
+      if (detectedDate) { setSyncDate(detectedDate); setWorkDate(detectedDate); }
 
       const noRec = processed.filter((r) => r.isNoRecord).length;
       const late  = processed.filter((r) => r.isLate).length;
@@ -446,14 +478,60 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     }
   };
 
-  // 공수반영 데이터 저장 (Firestore xerp_work)
+  // 공수반영 데이터 저장
   const handleSave = async () => {
     if (!rows.length || !fileName) return;
     setIsSaving(true);
-    const ok = await saveXerpWorkFS(fileName, rows);
+    const ok = await saveXerpWorkDateFS(workDate, fileName, rows);
     setIsSaving(false);
-    if (ok) toast.success("저장되었습니다.");
-    else toast.error("저장 실패");
+    if (ok) {
+      toast.success(`저장되었습니다. (${workDate})`);
+      await refreshWorkDates();
+    } else {
+      toast.error("저장 실패");
+    }
+  };
+
+  // 날짜 선택 시 해당 날짜 데이터 로드
+  const handleWorkDateChange = async (date: string) => {
+    setWorkDate(date);
+    if (!date) return;
+    setIsLoadingDate(true);
+    const dm = await loadXerpWorkDateMapFS();
+    setIsLoadingDate(false);
+    if (dm?.[date]) {
+      const entry = dm[date];
+      setRows(entry.rows as ProcessedRow[]);
+      setFileName(entry.fileName ?? null);
+      setOriginalBuffer(null);
+      setWorkbook(null);
+      setRawExcelRows([]);
+      toast.info(`${date} 데이터 불러옴 (${entry.fileName})`);
+    } else {
+      setRows([]);
+      setFileName(null);
+      setOriginalBuffer(null);
+      setWorkbook(null);
+      setRawExcelRows([]);
+      toast.info(`${date} 저장된 데이터 없음`);
+    }
+  };
+
+  // 날짜 삭제
+  const handleDeleteWorkDate = async (date: string) => {
+    if (!confirm(`${date} 데이터를 삭제하시겠습니까?`)) return;
+    const ok = await deleteXerpWorkDateFS(date);
+    if (ok) {
+      toast.success(`${date} 삭제됨`);
+      const { dates } = await refreshWorkDates();
+      if (dates.length > 0) {
+        handleWorkDateChange(dates[0]);
+      } else {
+        setWorkDate(today());
+        setRows([]);
+        setFileName(null);
+      }
+    }
   };
 
   // XERP&PMIS 전체 명단 반영 (파일 전체 데이터 교체)
@@ -683,6 +761,49 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         );
       })()}
 
+      {/* 날짜 선택 패널 */}
+      <div className="flex flex-wrap items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 shrink-0">
+        <span className="text-xs font-bold text-indigo-800">날짜별 공수반영</span>
+
+        {/* 날짜 직접 입력 */}
+        <input
+          type="date"
+          value={workDate}
+          onChange={(e) => setWorkDate(e.target.value)}
+          className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none focus:ring-1 focus:ring-indigo-400"
+        />
+
+        {/* 저장된 날짜 선택 드롭다운 */}
+        {workDates.length > 0 && (
+          <select
+            value={workDate}
+            onChange={(e) => handleWorkDateChange(e.target.value)}
+            className="border border-indigo-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none"
+          >
+            <option value="">— 저장된 날짜 선택 —</option>
+            {workDates.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
+
+        {isLoadingDate && <span className="text-xs text-indigo-500 animate-pulse">불러오는 중...</span>}
+
+        {workDates.length > 0 && workDate && workDates.includes(workDate) && (
+          <button
+            onClick={() => handleDeleteWorkDate(workDate)}
+            className="flex items-center gap-1 text-xs text-rose-400 hover:text-rose-600 transition-colors"
+            title="이 날짜 데이터 삭제"
+          >
+            <X className="h-3.5 w-3.5" /> 삭제
+          </button>
+        )}
+
+        {workDates.length === 0 && (
+          <span className="text-[11px] text-indigo-500">엑셀 업로드 후 저장하면 날짜별로 기록됩니다</span>
+        )}
+      </div>
+
       {/* 업로드 / 저장 / 다운로드 바 */}
       <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-3 shadow-sm shrink-0">
         <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
@@ -739,7 +860,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" />
-              {isSaving ? "저장 중..." : "저장"}
+              {isSaving ? "저장 중..." : `저장 (${workDate})`}
             </button>
 
             {originalBuffer && (
