@@ -495,7 +495,7 @@ const Index = () => {
 
           {/* 홈 */}
           {activeTab === "홈" && (
-            <HomePage lastUploadedAt={lastUploadedAt ? formatUploadTime(lastUploadedAt) : null} selectedDate={selectedDate} isAdmin={isAdmin} />
+            <HomePage lastUploadedAt={lastUploadedAt ? formatUploadTime(lastUploadedAt) : null} selectedDate={selectedDate} isAdmin={isAdmin} leaveDetails={data?.leaveDetails ?? []} />
           )}
 
         {/* 신규자 명단 (관리자 전용) */}

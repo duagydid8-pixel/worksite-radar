@@ -1,12 +1,13 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { loadXerpFS, loadScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
+import type { LeaveDetail } from "@/lib/parseExcel";
 import { toast } from "sonner";
 import {
   Loader2, CalendarDays, FileJson,
   CheckCircle2, XCircle,
   ChevronLeft, ChevronRight,
   Clock, CloudUpload, HardHat,
-  Wind, Droplets, Thermometer,
+  Wind, Droplets, Thermometer, TrendingDown, CalendarOff,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -23,6 +24,7 @@ interface HomePageProps {
   lastUploadedAt: string | null;
   selectedDate: string;
   isAdmin: boolean;
+  leaveDetails: LeaveDetail[];
 }
 
 const DAY_KO   = ["일","월","화","수","목","금","토"];
@@ -471,7 +473,7 @@ function DailyAttendanceChart({ dateMap }: { dateMap: Record<string, XerpRow[]> 
 }
 
 // ── 메인 ─────────────────────────────────────────────
-export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: HomePageProps) {
+export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveDetails }: HomePageProps) {
   const today = new Date();
   const dateLabel = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 ${DAY_KO[today.getDay()]}요일`;
 
@@ -492,12 +494,32 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: Home
     return dates.length ? (xerpDateMap[dates[dates.length - 1]] ?? []) : [];
   }, [xerpDateMap]);
 
+  const prevXerpRows = useMemo(() => {
+    const dates = Object.keys(xerpDateMap).sort();
+    return dates.length >= 2 ? (xerpDateMap[dates[dates.length - 2]] ?? []) : null;
+  }, [xerpDateMap]);
+
   const stats = useMemo(() => calcStats(xerpRows), [xerpRows]);
 
+  const decreased = useMemo(() => {
+    if (!prevXerpRows) return null;
+    const diff = prevXerpRows.length - xerpRows.length;
+    return diff > 0 ? diff : 0;
+  }, [prevXerpRows, xerpRows]);
+
+  // 선택일 기준 당일 연차자 필터링
+  const todayLeaveDetails = useMemo(() => {
+    const [y, m, d] = selectedDate.split("-").map(Number);
+    return leaveDetails.filter(
+      (item) => item.year === y && item.month === m && item.day === d
+    );
+  }, [leaveDetails, selectedDate]);
+
   const KPI = [
-    { label:"총 기술인", value: stats.total,   sub:"XERP 최근 기준", icon:<HardHat className="h-5 w-5" />,       color:"text-primary",    iconBg:"bg-primary/10"    },
-    { label:"정상 출근", value: stats.present,  sub:"출근 기록 있음", icon:<CheckCircle2 className="h-5 w-5" />,  color:"text-emerald-600", iconBg:"bg-emerald-50"    },
-    { label:"결근",      value: stats.absent,   sub:"출근 기록 없음", icon:<XCircle className="h-5 w-5" />,       color:"text-rose-500",    iconBg:"bg-rose-50"       },
+    { label:"총 기술인", value: stats.total,   sub:"XERP 최근 기준",       icon:<HardHat className="h-5 w-5" />,       color:"text-primary",    iconBg:"bg-primary/10", showDash: false },
+    { label:"정상 출근", value: stats.present,  sub:"출근 기록 있음",       icon:<CheckCircle2 className="h-5 w-5" />,  color:"text-emerald-600", iconBg:"bg-emerald-50",  showDash: false },
+    { label:"결근",      value: stats.absent,   sub:"출근 기록 없음",       icon:<XCircle className="h-5 w-5" />,       color:"text-rose-500",    iconBg:"bg-rose-50",     showDash: false },
+    { label:"감소인원",  value: decreased ?? 0, sub:"전일 대비 인원 감소",  icon:<TrendingDown className="h-5 w-5" />,  color:"text-orange-500",  iconBg:"bg-orange-50",   showDash: decreased === null },
   ];
 
   return (
@@ -536,21 +558,54 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin }: Home
             </div>
           </div>
 
-          {/* KPI 카드 3개 */}
-          <div className="grid grid-cols-3 gap-4">
+          {/* KPI 카드 4개 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {KPI.map((k) => (
               <div key={k.label} className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
                 <div className={`w-10 h-10 rounded-2xl ${k.iconBg} flex items-center justify-center mb-4 ${k.color}`}>
                   {k.icon}
                 </div>
                 <p className={`text-3xl font-bold tabular-nums mb-0.5 ${k.color}`}>
-                  {xerpLoaded ? k.value : <span className="text-gray-200">—</span>}
+                  {xerpLoaded ? (k.showDash ? <span className="text-gray-200">—</span> : k.value) : <span className="text-gray-200">—</span>}
                 </p>
                 <p className="text-sm font-semibold text-gray-700">{k.label}</p>
                 <p className="text-[11px] text-gray-400 mt-0.5">{k.sub}</p>
               </div>
             ))}
           </div>
+
+          {/* 당일 연차자 카드 */}
+          {todayLeaveDetails.length > 0 && (
+            <div className="bg-white rounded-3xl shadow-sm border border-amber-100 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-2xl bg-amber-50 flex items-center justify-center">
+                    <CalendarOff className="h-4.5 w-4.5 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800">당일 연차자</h3>
+                    <p className="text-[11px] text-gray-400">{selectedDate} 기준</p>
+                  </div>
+                </div>
+                <span className="text-xl font-bold text-amber-500 tabular-nums">
+                  {todayLeaveDetails.length}<span className="text-xs font-medium text-gray-400 ml-0.5">명</span>
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {todayLeaveDetails.map((item, i) => (
+                  <div key={i} className="flex items-center gap-1.5 bg-amber-50 border border-amber-100 rounded-2xl px-3 py-1.5">
+                    <span className="text-xs font-bold text-amber-700">{item.name}</span>
+                    {item.days !== 1 && (
+                      <span className="text-[10px] text-amber-500 font-medium">{item.days}일</span>
+                    )}
+                    {item.reason && (
+                      <span className="text-[10px] text-gray-400">({item.reason})</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 일일 출력인원 그래프 */}
           {xerpLoaded && Object.keys(xerpDateMap).length > 0 && (
