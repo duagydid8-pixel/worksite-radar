@@ -430,10 +430,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     return rows.filter((r) => r.성명.includes(q) || r.팀명.includes(q));
   }, [rows, search]);
 
-  const totalCount  = rows.length;
-  const needCount   = rows.filter((r) => r.needsUpdate).length;
-  const noRecCount  = rows.filter((r) => r.isNoRecord).length;
-  const lateCount   = rows.filter((r) => r.isLate).length;
+  const totalCount    = rows.length;
+  const needCount     = rows.filter((r) => r.needsUpdate).length;
+  const noRecCount    = rows.filter((r) => r.isNoRecord).length;
+  const lateCount     = rows.filter((r) => r.isLate).length;
+  const zeroGongsuCount = rows.filter((r) =>
+    !r.isNoRecord && (parseFloat(r.xerpGongsuA) === 0 || r.calcGongsuVal === 0)
+  ).length;
 
   const cell = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-border/40 last:border-r-0";
   const th   = "px-2 py-2 text-[11px] font-semibold text-foreground bg-muted text-center border-r border-border/40 last:border-r-0 sticky top-0 z-10";
@@ -482,7 +485,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               </span>
             )}
 
-            {(noRecCount > 0 || lateCount > 0 || needCount > 0) && (
+            {(noRecCount > 0 || lateCount > 0 || needCount > 0 || zeroGongsuCount > 0) && (
               <button
                 onClick={() => setShowSpecialList((v) => !v)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
@@ -557,7 +560,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       {/* 특이자 명단 패널 */}
       {showSpecialList && rows.length > 0 && (() => {
-        const specialRows = rows.filter((r) => r.isNoRecord || r.isLate || r.needsUpdate);
+        const isZeroGongsu = (r: ProcessedRow) =>
+          !r.isNoRecord && (parseFloat(r.xerpGongsuA) === 0 || r.calcGongsuVal === 0);
+        const specialRows = rows.filter((r) => r.isNoRecord || r.isLate || r.needsUpdate || isZeroGongsu(r));
         const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-slate-100 border-r border-slate-200 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
         const stc = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-slate-100 last:border-r-0";
         return (
@@ -569,7 +574,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 <span className="ml-2 text-[11px] font-normal text-muted-foreground">
                   {noRecCount > 0 && <span className="text-rose-500 mr-2">기록없음 {noRecCount}명</span>}
                   {lateCount > 0 && <span className="text-orange-500 mr-2">지각 {lateCount}명</span>}
-                  {needCount > 0 && <span className="text-amber-500">가산공수 {needCount}명</span>}
+                  {needCount > 0 && <span className="text-amber-500 mr-2">가산공수 {needCount}명</span>}
+                  {zeroGongsuCount > 0 && <span className="text-red-500">공수0 {zeroGongsuCount}명</span>}
                 </span>
               </span>
               <button onClick={() => setShowSpecialList(false)} className="text-muted-foreground hover:text-foreground">
@@ -596,11 +602,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 </thead>
                 <tbody>
                   {specialRows.map((r) => {
+                    const zeroGs = isZeroGongsu(r);
                     const tags: React.ReactNode[] = [];
                     if (r.isNoRecord) tags.push(<span key="nr" className="inline-flex items-center gap-0.5 text-rose-600 font-bold"><UserX className="h-3 w-3" /> 기록없음</span>);
                     if (r.isLate)     tags.push(<span key="lt" className="inline-flex items-center gap-0.5 text-orange-600 font-bold"><Clock className="h-3 w-3" /> 지각</span>);
                     if (!r.isNoRecord && r.needsUpdate) tags.push(<span key="gs" className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><AlertTriangle className="h-3 w-3" /> 가산</span>);
-                    const rowBg = r.isNoRecord ? "bg-rose-50/60" : r.isLate ? "bg-orange-50/60" : "bg-amber-50/40";
+                    if (zeroGs) tags.push(<span key="zg" className="inline-flex items-center gap-0.5 text-red-600 font-bold"><MinusCircle className="h-3 w-3" /> 공수0</span>);
+                    const rowBg = r.isNoRecord ? "bg-rose-50/60" : zeroGs ? "bg-red-50/60" : r.isLate ? "bg-orange-50/60" : "bg-amber-50/40";
                     return (
                       <tr key={r.rowIndex} className={`border-b border-slate-100 last:border-0 ${rowBg}`}>
                         <td className={stc}>
