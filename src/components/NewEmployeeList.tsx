@@ -210,9 +210,9 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
 
     const onMove = (me: MouseEvent) => {
       if (!resizeRef.current) return;
-      const dx = me.clientX - resizeRef.current.startX;
-      const newW = Math.max(40, resizeRef.current.startW + dx);
-      setColWidths((prev) => ({ ...prev, [resizeRef.current!.key]: newW }));
+      const { key: rKey, startX, startW } = resizeRef.current;
+      const newW = Math.max(40, startW + (me.clientX - startX));
+      setColWidths((prev) => ({ ...prev, [rKey]: newW }));
     };
     const onUp = () => {
       resizeRef.current = null;
@@ -638,11 +638,24 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
         className="overflow-auto rounded-xl border border-border bg-white shadow-sm"
         style={{ maxHeight: "calc(100vh - 280px)" }}
       >
-        <table className="min-w-full text-xs border-collapse">
+        <table className="text-xs border-collapse" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
+          <colgroup>
+            <col style={{ width: 44 }} />
+            <col style={{ width: 90 }} />
+            <col style={{ width: 90 }} />
+            {[
+              "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
+              "근속일수", "근속개월", "근속현황",
+              "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소",
+            ].map((col) => (
+              <col key={col} style={{ width: getColW(col) }} />
+            ))}
+            <col style={{ width: 44 }} />
+          </colgroup>
           <thead>
             <tr className="bg-muted border-b border-border">
-              <th className={thSticky("left-0") + " w-[44px]"}>No</th>
-              <th className={thSticky("left-[44px]") + " w-[90px]"}>현장구분</th>
+              <th className={thSticky("left-0")}>No</th>
+              <th className={thSticky("left-[44px]")}>현장구분</th>
               <th className={thSticky("left-[134px]", true)}>이름</th>
               {[
                 "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
@@ -652,7 +665,6 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                 <th
                   key={col}
                   className={thNormal + " relative select-none"}
-                  style={{ width: getColW(col), minWidth: getColW(col) }}
                 >
                   <span className="pr-2">{col}</span>
                   {/* 드래그 리사이즈 핸들 */}
@@ -700,37 +712,29 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                       </button>
                     </td>
                     {(["주민번호", "연락처"] as const).map((field) => (
-                      <td key={field} className="px-3 py-1.5 text-xs overflow-hidden text-ellipsis whitespace-nowrap"
-                        style={{ width: getColW(field), maxWidth: getColW(field) }}>
+                      <td key={field} className="px-3 py-1.5 text-xs overflow-hidden text-ellipsis whitespace-nowrap">
                         {row[field] || <span className="text-muted-foreground/40">—</span>}
                       </td>
                     ))}
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden"
-                      style={{ width: getColW("연령"), maxWidth: getColW("연령") }}>
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden">
                       {age || "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-xs overflow-hidden"
-                      style={{ width: getColW("남/여"), maxWidth: getColW("남/여") }}>
+                    <td className="px-2 py-1.5 text-center text-xs overflow-hidden">
                       {row.남여 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-                    <td className="px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden"
-                      style={{ width: getColW("입사일"), maxWidth: getColW("입사일") }}>
+                    <td className="px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden">
                       {row.입사일 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-                    <td className={`px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden font-semibold ${row.퇴사일 ? "bg-rose-50 text-rose-600" : ""}`}
-                      style={{ width: getColW("퇴사일"), maxWidth: getColW("퇴사일") }}>
+                    <td className={`px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden font-semibold ${row.퇴사일 ? "bg-rose-50 text-rose-600" : ""}`}>
                       {row.퇴사일 || <span className="text-muted-foreground/40 font-normal">—</span>}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden"
-                      style={{ width: getColW("근속일수"), maxWidth: getColW("근속일수") }}>
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden">
                       {days ? `${days}일` : "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden"
-                      style={{ width: getColW("근속개월"), maxWidth: getColW("근속개월") }}>
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden">
                       {months ? `${months}개월` : "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center overflow-hidden"
-                      style={{ width: getColW("근속현황"), maxWidth: getColW("근속현황") }}>
+                    <td className="px-2 py-1.5 text-center overflow-hidden">
                       {status ? (
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                           status === "재직중" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
@@ -747,8 +751,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                         : raw;
                       return (
                         <td key={field}
-                          className={`px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden text-ellipsis${isMoney ? " tabular-nums text-right" : ""}`}
-                          style={{ width: getColW(field), maxWidth: getColW(field) }}>
+                          className={`px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden text-ellipsis${isMoney ? " tabular-nums text-right" : ""}`}>
                           {display || <span className="text-muted-foreground/40">—</span>}
                         </td>
                       );
