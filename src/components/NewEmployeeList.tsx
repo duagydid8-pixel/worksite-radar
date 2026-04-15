@@ -178,6 +178,12 @@ function emptyRow(): NewEmployee {
 
 const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소"];
 
+const DEFAULT_COL_WIDTHS: Record<string, number> = {
+  주민번호: 150, 연락처: 120, 연령: 55, "남/여": 50,
+  입사일: 100, 퇴사일: 100, 근속일수: 70, 근속개월: 70, 근속현황: 70,
+  신청공종: 90, 단가: 70, 단가변동: 70, 은행명: 70, 계좌번호: 140, 주소: 200,
+};
+
 // ── 공통 탭 컨텐츠 컴포넌트 ─────────────────────────
 interface EmployeeTabContentProps {
   loadFn: () => Promise<unknown[] | null>;
@@ -189,8 +195,42 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"전체" | "재직중" | "퇴사">("전체");
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const resizeRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<NewEmployee | null>(null);
+
+  const getColW = (key: string) => colWidths[key] ?? DEFAULT_COL_WIDTHS[key] ?? 80;
+
+  const startResize = useCallback((key: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startW = colWidths[key] ?? DEFAULT_COL_WIDTHS[key] ?? 80;
+    resizeRef.current = { key, startX: e.clientX, startW };
+
+    const onMove = (me: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const dx = me.clientX - resizeRef.current.startX;
+      const newW = Math.max(40, resizeRef.current.startW + dx);
+      setColWidths((prev) => ({ ...prev, [resizeRef.current!.key]: newW }));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [colWidths]);
+
+  const resetColWidth = useCallback((key: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setColWidths((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
@@ -553,14 +593,29 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
               <th className={thSticky("left-0") + " w-[44px]"}>No</th>
               <th className={thSticky("left-[44px]") + " w-[90px]"}>현장구분</th>
               <th className={thSticky("left-[134px]", true)}>이름</th>
-              <th className={thNormal + " min-w-[150px]"}>주민번호</th>
               {[
-                "연락처", "연령", "남/여", "입사일", "퇴사일",
+                "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
                 "근속일수", "근속개월", "근속현황",
-                "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "",
-              ].map((col, i) => (
-                <th key={i} className={thNormal}>{col}</th>
+                "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소",
+              ].map((col) => (
+                <th
+                  key={col}
+                  className={thNormal + " relative select-none"}
+                  style={{ width: getColW(col), minWidth: getColW(col) }}
+                >
+                  <span className="pr-2">{col}</span>
+                  {/* 드래그 리사이즈 핸들 */}
+                  <div
+                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize z-10 flex items-center justify-center group/rh"
+                    onMouseDown={(e) => startResize(col, e)}
+                    onDoubleClick={(e) => resetColWidth(col, e)}
+                    title="드래그: 너비 조절 / 더블클릭: 초기화"
+                  >
+                    <div className="w-px h-3/5 bg-border group-hover/rh:bg-primary/60 transition-colors" />
+                  </div>
+                </th>
               ))}
+              <th className={thNormal}></th>
             </tr>
           </thead>
           <tbody>
@@ -594,27 +649,37 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                       </button>
                     </td>
                     {(["주민번호", "연락처"] as const).map((field) => (
-                      <td key={field} className="px-3 py-1.5 text-xs whitespace-nowrap">
+                      <td key={field} className="px-3 py-1.5 text-xs overflow-hidden text-ellipsis whitespace-nowrap"
+                        style={{ width: getColW(field), maxWidth: getColW(field) }}>
                         {row[field] || <span className="text-muted-foreground/40">—</span>}
                       </td>
                     ))}
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">{age || "—"}</td>
-                    <td className="px-2 py-1.5 text-center text-xs">
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden"
+                      style={{ width: getColW("연령"), maxWidth: getColW("연령") }}>
+                      {age || "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-center text-xs overflow-hidden"
+                      style={{ width: getColW("남/여"), maxWidth: getColW("남/여") }}>
                       {row.남여 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-                    <td className="px-3 py-1.5 text-xs whitespace-nowrap">
+                    <td className="px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden"
+                      style={{ width: getColW("입사일"), maxWidth: getColW("입사일") }}>
                       {row.입사일 || <span className="text-muted-foreground/40">—</span>}
                     </td>
-                    <td className={`px-3 py-1.5 text-xs whitespace-nowrap font-semibold ${row.퇴사일 ? "bg-rose-50 text-rose-600" : ""}`}>
+                    <td className={`px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden font-semibold ${row.퇴사일 ? "bg-rose-50 text-rose-600" : ""}`}
+                      style={{ width: getColW("퇴사일"), maxWidth: getColW("퇴사일") }}>
                       {row.퇴사일 || <span className="text-muted-foreground/40 font-normal">—</span>}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden"
+                      style={{ width: getColW("근속일수"), maxWidth: getColW("근속일수") }}>
                       {days ? `${days}일` : "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs">
+                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden"
+                      style={{ width: getColW("근속개월"), maxWidth: getColW("근속개월") }}>
                       {months ? `${months}개월` : "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center">
+                    <td className="px-2 py-1.5 text-center overflow-hidden"
+                      style={{ width: getColW("근속현황"), maxWidth: getColW("근속현황") }}>
                       {status ? (
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                           status === "재직중" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
@@ -630,7 +695,9 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                         ? (() => { const n = parseFloat(raw.replace(/,/g, "")); return isNaN(n) ? raw : n.toLocaleString("ko-KR"); })()
                         : raw;
                       return (
-                        <td key={field} className={`px-3 py-1.5 text-xs whitespace-nowrap${isMoney ? " tabular-nums text-right" : ""}`}>
+                        <td key={field}
+                          className={`px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden text-ellipsis${isMoney ? " tabular-nums text-right" : ""}`}
+                          style={{ width: getColW(field), maxWidth: getColW(field) }}>
                           {display || <span className="text-muted-foreground/40">—</span>}
                         </td>
                       );
