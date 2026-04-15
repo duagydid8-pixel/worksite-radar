@@ -244,6 +244,12 @@ function GongsuChip({ label, value }: { label: string; value: string }) {
 }
 
 function RowDetailModal({ row, date, onClose }: RowDetailModalProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const [y, m, d] = date.split("-");
   const dateLabel = `${y}년 ${Number(m)}월 ${Number(d)}일`;
 
@@ -368,6 +374,12 @@ interface CalendarModalProps {
 }
 
 function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: CalendarModalProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const days = buildCalendarDays(year, month);
   const todayStr = toDateStr();
   const [ty, tm, td] = todayStr.split("-").map(Number);
@@ -667,25 +679,72 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     toast.success(`${formatLabel(date)} 데이터를 삭제했습니다.`);
   };
 
-  // ── 내보내기 ──
+  // ── 내보내기 (원본 XERP 양식과 동일한 구조) ──
   const handleExport = () => {
     if (currentRows.length === 0) { toast.error("내보낼 데이터가 없습니다."); return; }
-    const headers = [
+
+    // Row 1: 그룹 헤더 (원본과 동일)
+    const row1: (string | null)[] = [
       "팀명","직종","사번","성명","생년월일",
-      "X-ERP 출근","X-ERP 퇴근","PMIS 출근","PMIS 퇴근",
-      "조출","오전","오후","연장","야간","철야","점심","공수합계A",
-      "초과당일","초과합계","가산신청","가산승인","공수합계(A+B)","월누계",
+      "X-ERP 체크시간", null,
+      "PMIS 체크시간",  null,
+      "공수 체크(A)", null, null, null, null, null, null, null,
+      "초과근무", null,
+      "가산공수(B)", null,
+      "공수합계", "월누계",
     ];
+
+    // Row 2: 서브 헤더
+    const row2: (string | null)[] = [
+      null, null, null, null, null,
+      "출 근", "퇴 근",
+      "출 근", "퇴 근",
+      "조출","오전","오후","연장","야간","철야","점심","합계",
+      "당일","합계",
+      "신청","승인",
+      "(A+B)", null,
+    ];
+
+    // 데이터 행
     const dataRows = currentRows.map((r) => [
-      r.팀명,r.직종,r.사번,r.성명,r.생년월일,
-      r.xerp출근,r.xerp퇴근,r.pmis출근,r.pmis퇴근,
-      r.조출,r.오전,r.오후,r.연장,r.야간,r.철야,r.점심,r.공수합계A,
-      r.초과당일,r.초과합계,r.가산신청,r.가산승인,r.공수합계AB,r.월누계,
+      r.팀명, r.직종, r.사번, r.성명, r.생년월일,
+      r.xerp출근, r.xerp퇴근,
+      r.pmis출근, r.pmis퇴근,
+      r.조출, r.오전, r.오후, r.연장, r.야간, r.철야, r.점심, r.공수합계A,
+      r.초과당일, r.초과합계,
+      r.가산신청, r.가산승인,
+      r.공수합계AB, r.월누계,
     ]);
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
-    ws["!cols"] = headers.map(() => ({ wch: 10 }));
+
+    const ws = XLSX.utils.aoa_to_sheet([row1, row2, ...dataRows]);
+
+    // 병합 (원본과 동일 구조)
+    ws["!merges"] = [
+      { s:{r:0,c:0},  e:{r:1,c:0}  }, // A1:A2  팀명
+      { s:{r:0,c:1},  e:{r:1,c:1}  }, // B1:B2  직종
+      { s:{r:0,c:2},  e:{r:1,c:2}  }, // C1:C2  사번
+      { s:{r:0,c:3},  e:{r:1,c:3}  }, // D1:D2  성명
+      { s:{r:0,c:4},  e:{r:1,c:4}  }, // E1:E2  생년월일
+      { s:{r:0,c:5},  e:{r:0,c:6}  }, // F1:G1  X-ERP 체크시간
+      { s:{r:0,c:7},  e:{r:0,c:8}  }, // H1:I1  PMIS 체크시간
+      { s:{r:0,c:9},  e:{r:0,c:16} }, // J1:Q1  공수 체크(A)
+      { s:{r:0,c:17}, e:{r:0,c:18} }, // R1:S1  초과근무
+      { s:{r:0,c:19}, e:{r:0,c:20} }, // T1:U1  가산공수(B)
+      { s:{r:0,c:22}, e:{r:1,c:22} }, // W1:W2  월누계
+    ];
+
+    // 열 너비 (원본 참고)
+    ws["!cols"] = [
+      {wch:12},{wch:9},{wch:9},{wch:9},{wch:16},
+      {wch:8},{wch:8},{wch:8},{wch:8},
+      {wch:6},{wch:6},{wch:6},{wch:6},{wch:6},{wch:6},{wch:6},{wch:7},
+      {wch:6},{wch:7},
+      {wch:7},{wch:7},
+      {wch:10},{wch:10},
+    ];
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "XERP_PMIS");
+    XLSX.utils.book_append_sheet(wb, ws, "일일출역 집계");
     XLSX.writeFile(wb, `XERP_PMIS_${selectedDate.replace(/-/g,"")}.xlsx`);
   };
 
