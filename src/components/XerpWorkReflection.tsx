@@ -153,6 +153,7 @@ interface ProcessedRow {
   isNoRecord: boolean;
   isLate: boolean;
   standardStart: number;
+  isNewEmployee: boolean;
 }
 
 // 엑셀 원본 전체 컬럼 (XERP&PMIS와 동일 구조)
@@ -176,13 +177,16 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editingVal, setEditingVal] = useState("");
   const [showSpecialList, setShowSpecialList] = useState(false);
+  const [newEmployeeNames, setNewEmployeeNames] = useState<Set<string>>(new Set());
+  const [newEmpFileName, setNewEmpFileName] = useState<string | null>(null);
 
   // XERP&PMIS 연동 설정
   const [syncSite, setSyncSite] = useState<"PH4" | "PH2">("PH4");
   const [syncDate, setSyncDate] = useState<string>(today());
   const [xerpDates, setXerpDates] = useState<string[]>([]);
 
-  const fileRef = useRef<HTMLInputElement>(null);
+  const fileRef    = useRef<HTMLInputElement>(null);
+  const newEmpRef  = useRef<HTMLInputElement>(null);
 
   // 사이트 변경 시 XERP&PMIS 날짜 목록 로드
   useEffect(() => {
@@ -208,6 +212,64 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       }
     });
   }, []);
+
+  // 신규자 명단 업로드
+  const handleNewEmpUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+      // "성명" 또는 "이름" 헤더 컬럼 탐색
+      let nameColIdx = -1;
+      let dataStart  = 0;
+      for (let i = 0; i < Math.min(raw.length, 5); i++) {
+        const row = raw[i] as unknown[];
+        const found = row.findIndex((c) => ["성명", "이름", "name"].includes(String(c).trim()));
+        if (found !== -1) { nameColIdx = found; dataStart = i + 1; break; }
+      }
+      if (nameColIdx === -1) { nameColIdx = 0; dataStart = 1; } // 헤더 없으면 첫 컬럼 사용
+
+      const names = new Set<string>();
+      for (let i = dataStart; i < raw.length; i++) {
+        const val = String((raw[i] as unknown[])[nameColIdx] ?? "").trim();
+        if (val) names.add(val);
+      }
+
+      setNewEmployeeNames(names);
+      setNewEmpFileName(file.name);
+      toast.success(`신규자 명단 ${names.size}명 등록됨`);
+    } catch {
+      toast.error("신규자 명단 파일 읽기 오류");
+    }
+  };
+
+  // 신규자 명단 변경 시 기존 rows 재계산
+  useEffect(() => {
+    if (rows.length === 0) return;
+    setRows((prev) => prev.map((r) => {
+      const isNew = newEmployeeNames.has(r.성명);
+      if (isNew) {
+        const gongsuA = parseFloat(r.xerpGongsuA) || 0;
+        const diff = Math.round((1.0 - gongsuA) * 100) / 100;
+        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, diff: diff > 0 ? diff : null, needsUpdate: diff > 0 };
+      }
+      // 신규자 해제 시 원래 값으로 재계산
+      if (r.isNewEmployee) {
+        const cfg = getTeamConfig(r.팀명);
+        const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+        const calcVal  = calcGongsu(effInMin, r.rawOutMin, r.isJochul, cfg);
+        const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+        return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate };
+      }
+      return r;
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newEmployeeNames]);
 
   // 조출 토글
   const toggleJochul = (rowIndex: number) => {
@@ -289,14 +351,28 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw);
         const effOut    = rawOutMin !== null ? minToStr(rawOutMin) : "";
 
-        const isJochul  = false;
-        const cfg       = getTeamConfig(팀명);
-        const effInMin  = resolveEffInMin(rawInMin, isJochul, cfg);
-        const effIn     = effInMin !== null ? minToStr(effInMin) : "";
-        const calcVal   = calcGongsu(effInMin, rawOutMin, isJochul, cfg);
-        const { diff, needsUpdate } = calcDiff(calcVal, xerpGongsuA);
-        const isNoRecord = rawInMin === null || rawOutMin === null;
-        const isLate     = !isNoRecord && effInMin !== null && effInMin > cfg.standardStart;
+        const isJochul      = false;
+        const cfg           = getTeamConfig(팀명);
+        const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg);
+        const effIn         = effInMin !== null ? minToStr(effInMin) : "";
+        const isNewEmployee = newEmployeeNames.has(성명);
+        const isNoRecord    = rawInMin === null || rawOutMin === null;
+        const isLate        = !isNoRecord && effInMin !== null && effInMin > cfg.standardStart;
+
+        let calcGongsuVal: number | null;
+        let diff: number | null;
+        let needsUpdate: boolean;
+
+        if (isNewEmployee) {
+          calcGongsuVal = 1.0;
+          const gongsuA = parseFloat(xerpGongsuA) || 0;
+          const d = Math.round((1.0 - gongsuA) * 100) / 100;
+          diff = d > 0 ? d : null;
+          needsUpdate = d > 0;
+        } else {
+          calcGongsuVal = calcGongsu(effInMin, rawOutMin, isJochul, cfg);
+          ({ diff, needsUpdate } = calcDiff(calcGongsuVal, xerpGongsuA));
+        }
 
         processed.push({
           rowIndex: i, 팀명, 성명,
@@ -304,8 +380,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           pmisIn: pmisInStr, pmisOut: pmisOutStr,
           rawInMin, rawOutMin, isJochul,
           effIn, effOut, xerpGongsuA,
-          calcGongsuVal: calcVal, diff, needsUpdate, isNoRecord, isLate,
+          calcGongsuVal, diff, needsUpdate, isNoRecord, isLate,
           standardStart: cfg.standardStart,
+          isNewEmployee,
         });
       }
 
@@ -444,6 +521,35 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-lg font-bold text-foreground shrink-0">XERP 공수 반영</h2>
+
+      {/* 신규자 명단 업로드 바 */}
+      <div className="flex flex-wrap items-center gap-3 bg-sky-50 border border-sky-200 rounded-xl px-4 py-3 shrink-0">
+        <input ref={newEmpRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleNewEmpUpload} />
+        <span className="text-xs font-bold text-sky-800">신규자 명단</span>
+        <button
+          onClick={() => newEmpRef.current?.click()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-semibold hover:bg-sky-700 transition-colors"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          명단 업로드
+        </button>
+        {newEmpFileName ? (
+          <>
+            <span className="text-xs text-sky-700 font-medium truncate max-w-[220px]">{newEmpFileName}</span>
+            <span className="text-xs font-bold text-sky-800 bg-sky-100 border border-sky-200 px-2 py-1 rounded-lg">
+              {newEmployeeNames.size}명 등록
+            </span>
+            <button
+              onClick={() => { setNewEmployeeNames(new Set()); setNewEmpFileName(null); }}
+              className="flex items-center gap-1 text-xs text-sky-500 hover:text-sky-700"
+            >
+              <X className="h-3.5 w-3.5" /> 초기화
+            </button>
+          </>
+        ) : (
+          <span className="text-[11px] text-sky-600">신규자 명단을 업로드하면 해당 인원은 출퇴근 무관 1.0공수 적용됩니다</span>
+        )}
+      </div>
 
       {/* 업로드 / 저장 / 다운로드 바 */}
       <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-3 shadow-sm shrink-0">
@@ -707,13 +813,15 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 </tr>
               ) : (
                 displayRows.map((row) => {
-                  const rowBg = row.isNoRecord
-                    ? "bg-rose-50/60 hover:bg-rose-50"
-                    : row.isLate
-                      ? "bg-orange-50/60 hover:bg-orange-50"
-                      : row.needsUpdate
-                        ? "bg-amber-50/40 hover:bg-amber-50/70"
-                        : "hover:bg-muted/20";
+                  const rowBg = row.isNewEmployee
+                    ? "bg-sky-50/70 hover:bg-sky-50"
+                    : row.isNoRecord
+                      ? "bg-rose-50/60 hover:bg-rose-50"
+                      : row.isLate
+                        ? "bg-orange-50/60 hover:bg-orange-50"
+                        : row.needsUpdate
+                          ? "bg-amber-50/40 hover:bg-amber-50/70"
+                          : "hover:bg-muted/20";
 
                   return (
                     <tr key={`${row.rowIndex}-${row.성명}`} className={`border-b border-border/60 last:border-0 transition-colors ${rowBg}`}>
@@ -781,10 +889,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
                       <td className={cell}>
                         <div className="flex flex-col items-center gap-0.5">
+                          {row.isNewEmployee && <span className="inline-flex items-center gap-1 text-sky-600 font-semibold"><CheckCircle className="h-3 w-3" /> 신규(1.0)</span>}
                           {row.isNoRecord && <span className="inline-flex items-center gap-1 text-rose-600 font-semibold"><UserX className="h-3 w-3" /> 기록없음</span>}
                           {row.isLate && <span className="inline-flex items-center gap-1 text-orange-600 font-semibold"><Clock className="h-3 w-3" /> 지각</span>}
-                          {!row.isNoRecord && row.needsUpdate && <span className="inline-flex items-center gap-1 text-amber-600 font-semibold"><AlertTriangle className="h-3 w-3" /> 가산필요</span>}
-                          {!row.isNoRecord && !row.isLate && !row.needsUpdate && row.calcGongsuVal !== null && <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold"><CheckCircle className="h-3 w-3" /> 정상</span>}
+                          {!row.isNewEmployee && !row.isNoRecord && row.needsUpdate && <span className="inline-flex items-center gap-1 text-amber-600 font-semibold"><AlertTriangle className="h-3 w-3" /> 가산필요</span>}
+                          {!row.isNewEmployee && !row.isNoRecord && !row.isLate && !row.needsUpdate && row.calcGongsuVal !== null && <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold"><CheckCircle className="h-3 w-3" /> 정상</span>}
                           {row.calcGongsuVal === null && !row.isNoRecord && <span className="inline-flex items-center gap-1 text-muted-foreground"><MinusCircle className="h-3 w-3" /> 데이터없음</span>}
                         </div>
                       </td>
