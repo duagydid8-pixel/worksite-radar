@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS } from "@/lib/firestoreService";
@@ -551,6 +551,23 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   // 행 상세 모달 상태
   const [detailRow, setDetailRow] = useState<XerpPmisRow | null>(null);
 
+  // 정렬 상태
+  type SortCol = "xerp출근" | "xerp퇴근" | "pmis출근" | "pmis퇴근";
+  const [sortCol, setSortCol] = useState<SortCol | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const handleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+
+  const SortIcon = ({ col }: { col: SortCol }) => {
+    if (sortCol !== col) return <ArrowUpDown className="h-3 w-3 opacity-30 ml-0.5 inline-block" />;
+    return sortDir === "asc"
+      ? <ArrowUp className="h-3 w-3 ml-0.5 inline-block text-primary" />
+      : <ArrowDown className="h-3 w-3 ml-0.5 inline-block text-primary" />;
+  };
+
   const openCalendar = (emp: XerpPmisRow) => {
     const now = new Date();
     setCalendarYear(now.getFullYear());
@@ -623,9 +640,20 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
   const displayRows = useMemo(() => {
     const q = search.trim();
-    if (!q) return currentRows;
-    return currentRows.filter((r) => r.성명.includes(q) || r.사번.includes(q));
-  }, [currentRows, search]);
+    let rows = q
+      ? currentRows.filter((r) => r.성명.includes(q) || r.사번.includes(q))
+      : [...currentRows];
+
+    if (sortCol) {
+      rows = [...rows].sort((a, b) => {
+        const av = a[sortCol] || "9999";
+        const bv = b[sortCol] || "9999";
+        const cmp = av.localeCompare(bv);
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+    }
+    return rows;
+  }, [currentRows, search, sortCol, sortDir]);
 
   // ── 업로드 (다중 파일 지원) ──
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -887,8 +915,13 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
               <th rowSpan={2} className={th()}>월누계</th>
             </tr>
             <tr className="border-b border-border bg-muted/40">
-              <th className={th()}>출근</th><th className={th()}>퇴근</th>
-              <th className={th()}>출근</th><th className={th()}>퇴근</th>
+              {(["xerp출근","xerp퇴근","pmis출근","pmis퇴근"] as const).map((col, i) => (
+                <th key={col} className={`${th()} cursor-pointer select-none hover:bg-muted/80 transition-colors`}
+                  onClick={() => handleSort(col)}>
+                  {["출근","퇴근","출근","퇴근"][i]}
+                  <SortIcon col={col} />
+                </th>
+              ))}
               <th className={th()}>조출</th><th className={th()}>오전</th>
               <th className={th()}>오후</th><th className={th()}>연장</th>
               <th className={th()}>야간</th><th className={th()}>철야</th>
@@ -909,8 +942,10 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                 </td>
               </tr>
             ) : (
-              displayRows.map((row) => (
-                <tr key={row.id} className="border-b border-border/60 last:border-0 hover:bg-muted/20 transition-colors">
+              displayRows.map((row) => {
+                const hasGaasan = row.가산신청 && row.가산신청 !== "0" && row.가산신청 !== "N" && row.가산신청 !== "—" && row.가산신청.trim() !== "";
+                return (
+                <tr key={row.id} className={`border-b border-border/60 last:border-0 transition-colors ${hasGaasan ? "bg-amber-50/40 hover:bg-amber-50/70" : "hover:bg-muted/20"}`}>
                   <td className={cell}>{row.팀명||"—"}</td>
                   <td className={cell}>{row.직종||"—"}</td>
                   <td className={cell}>{row.사번||"—"}</td>
@@ -947,7 +982,9 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                   <td className={`${cellNum} font-semibold bg-blue-50/50`}>{row.공수합계A||"—"}</td>
                   <td className={cellNum}>{row.초과당일||"—"}</td>
                   <td className={`${cellNum} font-semibold`}>{row.초과합계||"—"}</td>
-                  <td className={cellNum}>{row.가산신청||"—"}</td>
+                  <td className={`${cellNum} ${hasGaasan ? "bg-amber-100 text-amber-800 font-bold" : ""}`}>
+                    {hasGaasan ? row.가산신청 : (row.가산신청 || "—")}
+                  </td>
                   <td className={cellNum}>{row.가산승인||"—"}</td>
                   <td className={`${cellNum} font-bold bg-primary/5 text-primary p-0`}>
                     <button
@@ -960,7 +997,8 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                   </td>
                   <td className={`${cellNum} font-bold`}>{row.월누계||"—"}</td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
