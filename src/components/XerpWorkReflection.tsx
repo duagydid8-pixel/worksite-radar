@@ -266,6 +266,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         if (entry?.rows?.length > 0) {
           setRows(entry.rows as ProcessedRow[]);
           setFileName(entry.fileName ?? null);
+          setRawExcelRows((entry.rawExcelRows ?? []) as RawExcelRow[]);
           toast.info(`저장된 데이터 불러옴 (${latest} / ${entry.fileName})`);
         }
         await loadNewEmpForDate(latest);
@@ -529,7 +530,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const handleSave = async () => {
     if (!rows.length || !fileName) return;
     setIsSaving(true);
-    const ok = await saveXerpWorkDateFS(workDate, fileName, rows);
+    const ok = await saveXerpWorkDateFS(workDate, fileName, rows, rawExcelRows);
     setIsSaving(false);
     if (ok) {
       toast.success(`저장되었습니다. (${workDate})`);
@@ -555,7 +556,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       setFileName(entry.fileName ?? null);
       setOriginalBuffer(null);
       setWorkbook(null);
-      setRawExcelRows([]);
+      setRawExcelRows((entry.rawExcelRows ?? []) as RawExcelRow[]);
       toast.info(`${date} 데이터 불러옴 (${entry.fileName})`);
     } else {
       setRows([]);
@@ -586,7 +587,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
   // XERP&PMIS 전체 명단 반영 (파일 전체 데이터 교체)
   const handleSync = async () => {
-    if (!rows.length || !rawExcelRows.length) return;
+    if (!rows.length) return;
+    if (!rawExcelRows.length) {
+      toast.error("원본 엑셀 데이터가 없습니다. 엑셀을 다시 업로드하거나 저장 후 시도해 주세요.");
+      return;
+    }
     setIsSyncing(true);
     try {
       const loadFn = syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;

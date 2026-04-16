@@ -91,18 +91,20 @@ export async function saveXerpPH2FS(dateMap: Record<string, unknown[]>) {
 }
 
 // ── XERP 공수 반영 저장 (날짜별) ─────────────────────
-interface XerpWorkEntry { fileName: string; savedAt: string; rows: unknown[] }
+interface XerpWorkEntry { fileName: string; savedAt: string; rows: unknown[]; rawExcelRows?: unknown[] }
 type XerpWorkDateMap = Record<string, XerpWorkEntry>;
 
 export async function loadXerpWorkDateMapFS(): Promise<XerpWorkDateMap | null> {
   const data = await fsGet<{ dateMap: XerpWorkDateMap }>("xerp_work_dates");
   return data?.dateMap ?? null;
 }
-export async function saveXerpWorkDateFS(date: string, fileName: string, rows: unknown[]): Promise<boolean> {
+export async function saveXerpWorkDateFS(
+  date: string, fileName: string, rows: unknown[], rawExcelRows?: unknown[]
+): Promise<boolean> {
   const current = (await loadXerpWorkDateMapFS()) ?? {};
   const updated: XerpWorkDateMap = {
     ...current,
-    [date]: { fileName, savedAt: new Date().toISOString(), rows },
+    [date]: { fileName, savedAt: new Date().toISOString(), rows, rawExcelRows: rawExcelRows ?? [] },
   };
   return fsSet("xerp_work_dates", { dateMap: updated });
 }
