@@ -445,111 +445,124 @@ export default function OrgChart() {
   }, [members, searchQuery]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative ml-auto">
+        <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="이름 검색..."
-            className="bg-white border border-border rounded-lg pl-8 pr-8 py-2 text-sm w-48 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
+            className="bg-white border border-border rounded-lg pl-8 pr-8 py-1.5 text-sm w-44 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
           {searchQuery && (
             <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
               <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
-        <button onClick={() => setShowAddTeam(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors">
-          <Plus className="h-4 w-4" /> 팀 추가
-        </button>
-        <button onClick={handleExportExcel} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors">
-          <FileSpreadsheet className="h-4 w-4" /> 엑셀 내보내기
-        </button>
-        <button onClick={handleExportImage} className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors">
-          <Download className="h-4 w-4" /> 이미지 저장
-        </button>
-        <button onClick={handleSaveAll} disabled={!dirty || saving}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors">
-          <Save className="h-4 w-4" /> {saving ? "저장 중..." : "변경사항 저장"}
-        </button>
-      </div>
-
-      {/* Tree chart */}
-      <div className="overflow-x-auto pb-4">
-        <div ref={chartRef} className="min-w-max py-8 px-12 bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="flex flex-col items-center">
-
-            {/* L1: 현장소장 */}
-            <SiteManagerNode info={siteManager} onEdit={() => setEditSiteManager(true)} />
-
-            {sortedTeams.length > 0 && (
-              <>
-                {/* Vertical from 현장소장 to horizontal bar */}
-                <div className="w-px bg-gray-200" style={{ height: 32 }} />
-
-                {/* L2 + L3: team columns */}
-                <div className="flex">
-                  {sortedTeams.map((team, i) => {
-                    const isFirst = i === 0;
-                    const isLast = i === sortedTeams.length - 1;
-                    const { leader, others } = getMembersForTeam(team.id);
-
-                    return (
-                      <div key={team.id} className="flex flex-col items-center" style={{ width: 196 }}>
-                        {/* Horizontal connector + vertical drop (combined 32px container) */}
-                        <div className="relative w-full" style={{ height: 32 }}>
-                          {!isFirst && <div className="absolute top-0 left-0 right-1/2 h-px bg-gray-200" />}
-                          {!isLast && <div className="absolute top-0 left-1/2 right-0 h-px bg-gray-200" />}
-                          <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-gray-200" />
-                        </div>
-
-                        {/* Team name label */}
-                        <div className="mb-3 px-5 py-1.5 rounded-xl text-sm font-bold text-white shadow-sm" style={{ background: team.color }}>
-                          {team.name}
-                        </div>
-
-                        {/* Leader card */}
-                        {leader ? (
-                          <TreeCard member={leader} color={team.color} isLeader onEdit={() => setEditMember(leader)} onDelete={() => handleDeleteMember(leader.id)} />
-                        ) : (
-                          <div className="w-36 h-24 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-400">팀장 없음</div>
-                        )}
-
-                        {/* Members below leader */}
-                        {others.length > 0 && (
-                          <div className="flex flex-col items-center">
-                            <div className="w-px bg-gray-200" style={{ height: 20 }} />
-                            {others.map((m, j) => (
-                              <div key={m.id} className="flex flex-col items-center">
-                                {j > 0 && <div className="w-px bg-gray-200" style={{ height: 10 }} />}
-                                <TreeCard member={m} color={team.color} onEdit={() => setEditMember(m)} onDelete={() => handleDeleteMember(m.id)} />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Actions */}
-                        <div className="mt-3 flex flex-col items-center gap-1.5">
-                          <button onClick={() => handleAddMember(team.id)} className="text-xs text-gray-400 hover:text-gray-600 hover:underline transition-colors">
-                            + 인원 추가
-                          </button>
-                          <button onClick={() => handleDeleteTeam(team.id)} className="text-xs text-red-400 hover:text-red-600 hover:underline transition-colors">
-                            팀 삭제
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={handleExportExcel} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-white text-xs font-semibold text-foreground hover:bg-muted/50 transition-colors">
+            <FileSpreadsheet className="h-3.5 w-3.5" /> 엑셀
+          </button>
+          <button onClick={handleExportImage} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-white text-xs font-semibold text-foreground hover:bg-muted/50 transition-colors">
+            <Download className="h-3.5 w-3.5" /> 이미지
+          </button>
+          <button onClick={handleSaveAll} disabled={!dirty || saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors">
+            <Save className="h-3.5 w-3.5" /> {saving ? "저장 중..." : "저장"}
+          </button>
         </div>
       </div>
 
+      {/* Org chart */}
+      <div ref={chartRef} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+
+        {/* 현장소장 */}
+        <div className="flex justify-center mb-4">
+          <CompactSiteManagerNode info={siteManager} onEdit={() => setEditSiteManager(true)} />
+        </div>
+
+        {/* Connector: vertical + horizontal bar */}
+        {sortedTeams.length > 0 && (
+          <div className="relative flex justify-around mb-0 px-[calc(100%/(var(--n)*2))]"
+            style={{ "--n": sortedTeams.length } as React.CSSProperties}>
+            <div className="absolute left-1/2 -translate-x-1/2 -top-4 w-px h-4 bg-gray-200" />
+            <div className="absolute top-0 left-[calc(100%/(var(--n)*2))] right-[calc(100%/(var(--n)*2))] h-px bg-gray-200" />
+            {sortedTeams.map((t) => (
+              <div key={t.id} className="flex-1 flex justify-center">
+                <div className="w-px h-4 bg-gray-200" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Teams row */}
+        {sortedTeams.length > 0 ? (
+          <div className="flex gap-3 items-start mt-0">
+            {sortedTeams.map((team) => {
+              const { leader, others } = getMembersForTeam(team.id);
+              return (
+                <div key={team.id} className="flex-1 min-w-0 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                  {/* Team header */}
+                  <div className="flex items-center justify-between px-3 py-2 text-white" style={{ background: team.color }}>
+                    <span className="text-sm font-bold truncate">{team.name}</span>
+                    <button onClick={() => handleDeleteTeam(team.id)}
+                      className="shrink-0 ml-1 opacity-60 hover:opacity-100 transition-opacity">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+
+                  {/* Leader */}
+                  {leader ? (
+                    <div style={{ background: lighten(team.color, 95) }}>
+                      <CompactRow member={leader} color={team.color} isLeader
+                        onEdit={() => setEditMember(leader)}
+                        onDelete={() => handleDeleteMember(leader.id)} />
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2 text-xs text-gray-400 italic">팀장 없음</div>
+                  )}
+
+                  {/* Members */}
+                  {others.length > 0 && (
+                    <div className="divide-y divide-gray-50 border-t border-gray-100">
+                      {others.map((m) => (
+                        <CompactRow key={m.id} member={m} color={team.color}
+                          onEdit={() => setEditMember(m)}
+                          onDelete={() => handleDeleteMember(m.id)} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add member */}
+                  <button onClick={() => handleAddMember(team.id)}
+                    className="w-full border-t border-dashed border-gray-200 px-3 py-1.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors text-center">
+                    + 인원 추가
+                  </button>
+                </div>
+              );
+            })}
+
+            {/* Add team */}
+            <button onClick={() => setShowAddTeam(true)}
+              className="flex flex-col items-center justify-center gap-1 w-16 shrink-0 self-stretch rounded-xl border-2 border-dashed border-gray-200 text-gray-400 hover:text-gray-500 hover:border-gray-300 transition-colors">
+              <Plus className="h-4 w-4" />
+              <span className="text-[10px] font-semibold">팀 추가</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <p className="text-sm text-gray-400">팀이 없습니다</p>
+            <button onClick={() => setShowAddTeam(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-dashed border-gray-300 text-sm text-gray-500 hover:bg-gray-50">
+              <Plus className="h-4 w-4" /> 팀 추가
+            </button>
+          </div>
+        )}
+      </div>
+
       {filteredTeams.length === 0 && searchQuery && (
-        <div className="py-12 text-center">
-          <Search className="h-8 w-8 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-muted-foreground">"{searchQuery}" 검색 결과 없음</p>
+        <div className="py-10 text-center">
+          <Search className="h-7 w-7 text-muted-foreground/40 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">"{searchQuery}" 검색 결과 없음</p>
         </div>
       )}
 
@@ -560,15 +573,27 @@ export default function OrgChart() {
   );
 }
 
-/* ━━━━━━━━━━━━━━━ TREE CARD ━━━━━━━━━━━━━━━ */
-function TreeCard({ member, color, isLeader, onEdit, onDelete }: { member: OrgMember; color: string; isLeader?: boolean; onEdit: () => void; onDelete: () => void }) {
+/* ━━━━━━━━━━━━━━━ COMPACT MEMBER ROW ━━━━━━━━━━━━━━━ */
+function CompactRow({ member, color, isLeader, onEdit, onDelete }: { member: OrgMember; color: string; isLeader?: boolean; onEdit: () => void; onDelete: () => void }) {
   return (
-    <div
-      className="group bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.08)] p-4 flex flex-col items-center gap-2 cursor-pointer hover:shadow-md transition-shadow relative"
-      style={{ width: 148, borderTop: `3px solid ${color}` }}
-      onClick={onEdit}
-    >
-      <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div className="flex items-center gap-2 px-3 py-2 group cursor-pointer hover:bg-black/[0.02] transition-colors" onClick={onEdit}>
+      {member.photo_url ? (
+        <img src={member.photo_url} className="w-7 h-7 rounded-full object-cover shrink-0" />
+      ) : (
+        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
+          style={{ background: isLeader ? color : lighten(color, 35) }}>
+          {member.name.slice(0, 1)}
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-bold text-gray-800 truncate leading-tight">{member.name}</p>
+        {member.phone && <p className="text-[10px] text-gray-400 truncate leading-tight">{member.phone}</p>}
+      </div>
+      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap"
+        style={{ background: lighten(color, 85), color }}>
+        {member.position}
+      </span>
+      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
         <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-0.5 rounded hover:bg-gray-100">
           <Pencil className="h-3 w-3 text-gray-400" />
         </button>
@@ -576,55 +601,30 @@ function TreeCard({ member, color, isLeader, onEdit, onDelete }: { member: OrgMe
           <Trash2 className="h-3 w-3 text-red-400" />
         </button>
       </div>
-
-      {member.photo_url ? (
-        <img src={member.photo_url} className="w-14 h-14 rounded-full object-cover border-2" style={{ borderColor: lighten(color, 60) }} />
-      ) : (
-        <div className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold" style={{ background: color }}>
-          {member.name.slice(0, 1)}
-        </div>
-      )}
-
-      <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{ background: lighten(color, 85), color }}>
-        {isLeader ? member.position : member.rank}
-      </span>
-
-      <p className="text-sm font-bold text-gray-800 text-center leading-tight">{member.name}</p>
-
-      {member.phone && <p className="text-[10px] text-gray-400 text-center">{member.phone}</p>}
     </div>
   );
 }
 
-/* ━━━━━━━━━━━━━━━ SITE MANAGER NODE ━━━━━━━━━━━━━━━ */
-function SiteManagerNode({ info, onEdit }: { info: SiteManagerInfo; onEdit: () => void }) {
+/* ━━━━━━━━━━━━━━━ COMPACT SITE MANAGER NODE ━━━━━━━━━━━━━━━ */
+function CompactSiteManagerNode({ info, onEdit }: { info: SiteManagerInfo; onEdit: () => void }) {
   return (
-    <div
-      className="group bg-white rounded-2xl p-5 flex flex-col items-center gap-3 cursor-pointer hover:shadow-xl transition-all relative"
-      style={{ width: 172, boxShadow: "0 4px 24px rgba(168,200,248,0.4)", border: "2px solid #c8b4f8" }}
-      onClick={onEdit}
-    >
-      <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        className="absolute top-2 right-2 p-1 rounded hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">
-        <Pencil className="h-3.5 w-3.5 text-gray-400" />
-      </button>
-
+    <div className="group flex items-center gap-3 px-5 py-3 rounded-2xl cursor-pointer hover:shadow-lg transition-all"
+      style={{ border: "2px solid #c8b4f8", boxShadow: "0 2px 12px rgba(168,200,248,0.3)" }}
+      onClick={onEdit}>
       {info.photo_url ? (
-        <img src={info.photo_url} className="w-16 h-16 rounded-full object-cover" style={{ border: "2px solid #c8b4f8" }} />
+        <img src={info.photo_url} className="w-10 h-10 rounded-full object-cover shrink-0" style={{ border: "2px solid #c8b4f8" }} />
       ) : (
-        <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-bold"
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-base font-bold shrink-0"
           style={{ background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" }}>
           {info.name.slice(0, 1) || "?"}
         </div>
       )}
-
-      <span className="text-[10px] px-3 py-0.5 rounded-full font-semibold text-white"
-        style={{ background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" }}>
-        현장소장
-      </span>
-
-      <p className="text-base font-bold text-gray-800 text-center">{info.name}</p>
-      {info.phone && <p className="text-[10px] text-gray-400">{info.phone}</p>}
+      <div>
+        <p className="text-[10px] font-bold text-purple-400 mb-0.5 tracking-wide">현장소장</p>
+        <p className="text-sm font-bold text-gray-800 leading-tight">{info.name}</p>
+        {info.phone && <p className="text-[10px] text-gray-400 mt-0.5">{info.phone}</p>}
+      </div>
+      <Pencil className="h-3.5 w-3.5 text-gray-300 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
     </div>
   );
 }
