@@ -586,8 +586,8 @@ function CompactRow({ member, color, isLeader, onEdit, onDelete }: { member: Org
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-gray-800 truncate leading-tight">{member.name}</p>
-        {member.phone && <p className="text-[10px] text-gray-400 truncate leading-tight">{member.phone}</p>}
+        <p className="text-xs font-bold text-gray-800 leading-tight">{member.name}</p>
+        {member.phone && <p className="text-[10px] text-gray-400 leading-tight">{member.phone}</p>}
       </div>
       <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap"
         style={{ background: lighten(color, 85), color }}>
