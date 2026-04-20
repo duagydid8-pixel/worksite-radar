@@ -174,16 +174,26 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                       {weekDates.map(date=>{
                         const type = schedule.schedule[date]?.[zone] ?? "";
                         const matchedMetas = Object.entries(TYPE_META).filter(([k]) => type.includes(k));
+                        const getTime = (key: string) => {
+                          const after = type.slice(type.indexOf(key) + key.length);
+                          return after.match(/\d{2}:\d{2}~\d{2}:\d{2}/)?.[0] ?? "";
+                        };
                         const isToday = date === todayStr;
                         return (
                           <td key={date} className={`py-3 px-2 text-center ${isToday?"bg-primary/5":""}`}>
                             {matchedMetas.length > 0 ? (
-                              <div className="flex flex-col items-center gap-0.5">
-                                {matchedMetas.map(([k, meta]) => (
-                                  <span key={k} className={`inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
-                                    {meta.label}
-                                  </span>
-                                ))}
+                              <div className="flex flex-col items-center gap-1">
+                                {matchedMetas.map(([k, meta]) => {
+                                  const time = getTime(k);
+                                  return (
+                                    <div key={k} className="flex flex-col items-center gap-0.5">
+                                      <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
+                                        {meta.label}
+                                      </span>
+                                      {time && <span className="text-[9px] text-gray-400 tabular-nums">{time}</span>}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             ) : type ? (
                               <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[10px] font-bold border bg-gray-50 text-gray-500 border-gray-200">
