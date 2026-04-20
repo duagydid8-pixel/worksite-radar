@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { loadXerpFS, loadScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
+import { loadXerpFS, subscribeScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
 import type { LeaveDetail } from "@/lib/parseExcel";
 import { toast } from "sonner";
 import {
@@ -212,14 +212,11 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
   const jsonRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadScheduleFS()
-      .then(d => { setSchedule(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-  useEffect(() => {
-    const fn = (e: Event) => { const d = (e as CustomEvent).detail; if (d) setSchedule(d); };
-    window.addEventListener("schedule-updated", fn);
-    return () => window.removeEventListener("schedule-updated", fn);
+    const unsub = subscribeScheduleFS((d) => {
+      setSchedule(d);
+      setLoading(false);
+    });
+    return unsub;
   }, []);
 
   const handleJson = async (e: React.ChangeEvent<HTMLInputElement>) => {

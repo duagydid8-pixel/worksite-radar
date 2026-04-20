@@ -15,7 +15,7 @@
  *     }
  *   }
  */
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
 import type { ScheduleData } from "./geminiService";
 
@@ -150,4 +150,14 @@ export async function loadScheduleFS() {
 export async function saveScheduleFS(data: ScheduleData): Promise<void> {
   if (!db) throw new Error("Firebase가 설정되지 않았습니다. 환경변수를 확인하세요.");
   await setDoc(doc(db, COL, "work_schedule"), data as unknown as object);
+}
+export function subscribeScheduleFS(
+  callback: (data: ScheduleData | null) => void,
+): () => void {
+  if (!db) { callback(null); return () => {}; }
+  return onSnapshot(
+    doc(db, COL, "work_schedule"),
+    (snap) => callback(snap.exists() ? (snap.data() as ScheduleData) : null),
+    () => callback(null),
+  );
 }
