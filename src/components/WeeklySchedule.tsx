@@ -92,8 +92,8 @@ export function WeeklySchedule() {
       toast.success("주간 일정이 저장되었습니다!");
       // 홈 화면 자동 업데이트 이벤트
       window.dispatchEvent(new CustomEvent("schedule-updated", { detail: preview }));
-    } catch {
-      toast.error("저장 중 오류가 발생했습니다.");
+    } catch (err) {
+      toast.error(`저장 실패: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
     } finally {
       setSaving(false);
     }

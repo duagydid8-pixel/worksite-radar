@@ -212,7 +212,9 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
   const jsonRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadScheduleFS().then(d => { setSchedule(d); setLoading(false); });
+    loadScheduleFS()
+      .then(d => { setSchedule(d); setLoading(false); })
+      .catch(() => setLoading(false));
   }, []);
   useEffect(() => {
     const fn = (e: Event) => { const d = (e as CustomEvent).detail; if (d) setSchedule(d); };
@@ -226,8 +228,10 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
       const json = JSON.parse(await file.text());
       if (!json.weekStart || !json.zones || !json.schedule) { toast.error("JSON 형식이 올바르지 않습니다."); return; }
       const data: ScheduleData = { ...json, uploadedAt: new Date().toISOString() };
-      await saveScheduleFS(data); setSchedule(data); toast.success("작업 일정이 저장되었습니다.");
-    } catch { toast.error("JSON 파일을 읽는 중 오류가 발생했습니다."); }
+      await saveScheduleFS(data);
+      setSchedule(data);
+      toast.success("작업 일정이 저장되었습니다.");
+    } catch (err) { toast.error(`저장 실패: ${err instanceof Error ? err.message : "JSON 파일 오류"}`); }
   };
 
   return (

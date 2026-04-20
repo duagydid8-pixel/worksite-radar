@@ -147,6 +147,7 @@ export async function saveNewEmpDateFS(
 export async function loadScheduleFS() {
   return fsGet<ScheduleData>("work_schedule");
 }
-export async function saveScheduleFS(data: ScheduleData) {
-  return fsSet("work_schedule", data as unknown as object);
+export async function saveScheduleFS(data: ScheduleData): Promise<void> {
+  if (!db) throw new Error("Firebase가 설정되지 않았습니다. 환경변수를 확인하세요.");
+  await setDoc(doc(db, COL, "work_schedule"), data as unknown as object);
 }
