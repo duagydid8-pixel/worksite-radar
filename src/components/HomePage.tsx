@@ -173,15 +173,18 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                       </td>
                       {weekDates.map(date=>{
                         const type = schedule.schedule[date]?.[zone] ?? "";
-                        const meta = TYPE_META[type] ??
-                          Object.entries(TYPE_META).find(([k]) => type.startsWith(k))?.[1];
+                        const matchedMetas = Object.entries(TYPE_META).filter(([k]) => type.includes(k));
                         const isToday = date === todayStr;
                         return (
                           <td key={date} className={`py-3 px-2 text-center ${isToday?"bg-primary/5":""}`}>
-                            {meta ? (
-                              <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
-                                {meta.label}
-                              </span>
+                            {matchedMetas.length > 0 ? (
+                              <div className="flex flex-col items-center gap-0.5">
+                                {matchedMetas.map(([k, meta]) => (
+                                  <span key={k} className={`inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
+                                    {meta.label}
+                                  </span>
+                                ))}
+                              </div>
                             ) : type ? (
                               <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[10px] font-bold border bg-gray-50 text-gray-500 border-gray-200">
                                 {type.slice(0, 4)}
