@@ -3,6 +3,7 @@ export interface PdfSection {
   startPage: number;
   endPage: number;
   name: string;
+  ocrStatus: "idle" | "running" | "done" | "fail";
 }
 
 export interface SplitResult {

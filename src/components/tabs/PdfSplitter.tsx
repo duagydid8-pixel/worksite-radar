@@ -1,12 +1,14 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
-import { Loader2, Upload, Download, Trash2, Eye, Plus, Scissors } from "lucide-react";
+import { Loader2, Upload, Download, Trash2, Eye, Plus, Scissors, ScanText, CheckCircle, XCircle } from "lucide-react";
 import type { PdfSection, ThumbEntry, SplitResult } from "@/types/pdfSplitter.types";
 import {
   renderThumbnails,
   renderHiRes,
   extractPageText,
   extractNameFromText,
+  ocrPage,
+  terminateTesseract,
   splitPdf,
   downloadAsZip,
   downloadSingle,
@@ -28,6 +30,9 @@ export default function PdfSplitter() {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 페이지 언마운트 시 Tesseract 워커 종료
+  useEffect(() => () => { terminateTesseract(); }, []);
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -69,33 +74,56 @@ export default function PdfSplitter() {
     const start = Math.min(lastEnd + 1, totalPages);
     setSections((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), startPage: start, endPage: Math.min(start + 1, totalPages), name: "" },
+      {
+        id: crypto.randomUUID(),
+        startPage: start,
+        endPage: Math.min(start + 1, totalPages),
+        name: "",
+        ocrStatus: "idle",
+      },
     ]);
   };
 
-  const updateSection = (id: string, field: keyof PdfSection, value: string | number) => {
-    setSections((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
-    );
+  const updateSection = (id: string, patch: Partial<PdfSection>) => {
+    setSections((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
 
   const removeSection = (id: string) => {
     setSections((prev) => prev.filter((s) => s.id !== id));
   };
 
+  /** 텍스트 레이어 시도 → 없으면 Tesseract OCR fallback */
   const autoFillName = async (id: string, pageNum: number) => {
     if (!pdfBytes) return;
+    updateSection(id, { ocrStatus: "running" });
+
     try {
-      const text = await extractPageText(pdfBytes, pageNum);
-      const name = extractNameFromText(text);
-      if (name) {
-        updateSection(id, "name", name);
-        toast.success(`이름 자동 인식: ${name}`);
-      } else {
-        toast.info("이름을 자동 인식하지 못했습니다. 직접 입력하세요.");
+      // 1단계: pdfjs 텍스트 레이어
+      const layerText = await extractPageText(pdfBytes, pageNum);
+      const layerName = extractNameFromText(layerText);
+      if (layerName) {
+        updateSection(id, { name: layerName, ocrStatus: "done" });
+        toast.success(`이름 인식 (텍스트 레이어): ${layerName}`);
+        return;
       }
-    } catch {
-      toast.error("텍스트 추출 실패");
+
+      // 2단계: Tesseract OCR (스캔 이미지)
+      toast.info("텍스트 레이어 없음 — OCR 실행 중...", { duration: 3000 });
+      const ocrText = await ocrPage(pdfBytes, pageNum);
+      console.log("[OCR raw]", ocrText);
+      const ocrName = extractNameFromText(ocrText);
+
+      if (ocrName) {
+        updateSection(id, { name: ocrName, ocrStatus: "done" });
+        toast.success(`이름 인식 (OCR): ${ocrName}`);
+      } else {
+        updateSection(id, { ocrStatus: "fail" });
+        toast.warning("이름 자동 인식 실패 — 직접 입력하세요.");
+      }
+    } catch (e) {
+      console.error("[PdfSplitter] 자동 인식 실패:", e);
+      updateSection(id, { ocrStatus: "fail" });
+      toast.error(`인식 실패: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -163,7 +191,7 @@ export default function PdfSplitter() {
         >
           <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <p className="text-sm font-semibold text-foreground">PDF 파일을 드래그하거나 클릭해서 업로드</p>
-          <p className="text-xs text-muted-foreground mt-1">근로계약서 등 여러 장이 합쳐진 PDF</p>
+          <p className="text-xs text-muted-foreground mt-1">스캔 이미지 PDF도 OCR로 이름 자동 인식 지원</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -198,7 +226,7 @@ export default function PdfSplitter() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold">페이지 미리보기 ({thumbs.length}/{totalPages})</h3>
               <button
-                onClick={() => { setPdfBytes(null); setThumbs([]); setSections([]); setResults([]); setTotalPages(0); }}
+                onClick={() => { setPdfBytes(null); setThumbs([]); setSections([]); setResults([]); setTotalPages(0); terminateTesseract(); }}
                 className="text-xs text-muted-foreground hover:text-destructive transition-colors"
               >
                 파일 제거
@@ -258,7 +286,7 @@ export default function PdfSplitter() {
                         min={1}
                         max={totalPages}
                         value={s.startPage}
-                        onChange={(e) => updateSection(s.id, "startPage", Number(e.target.value))}
+                        onChange={(e) => updateSection(s.id, { startPage: Number(e.target.value) })}
                         className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       />
                     </div>
@@ -269,7 +297,7 @@ export default function PdfSplitter() {
                         min={1}
                         max={totalPages}
                         value={s.endPage}
-                        onChange={(e) => updateSection(s.id, "endPage", Number(e.target.value))}
+                        onChange={(e) => updateSection(s.id, { endPage: Number(e.target.value) })}
                         className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       />
                     </div>
@@ -281,15 +309,25 @@ export default function PdfSplitter() {
                         type="text"
                         placeholder="홍길동"
                         value={s.name}
-                        onChange={(e) => updateSection(s.id, "name", e.target.value)}
+                        onChange={(e) => updateSection(s.id, { name: e.target.value })}
                         className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       />
                     </div>
                     <button
                       onClick={() => autoFillName(s.id, s.startPage)}
-                      className="mt-4 px-2 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors whitespace-nowrap"
+                      disabled={s.ocrStatus === "running"}
+                      className="mt-4 flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50 transition-colors whitespace-nowrap"
                     >
-                      자동 인식
+                      {s.ocrStatus === "running" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : s.ocrStatus === "done" ? (
+                        <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                      ) : s.ocrStatus === "fail" ? (
+                        <XCircle className="h-3.5 w-3.5 text-destructive" />
+                      ) : (
+                        <ScanText className="h-3.5 w-3.5" />
+                      )}
+                      {s.ocrStatus === "running" ? "인식 중..." : "자동 인식"}
                     </button>
                   </div>
                 </div>

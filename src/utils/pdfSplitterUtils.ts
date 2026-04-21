@@ -1,6 +1,8 @@
 import { PDFDocument, ParseSpeeds } from "pdf-lib";
 import JSZip from "jszip";
 import * as pdfjsLib from "pdfjs-dist";
+import { createWorker } from "tesseract.js";
+import type { Worker as TesseractWorker } from "tesseract.js";
 import type { PdfSection, SplitResult, ThumbEntry } from "@/types/pdfSplitter.types";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -60,6 +62,48 @@ export function extractNameFromText(text: string): string {
     if (m) return m[1];
   }
   return "";
+}
+
+// ── Tesseract 워커 싱글톤 ─────────────────────────────
+let _tesseractWorker: TesseractWorker | null = null;
+
+async function getTesseractWorker(): Promise<TesseractWorker> {
+  if (!_tesseractWorker) {
+    _tesseractWorker = await createWorker("kor");
+  }
+  return _tesseractWorker;
+}
+
+export async function terminateTesseract(): Promise<void> {
+  if (_tesseractWorker) {
+    await _tesseractWorker.terminate();
+    _tesseractWorker = null;
+  }
+}
+
+/** 스캔 PDF 페이지를 OCR해서 텍스트 반환 */
+export async function ocrPage(
+  pdfBytes: Uint8Array,
+  pageNum: number,
+  onProgress?: (pct: number) => void
+): Promise<string> {
+  // 1. 페이지를 고해상도 캔버스로 렌더
+  const pdf = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
+  const page = await pdf.getPage(pageNum);
+  const viewport = page.getViewport({ scale: 2.0 });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext("2d")!;
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  onProgress?.(30);
+
+  // 2. Tesseract OCR (kor)
+  const worker = await getTesseractWorker();
+  onProgress?.(50);
+  const { data: { text } } = await worker.recognize(canvas);
+  onProgress?.(100);
+  return text;
 }
 
 export async function splitPdf(
