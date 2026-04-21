@@ -36,7 +36,8 @@ async function fsSet(docId: string, data: object): Promise<boolean> {
   try {
     await setDoc(doc(db, COL, docId), data);
     return true;
-  } catch {
+  } catch (e) {
+    console.error(`[Firestore] fsSet(${docId}) 실패:`, e);
     return false;
   }
 }
@@ -75,19 +76,80 @@ export async function saveEmployeesPH2FS(rows: unknown[]) {
 }
 
 // ── XERP & PMIS ──────────────────────────────────────
-export async function loadXerpFS() {
-  const data = await fsGet<{ dateMap: Record<string, unknown[]> }>("xerp_pmis");
-  return data?.dateMap ?? null;
+// 날짜별 서브컬렉션으로 저장 (1MB 문서 한계 우회)
+// 컬렉션: worksite_data/xerp_pmis_dates/{YYYY-MM-DD} → { rows }
+// 컬렉션: worksite_data/xerp_pmis_ph2_dates/{YYYY-MM-DD} → { rows }
+
+const XERP_INDEX_DOC = "xerp_pmis_index";
+const XERP_PH2_INDEX_DOC = "xerp_pmis_ph2_index";
+
+async function loadXerpByDates(indexDocId: string, datePrefix: string): Promise<Record<string, unknown[]> | null> {
+  if (!db) return null;
+  try {
+    // 인덱스 문서에서 날짜 목록 조회
+    const index = await fsGet<{ dates: string[] }>(indexDocId);
+    const dates = index?.dates ?? [];
+    if (dates.length === 0) return null;
+    // 각 날짜별 문서 병렬 로드
+    const entries = await Promise.all(
+      dates.map(async (d) => {
+        const data = await fsGet<{ rows: unknown[] }>(`${datePrefix}_${d}`);
+        return [d, data?.rows ?? []] as [string, unknown[]];
+      })
+    );
+    return Object.fromEntries(entries.filter(([, rows]) => rows.length > 0));
+  } catch {
+    return null;
+  }
 }
-export async function saveXerpFS(dateMap: Record<string, unknown[]>) {
-  return fsSet("xerp_pmis", { dateMap });
+
+async function saveXerpByDates(
+  indexDocId: string,
+  datePrefix: string,
+  dateMap: Record<string, unknown[]>
+): Promise<boolean> {
+  if (!db) return false;
+  try {
+    const dates = Object.keys(dateMap);
+    // 각 날짜별 문서 저장
+    const results = await Promise.all(
+      dates.map((d) => fsSet(`${datePrefix}_${d}`, { rows: dateMap[d] }))
+    );
+    // 인덱스 문서 갱신
+    await fsSet(indexDocId, { dates });
+    return results.every(Boolean);
+  } catch {
+    return false;
+  }
 }
-export async function loadXerpPH2FS() {
-  const data = await fsGet<{ dateMap: Record<string, unknown[]> }>("xerp_pmis_ph2");
-  return data?.dateMap ?? null;
+
+export async function loadXerpFS(): Promise<Record<string, unknown[]> | null> {
+  const byDates = await loadXerpByDates(XERP_INDEX_DOC, "xerp_pmis_date");
+  if (byDates) return byDates;
+  // 레거시 단일 문서 마이그레이션
+  const legacy = await fsGet<{ dateMap: Record<string, unknown[]> }>("xerp_pmis");
+  if (legacy?.dateMap && Object.keys(legacy.dateMap).length > 0) {
+    await saveXerpByDates(XERP_INDEX_DOC, "xerp_pmis_date", legacy.dateMap);
+    return legacy.dateMap;
+  }
+  return null;
 }
-export async function saveXerpPH2FS(dateMap: Record<string, unknown[]>) {
-  return fsSet("xerp_pmis_ph2", { dateMap });
+export async function saveXerpFS(dateMap: Record<string, unknown[]>): Promise<boolean> {
+  return saveXerpByDates(XERP_INDEX_DOC, "xerp_pmis_date", dateMap);
+}
+
+export async function loadXerpPH2FS(): Promise<Record<string, unknown[]> | null> {
+  const byDates = await loadXerpByDates(XERP_PH2_INDEX_DOC, "xerp_pmis_ph2_date");
+  if (byDates) return byDates;
+  const legacy = await fsGet<{ dateMap: Record<string, unknown[]> }>("xerp_pmis_ph2");
+  if (legacy?.dateMap && Object.keys(legacy.dateMap).length > 0) {
+    await saveXerpByDates(XERP_PH2_INDEX_DOC, "xerp_pmis_ph2_date", legacy.dateMap);
+    return legacy.dateMap;
+  }
+  return null;
+}
+export async function saveXerpPH2FS(dateMap: Record<string, unknown[]>): Promise<boolean> {
+  return saveXerpByDates(XERP_PH2_INDEX_DOC, "xerp_pmis_ph2_date", dateMap);
 }
 
 // ── XERP 공수 반영 저장 (날짜별) ─────────────────────
