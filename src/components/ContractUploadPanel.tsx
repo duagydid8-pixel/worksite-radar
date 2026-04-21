@@ -272,6 +272,9 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
   ];
   const getSectionColor = (id: string) => COLORS[sections.findIndex(s => s.id === id) % COLORS.length];
 
+  const canSave = thumbs.length > 0 && sections.length > 0 && sections.every(s => s.name.trim());
+  const hasUnnamed = thumbs.length > 0 && sections.some(s => !s.name.trim());
+
   if (!isAdmin) return null;
 
   return (
@@ -323,6 +326,50 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
                 <span className="text-[11px] text-gray-400">이름 확인 후 구간을 나눠주세요</span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 하단 고정 저장 바 ── */}
+      {(canSave || hasUnnamed || isSplitting) && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-between gap-4 px-6 py-3 bg-white border-t-2 border-rose-300 shadow-[0_-4px_24px_rgba(0,0,0,0.12)]">
+          {/* 좌: 구간 요약 */}
+          <div className="flex items-center gap-2 overflow-x-auto shrink-0 max-w-[60%]">
+            {sections.map((s, i) => (
+              <span key={s.id} className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border whitespace-nowrap ${getSectionColor(s.id)}`}>
+                <span className="text-gray-400">{i + 1}.</span>
+                {s.name || <span className="text-rose-400">이름 없음</span>}
+                <span className="text-gray-400 font-normal">{s.startPage}~{s.endPage}p</span>
+              </span>
+            ))}
+          </div>
+
+          {/* 우: 저장 버튼 */}
+          <div className="flex items-center gap-3 shrink-0">
+            {isSplitting && (
+              <div className="flex flex-col items-end gap-0.5 min-w-[140px]">
+                <div className="w-full h-1.5 bg-rose-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-rose-500 rounded-full transition-all duration-300"
+                    style={{ width: splitProgress.total > 0 ? `${(splitProgress.done / splitProgress.total) * 100}%` : "5%" }} />
+                </div>
+                <span className="text-[10px] text-rose-500">
+                  {splitProgress.done < sections.length
+                    ? `PDF 분리 ${splitProgress.done}/${splitProgress.total}`
+                    : "Storage 업로드 중..."}
+                </span>
+              </div>
+            )}
+            {hasUnnamed && !isSplitting && (
+              <span className="text-xs text-rose-500 font-semibold">이름을 모두 입력해주세요</span>
+            )}
+            <button
+              onClick={handleSplit}
+              disabled={isSplitting || !canSave}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 active:bg-rose-800 transition-colors disabled:opacity-40 shadow-lg"
+            >
+              {isSplitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Scissors className="h-4 w-4" />}
+              {isSplitting ? "저장 중..." : `저장 (${sections.length}명)`}
+            </button>
           </div>
         </div>
       )}
