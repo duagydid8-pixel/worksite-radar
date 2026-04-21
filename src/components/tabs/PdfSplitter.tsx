@@ -51,7 +51,8 @@ export default function PdfSplitter() {
       setTotalPages(total);
       toast.success(`${total}페이지 PDF 로드 완료`);
     } catch (e) {
-      toast.error("PDF 렌더링 실패");
+      console.error("[PdfSplitter] 렌더링 실패:", e);
+      toast.error(`PDF 렌더링 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setIsRendering(false);
     }
@@ -105,8 +106,9 @@ export default function PdfSplitter() {
     try {
       const dataUrl = await renderHiRes(pdfBytes, pageNum);
       setPreview({ pageNum, dataUrl });
-    } catch {
-      toast.error("고화질 렌더링 실패");
+    } catch (e) {
+      console.error("[PdfSplitter] 고화질 렌더링 실패:", e);
+      toast.error(`고화질 렌더링 실패: ${e instanceof Error ? e.message : String(e)}`);
       setPreview(null);
     } finally {
       setIsPreviewLoading(false);
@@ -129,7 +131,8 @@ export default function PdfSplitter() {
       setResults(splitResults);
       toast.success(`${splitResults.length}개 파일 분리 완료`);
     } catch (e) {
-      toast.error("PDF 분리 실패");
+      console.error("[PdfSplitter] 분리 실패:", e);
+      toast.error(`PDF 분리 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setIsSplitting(false);
     }
