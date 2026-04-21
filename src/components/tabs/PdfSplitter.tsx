@@ -1,14 +1,10 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
-import { Loader2, Upload, Download, Trash2, Eye, Plus, Scissors, ScanText, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, Upload, Download, Trash2, Eye, Plus, Scissors, X } from "lucide-react";
 import type { PdfSection, ThumbEntry, SplitResult } from "@/types/pdfSplitter.types";
 import {
   renderThumbnails,
   renderHiRes,
-  extractPageText,
-  extractNameFromText,
-  ocrPage,
-  terminateTesseract,
   splitPdf,
   downloadAsZip,
   downloadSingle,
@@ -31,9 +27,6 @@ export default function PdfSplitter() {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // 페이지 언마운트 시 Tesseract 워커 종료
-  useEffect(() => () => { terminateTesseract(); }, []);
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -71,18 +64,21 @@ export default function PdfSplitter() {
     if (file) handleFile(file);
   }, [handleFile]);
 
+  const reset = () => {
+    setPdfBytes(null);
+    setPdfBaseName("분리");
+    setThumbs([]);
+    setSections([]);
+    setResults([]);
+    setTotalPages(0);
+  };
+
   const addSection = () => {
     const lastEnd = sections[sections.length - 1]?.endPage ?? 0;
     const start = Math.min(lastEnd + 1, totalPages);
     setSections((prev) => [
       ...prev,
-      {
-        id: crypto.randomUUID(),
-        startPage: start,
-        endPage: Math.min(start + 1, totalPages),
-        name: "",
-        ocrStatus: "idle",
-      },
+      { id: crypto.randomUUID(), startPage: start, endPage: Math.min(start + 1, totalPages), name: "" },
     ]);
   };
 
@@ -94,41 +90,6 @@ export default function PdfSplitter() {
     setSections((prev) => prev.filter((s) => s.id !== id));
   };
 
-  /** 텍스트 레이어 시도 → 없으면 Tesseract OCR fallback */
-  const autoFillName = async (id: string, pageNum: number) => {
-    if (!pdfBytes) return;
-    updateSection(id, { ocrStatus: "running" });
-
-    try {
-      // 1단계: pdfjs 텍스트 레이어
-      const layerText = await extractPageText(pdfBytes, pageNum);
-      const layerName = extractNameFromText(layerText);
-      if (layerName) {
-        updateSection(id, { name: layerName, ocrStatus: "done" });
-        toast.success(`이름 인식 (텍스트 레이어): ${layerName}`);
-        return;
-      }
-
-      // 2단계: Tesseract OCR (스캔 이미지)
-      toast.info("텍스트 레이어 없음 — OCR 실행 중...", { duration: 3000 });
-      const ocrText = await ocrPage(pdfBytes, pageNum);
-      console.log("[OCR raw]", ocrText);
-      const ocrName = extractNameFromText(ocrText);
-
-      if (ocrName) {
-        updateSection(id, { name: ocrName, ocrStatus: "done" });
-        toast.success(`이름 인식 (OCR): ${ocrName}`);
-      } else {
-        updateSection(id, { ocrStatus: "fail" });
-        toast.warning("이름 자동 인식 실패 — 직접 입력하세요.");
-      }
-    } catch (e) {
-      console.error("[PdfSplitter] 자동 인식 실패:", e);
-      updateSection(id, { ocrStatus: "fail" });
-      toast.error(`인식 실패: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
-
   const openPreview = async (pageNum: number) => {
     if (!pdfBytes) return;
     setIsPreviewLoading(true);
@@ -138,7 +99,7 @@ export default function PdfSplitter() {
       setPreview({ pageNum, dataUrl });
     } catch (e) {
       console.error("[PdfSplitter] 고화질 렌더링 실패:", e);
-      toast.error(`고화질 렌더링 실패: ${e instanceof Error ? e.message : String(e)}`);
+      toast.error(`미리보기 실패: ${e instanceof Error ? e.message : String(e)}`);
       setPreview(null);
     } finally {
       setIsPreviewLoading(false);
@@ -170,9 +131,10 @@ export default function PdfSplitter() {
 
   return (
     <div className="p-4 md:p-6 max-w-[1200px] mx-auto space-y-5">
+      {/* 헤더 */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-foreground">PDF 분리 도구</h2>
-        {pdfBytes && results.length > 0 && (
+        {results.length > 0 && (
           <button
             onClick={() => downloadAsZip(results, pdfBaseName)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
@@ -189,60 +151,55 @@ export default function PdfSplitter() {
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-border rounded-2xl p-12 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
+          className="border-2 border-dashed border-border rounded-2xl p-14 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
         >
           <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <p className="text-sm font-semibold text-foreground">PDF 파일을 드래그하거나 클릭해서 업로드</p>
-          <p className="text-xs text-muted-foreground mt-1">스캔 이미지 PDF도 OCR로 이름 자동 인식 지원</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf"
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-          />
+          <p className="text-xs text-muted-foreground mt-1">여러 장이 합쳐진 PDF → 이름별로 분리</p>
+          <input ref={fileInputRef} type="file" accept=".pdf" className="hidden"
+            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
         </div>
       )}
 
-      {/* 렌더링 중 */}
+      {/* 썸네일 생성 중 */}
       {isRendering && (
         <div className="bg-white border border-border rounded-2xl p-4 flex items-center gap-3">
           <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
           <div className="flex-1">
-            <div className="text-sm font-semibold">썸네일 생성 중... {renderProgress}페이지</div>
-            <div className="mt-1 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary rounded-full transition-all"
-                style={{ width: totalPages ? `${(renderProgress / totalPages) * 100}%` : "0%" }}
-              />
+            <p className="text-sm font-semibold">페이지 로드 중... {renderProgress} / {totalPages || "?"}</p>
+            <div className="mt-1.5 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-primary rounded-full transition-all"
+                style={{ width: totalPages ? `${(renderProgress / totalPages) * 100}%` : "0%" }} />
             </div>
           </div>
         </div>
       )}
 
-      {/* 썸네일 그리드 + 구간 설정 */}
+      {/* 썸네일 + 구간 설정 */}
       {thumbs.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* 썸네일 그리드 */}
+
+          {/* 왼쪽: 썸네일 그리드 */}
           <div className="bg-white border border-border rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold">페이지 미리보기 ({thumbs.length}/{totalPages})</h3>
-              <button
-                onClick={() => { setPdfBytes(null); setPdfBaseName("분리"); setThumbs([]); setSections([]); setResults([]); setTotalPages(0); terminateTesseract(); }}
-                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-              >
+              <h3 className="text-sm font-bold">
+                페이지 미리보기
+                <span className="text-muted-foreground font-normal ml-1">({thumbs.length}/{totalPages})</span>
+              </h3>
+              <button onClick={reset} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
                 파일 제거
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2 max-h-[500px] overflow-y-auto pr-1">
+            <p className="text-[11px] text-muted-foreground">썸네일 클릭 시 고화질 확대</p>
+            <div className="grid grid-cols-3 gap-2 max-h-[520px] overflow-y-auto pr-1">
               {thumbs.map((t) => (
                 <div
                   key={t.pageNum}
-                  className="relative group cursor-pointer rounded-lg overflow-hidden border border-border hover:border-primary transition-colors"
                   onClick={() => openPreview(t.pageNum)}
+                  className="relative group cursor-zoom-in rounded-lg overflow-hidden border border-border hover:border-primary transition-colors"
                 >
                   <img src={t.dataUrl} alt={`p${t.pageNum}`} className="w-full object-contain bg-gray-50" />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-all flex items-center justify-center">
                     <Eye className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] text-center py-0.5">
@@ -253,7 +210,7 @@ export default function PdfSplitter() {
             </div>
           </div>
 
-          {/* 구간 설정 */}
+          {/* 오른쪽: 구간 설정 */}
           <div className="bg-white border border-border rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold">분리 구간 설정</h3>
@@ -266,76 +223,54 @@ export default function PdfSplitter() {
             </div>
 
             {sections.length === 0 && (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                "구간 추가" 버튼으로 분리할 범위를 설정하세요
-              </div>
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                미리보기로 페이지를 확인 후 구간을 추가하세요
+              </p>
             )}
 
-            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
               {sections.map((s, idx) => (
                 <div key={s.id} className="border border-border rounded-xl p-3 space-y-2">
+                  {/* 구간 헤더 */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-muted-foreground">구간 {idx + 1}</span>
-                    <button onClick={() => removeSection(s.id)} className="text-muted-foreground hover:text-destructive transition-colors">
+                    <button onClick={() => removeSection(s.id)}
+                      className="text-muted-foreground hover:text-destructive transition-colors">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
+
+                  {/* 페이지 범위 */}
                   <div className="flex items-center gap-2">
                     <div className="flex-1">
                       <label className="text-[10px] text-muted-foreground font-semibold">시작 페이지</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={totalPages}
-                        value={s.startPage}
+                      <input type="number" min={1} max={totalPages} value={s.startPage}
                         onChange={(e) => updateSection(s.id, { startPage: Number(e.target.value) })}
-                        className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      />
+                        className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
                     </div>
                     <div className="flex-1">
                       <label className="text-[10px] text-muted-foreground font-semibold">끝 페이지</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={totalPages}
-                        value={s.endPage}
+                      <input type="number" min={1} max={totalPages} value={s.endPage}
                         onChange={(e) => updateSection(s.id, { endPage: Number(e.target.value) })}
-                        className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      />
+                        className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <label className="text-[10px] text-muted-foreground font-semibold">이름 (파일명)</label>
-                      <input
-                        type="text"
-                        placeholder="홍길동"
-                        value={s.name}
-                        onChange={(e) => updateSection(s.id, { name: e.target.value })}
-                        className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                      />
-                      {s.name && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                          → [{s.name}]_p{s.startPage}-p{s.endPage}.pdf
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => autoFillName(s.id, s.startPage)}
-                      disabled={s.ocrStatus === "running"}
-                      className="mt-4 flex items-center gap-1 px-2 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50 transition-colors whitespace-nowrap"
-                    >
-                      {s.ocrStatus === "running" ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : s.ocrStatus === "done" ? (
-                        <CheckCircle className="h-3.5 w-3.5 text-green-500" />
-                      ) : s.ocrStatus === "fail" ? (
-                        <XCircle className="h-3.5 w-3.5 text-destructive" />
-                      ) : (
-                        <ScanText className="h-3.5 w-3.5" />
-                      )}
-                      {s.ocrStatus === "running" ? "인식 중..." : "자동 인식"}
-                    </button>
+
+                  {/* 이름 입력 */}
+                  <div>
+                    <label className="text-[10px] text-muted-foreground font-semibold">이름 (파일명)</label>
+                    <input
+                      type="text"
+                      placeholder="홍길동"
+                      value={s.name}
+                      onChange={(e) => updateSection(s.id, { name: e.target.value })}
+                      className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                    {s.name && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                        → [{s.name}]_p{s.startPage}-p{s.endPage}.pdf
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -348,15 +283,9 @@ export default function PdfSplitter() {
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50 transition-colors"
               >
                 {isSplitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    분리 중... {splitProgress}%
-                  </>
+                  <><Loader2 className="h-4 w-4 animate-spin" />분리 중... {splitProgress}%</>
                 ) : (
-                  <>
-                    <Scissors className="h-4 w-4" />
-                    PDF 분리 ({sections.length}개)
-                  </>
+                  <><Scissors className="h-4 w-4" />PDF 분리 ({sections.length}개)</>
                 )}
               </button>
             )}
@@ -388,25 +317,38 @@ export default function PdfSplitter() {
         </div>
       )}
 
-      {/* 미리보기 모달 */}
-      {preview && (
+      {/* 고화질 미리보기 팝업 */}
+      {preview !== null && (
         <div
-          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
           onClick={() => setPreview(null)}
         >
           <div
-            className="bg-white rounded-2xl overflow-hidden max-w-2xl w-full max-h-[90vh] flex flex-col"
+            className="bg-white rounded-2xl overflow-hidden w-full max-w-3xl max-h-[92vh] flex flex-col shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <span className="text-sm font-bold">{preview.pageNum}페이지</span>
-              <button onClick={() => setPreview(null)} className="text-muted-foreground hover:text-foreground text-sm">닫기</button>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+              <span className="text-sm font-bold">{preview.pageNum}페이지 고화질 미리보기</span>
+              <button
+                onClick={() => setPreview(null)}
+                className="p-1 rounded-lg hover:bg-muted transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
             <div className="flex-1 overflow-auto flex items-center justify-center p-4 bg-gray-100">
               {isPreviewLoading ? (
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground">고화질 렌더링 중...</p>
+                </div>
               ) : (
-                <img src={preview.dataUrl} alt={`p${preview.pageNum}`} className="max-w-full rounded-lg shadow-lg" />
+                <img
+                  src={preview.dataUrl}
+                  alt={`p${preview.pageNum}`}
+                  className="max-w-full rounded-lg shadow-lg"
+                  style={{ imageRendering: "crisp-edges" }}
+                />
               )}
             </div>
           </div>
