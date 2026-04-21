@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { loadXerpFS, subscribeScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
+import { loadXerpWorkDateMapFS, subscribeScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
 import type { LeaveDetail } from "@/lib/parseExcel";
 import { toast } from "sonner";
 import {
@@ -30,10 +30,10 @@ interface HomePageProps {
 const DAY_KO   = ["일","월","화","수","목","금","토"];
 const WEEK_DAY = ["월","화","수","목","금","토","일"];
 
-type XerpRow = { xerp출근: string; pmis출근: string; 성명: string };
-function calcStats(rows: XerpRow[]) {
+type WorkRow = { isNoRecord: boolean; isWaeju?: boolean; 성명: string };
+function calcStats(rows: WorkRow[]) {
   const total   = rows.length;
-  const present = rows.filter(r => r.xerp출근.trim() || r.pmis출근.trim()).length;
+  const present = rows.filter(r => !r.isNoRecord).length;
   return { total, present, absent: total - present };
 }
 
@@ -399,7 +399,7 @@ function WeatherCard() {
 // ── 일일 출력인원 그래프 ──────────────────────────────
 interface DailyPoint { date: string; label: string; present: number; total: number; isToday: boolean }
 
-function DailyAttendanceChart({ dateMap }: { dateMap: Record<string, XerpRow[]> }) {
+function DailyAttendanceChart({ dateMap }: { dateMap: Record<string, WorkRow[]> }) {
   const todayStr = new Date().toISOString().slice(0, 10);
 
   const data: DailyPoint[] = useMemo(() => {
@@ -407,8 +407,8 @@ function DailyAttendanceChart({ dateMap }: { dateMap: Record<string, XerpRow[]> 
       .sort()
       .slice(-14) // 최근 14일
       .map(date => {
-        const rows = dateMap[date] as XerpRow[];
-        const present = rows.filter(r => r.xerp출근?.trim() || r.pmis출근?.trim()).length;
+        const rows = dateMap[date] as WorkRow[];
+        const present = rows.filter(r => !r.isNoRecord).length;
         const [, m, d] = date.split("-").map(Number);
         return { date, label: `${m}/${d}`, present, total: rows.length, isToday: date === todayStr };
       });
@@ -496,13 +496,20 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
   const today = new Date();
   const dateLabel = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 ${DAY_KO[today.getDay()]}요일`;
 
-  const [xerpDateMap, setXerpDateMap] = useState<Record<string, XerpRow[]>>({});
+  const [xerpDateMap, setXerpDateMap] = useState<Record<string, WorkRow[]>>({});
   const [xerpLoaded,  setXerpLoaded]  = useState(false);
 
   useEffect(() => {
-    loadXerpFS().then(dm => {
+    loadXerpWorkDateMapFS().then(dm => {
       if (dm && typeof dm === "object") {
-        setXerpDateMap(dm as Record<string, XerpRow[]>);
+        // xerp_work_dates 각 날짜 entry의 rows 추출
+        const mapped: Record<string, WorkRow[]> = {};
+        for (const [date, entry] of Object.entries(dm)) {
+          if (Array.isArray(entry.rows)) {
+            mapped[date] = entry.rows as WorkRow[];
+          }
+        }
+        setXerpDateMap(mapped);
       }
       setXerpLoaded(true);
     });
@@ -535,7 +542,7 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
   }, [leaveDetails, selectedDate]);
 
   const KPI = [
-    { label:"총 기술인", value: stats.total,   sub:"XERP 최근 기준",       icon:<HardHat className="h-5 w-5" />,       color:"text-primary",    iconBg:"bg-primary/10", showDash: false },
+    { label:"총 기술인", value: stats.total,   sub:"공수반영 최근 기준",    icon:<HardHat className="h-5 w-5" />,       color:"text-primary",    iconBg:"bg-primary/10", showDash: false },
     { label:"정상 출근", value: stats.present,  sub:"출근 기록 있음",       icon:<CheckCircle2 className="h-5 w-5" />,  color:"text-emerald-600", iconBg:"bg-emerald-50",  showDash: false },
     { label:"결근",      value: stats.absent,   sub:"출근 기록 없음",       icon:<XCircle className="h-5 w-5" />,       color:"text-rose-500",    iconBg:"bg-rose-50",     showDash: false },
     { label:"감소인원",  value: decreased ?? 0, sub:"전일 대비 인원 감소",  icon:<TrendingDown className="h-5 w-5" />,  color:"text-orange-500",  iconBg:"bg-orange-50",   showDash: decreased === null },
