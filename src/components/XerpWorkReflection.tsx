@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw } from "lucide-react";
+import ContractUploadPanel from "./ContractUploadPanel";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS } from "@/lib/firestoreService";
@@ -835,6 +836,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           </div>
         );
       })()}
+
+      {/* 근로계약서 관리 */}
+      <ContractUploadPanel
+        isAdmin={isAdmin}
+        employeeNames={rows.map((r) => r.성명).filter(Boolean)}
+      />
 
       {/* 날짜 선택 패널 */}
       <div className="flex flex-wrap items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 shrink-0">

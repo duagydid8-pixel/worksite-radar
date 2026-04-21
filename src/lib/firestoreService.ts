@@ -16,7 +16,8 @@
  *   }
  */
 import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
-import { db } from "./firebase";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { db, storage } from "./firebase";
 import type { ScheduleData } from "./geminiService";
 
 const COL = "worksite_data";
@@ -203,6 +204,58 @@ export async function saveNewEmpDateFS(
     [date]: { fileName, savedAt: new Date().toISOString(), data },
   };
   return fsSet("xerp_newemp_dates", { dateMap: updated });
+}
+
+// ── 근로계약서 ─────────────────────────────────────────
+export interface ContractMeta {
+  name: string;
+  storagePath: string;
+  downloadUrl: string;
+  uploadedAt: string;
+  pageCount: number;
+}
+
+export async function loadContractsFS(): Promise<ContractMeta[]> {
+  const data = await fsGet<{ contracts: ContractMeta[] }>("contracts");
+  return data?.contracts ?? [];
+}
+
+export async function uploadContractFS(
+  name: string,
+  pdfBytes: Uint8Array,
+  pageCount: number
+): Promise<ContractMeta | null> {
+  if (!storage) return null;
+  try {
+    const path = `contracts/${name}_${Date.now()}.pdf`;
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, pdfBytes, { contentType: "application/pdf" });
+    const downloadUrl = await getDownloadURL(storageRef);
+    const meta: ContractMeta = { name, storagePath: path, downloadUrl, uploadedAt: new Date().toISOString(), pageCount };
+    // 기존 목록에 추가 (같은 이름이면 교체)
+    const current = await loadContractsFS();
+    const filtered = current.filter((c) => c.name !== name);
+    await fsSet("contracts", { contracts: [...filtered, meta] });
+    return meta;
+  } catch (e) {
+    console.error("[Storage] uploadContractFS 실패:", e);
+    return null;
+  }
+}
+
+export async function deleteContractFS(name: string): Promise<boolean> {
+  if (!storage) return false;
+  try {
+    const current = await loadContractsFS();
+    const target = current.find((c) => c.name === name);
+    if (target) await deleteObject(ref(storage, target.storagePath));
+    const filtered = current.filter((c) => c.name !== name);
+    await fsSet("contracts", { contracts: filtered });
+    return true;
+  } catch (e) {
+    console.error("[Storage] deleteContractFS 실패:", e);
+    return false;
+  }
 }
 
 // ── 작업 일정 ──────────────────────────────────────────
