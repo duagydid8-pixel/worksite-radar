@@ -1,7 +1,6 @@
 import { PDFDocument, ParseSpeeds } from "pdf-lib";
 import JSZip from "jszip";
 import * as pdfjsLib from "pdfjs-dist";
-import { createWorker } from "tesseract.js";
 import type { Worker as TesseractWorker } from "tesseract.js";
 import type { PdfSection, SplitResult, ThumbEntry } from "@/types/pdfSplitter.types";
 
@@ -69,6 +68,7 @@ let _tesseractWorker: TesseractWorker | null = null;
 
 async function getTesseractWorker(): Promise<TesseractWorker> {
   if (!_tesseractWorker) {
+    const { createWorker } = await import("tesseract.js");
     _tesseractWorker = await createWorker("kor");
   }
   return _tesseractWorker;
