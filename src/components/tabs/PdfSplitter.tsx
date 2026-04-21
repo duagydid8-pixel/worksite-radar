@@ -16,6 +16,7 @@ import {
 
 export default function PdfSplitter() {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [pdfBaseName, setPdfBaseName] = useState("분리");
   const [totalPages, setTotalPages] = useState(0);
   const [thumbs, setThumbs] = useState<ThumbEntry[]>([]);
   const [isRendering, setIsRendering] = useState(false);
@@ -42,6 +43,7 @@ export default function PdfSplitter() {
     const buf = await file.arrayBuffer();
     const bytes = new Uint8Array(buf);
     setPdfBytes(bytes);
+    setPdfBaseName(file.name.replace(/\.pdf$/i, ""));
     setThumbs([]);
     setSections([]);
     setResults([]);
@@ -172,7 +174,7 @@ export default function PdfSplitter() {
         <h2 className="text-lg font-bold text-foreground">PDF 분리 도구</h2>
         {pdfBytes && results.length > 0 && (
           <button
-            onClick={() => downloadAsZip(results)}
+            onClick={() => downloadAsZip(results, pdfBaseName)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
           >
             <Download className="h-4 w-4" />
@@ -226,7 +228,7 @@ export default function PdfSplitter() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold">페이지 미리보기 ({thumbs.length}/{totalPages})</h3>
               <button
-                onClick={() => { setPdfBytes(null); setThumbs([]); setSections([]); setResults([]); setTotalPages(0); terminateTesseract(); }}
+                onClick={() => { setPdfBytes(null); setPdfBaseName("분리"); setThumbs([]); setSections([]); setResults([]); setTotalPages(0); terminateTesseract(); }}
                 className="text-xs text-muted-foreground hover:text-destructive transition-colors"
               >
                 파일 제거
@@ -312,6 +314,11 @@ export default function PdfSplitter() {
                         onChange={(e) => updateSection(s.id, { name: e.target.value })}
                         className="w-full border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       />
+                      {s.name && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                          → [{s.name}]_p{s.startPage}-p{s.endPage}.pdf
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => autoFillName(s.id, s.startPage)}
@@ -365,8 +372,8 @@ export default function PdfSplitter() {
             {results.map((r, i) => (
               <div key={i} className="flex items-center justify-between p-3 border border-border rounded-xl">
                 <div>
-                  <p className="text-sm font-semibold">{r.name}.pdf</p>
-                  <p className="text-xs text-muted-foreground">{r.pageCount}페이지</p>
+                  <p className="text-sm font-semibold">{r.fileName}.pdf</p>
+                  <p className="text-xs text-muted-foreground">p{r.startPage}~p{r.endPage} · {r.pageCount}페이지</p>
                 </div>
                 <button
                   onClick={() => downloadSingle(r)}

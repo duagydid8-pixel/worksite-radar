@@ -8,8 +8,11 @@ export interface PdfSection {
 
 export interface SplitResult {
   name: string;
+  fileName: string; // [이름]_p{start}-p{end}
   blob: Blob;
   pageCount: number;
+  startPage: number;
+  endPage: number;
 }
 
 export interface ThumbEntry {

@@ -135,10 +135,14 @@ export async function splitPdf(
       const pages = await newPdf.copyPages(src, indices);
       pages.forEach((p) => newPdf.addPage(p));
       const bytes = await newPdf.save({ useObjectStreams: false });
+      const baseName = s.name || `계약서_${i + 1}`;
       results.push({
-        name: s.name || `계약서_${i + 1}`,
+        name: baseName,
+        fileName: `[${baseName}]_p${s.startPage}-p${s.endPage}`,
         blob: new Blob([bytes], { type: "application/pdf" }),
         pageCount: indices.length,
+        startPage: s.startPage,
+        endPage: s.endPage,
       });
     } catch (e) {
       console.error(`[pdf-lib] 구간 ${i + 1} (${s.name}) 분리 실패:`, e);
@@ -150,16 +154,16 @@ export async function splitPdf(
   return results;
 }
 
-export async function downloadAsZip(results: SplitResult[]): Promise<void> {
+export async function downloadAsZip(results: SplitResult[], baseName = "분리"): Promise<void> {
   const zip = new JSZip();
   for (const r of results) {
-    zip.file(`${r.name}.pdf`, r.blob);
+    zip.file(`${r.fileName}.pdf`, r.blob);
   }
   const content = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(content);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "근로계약서_분리.zip";
+  a.download = `[${baseName}]_분리.zip`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -168,7 +172,7 @@ export function downloadSingle(result: SplitResult): void {
   const url = URL.createObjectURL(result.blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${result.name}.pdf`;
+  a.download = `${result.fileName}.pdf`;
   a.click();
   URL.revokeObjectURL(url);
 }
