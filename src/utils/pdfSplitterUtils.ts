@@ -47,7 +47,7 @@ export async function extractPageText(pdfBytes: Uint8Array, pageNum: number): Pr
   const pdf = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
   const page = await pdf.getPage(pageNum);
   const content = await page.getTextContent();
-  return content.items.map((item: any) => item.str).join(" ");
+  return content.items.map((item) => ("str" in item ? (item as { str: string }).str : "")).join(" ");
 }
 
 export function extractNameFromText(text: string): string {
