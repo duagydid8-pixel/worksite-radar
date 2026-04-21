@@ -170,6 +170,7 @@ interface ProcessedRow {
   xerpGongsuA: string;
   calcGongsuVal: number | null;
   diff: number | null;
+  가산사유: string;
   needsUpdate: boolean;
   isNoRecord: boolean;
   isLate: boolean;
@@ -198,6 +199,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editingVal, setEditingVal] = useState("");
+  const [editingReason, setEditingReason] = useState("");
   const [showSpecialList, setShowSpecialList] = useState(false);
   const [showNewEmpList, setShowNewEmpList] = useState(false);
   const [newEmpData, setNewEmpData] = useState<Map<string, NewEmpInfo>>(new Map());
@@ -407,6 +409,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const startEdit = (row: ProcessedRow) => {
     setEditingIdx(row.rowIndex);
     setEditingVal(row.diff !== null ? String(row.diff) : "");
+    setEditingReason(row.가산사유 ?? "");
   };
 
   const commitEdit = (rowIndex: number) => {
@@ -414,9 +417,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setRows((prev) => prev.map((r) => {
       if (r.rowIndex !== rowIndex) return r;
       if (isNaN(num) || num <= 0) {
-        return { ...r, diff: null, needsUpdate: false };
+        return { ...r, diff: null, 가산사유: "", needsUpdate: false };
       }
-      return { ...r, diff: num, needsUpdate: true };
+      return { ...r, diff: num, 가산사유: editingReason.trim(), needsUpdate: true };
     }));
     setEditingIdx(null);
   };
@@ -502,7 +505,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           pmisIn: pmisInStr, pmisOut: pmisOutStr,
           rawInMin, rawOutMin, isJochul,
           effIn, effOut, xerpGongsuA,
-          calcGongsuVal, diff, needsUpdate, isNoRecord, isLate,
+          calcGongsuVal, diff, 가산사유: "", needsUpdate, isNoRecord, isLate,
           standardStart: cfg.standardStart,
           isNewEmployee, isWaeju,
         });
@@ -1152,13 +1155,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 <th className={th}>공수A (XERP)</th>
                 <th className={`${th} bg-emerald-50`}>계산 공수</th>
                 <th className={`${th} bg-amber-50`}>가산B 신청</th>
+                <th className={`${th} bg-amber-50`}>가산사유</th>
                 <th className={th}>상태</th>
               </tr>
             </thead>
             <tbody>
               {displayRows.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={14} className="py-12 text-center text-sm text-muted-foreground">
                     "{search}"에 해당하는 데이터가 없습니다.
                   </td>
                 </tr>
@@ -1225,7 +1229,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             autoFocus
                             onChange={(e) => setEditingVal(e.target.value)}
                             onBlur={() => commitEdit(row.rowIndex)}
-                            onKeyDown={(e) => { if (e.key === "Enter") commitEdit(row.rowIndex); if (e.key === "Escape") setEditingIdx(null); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") commitEdit(row.rowIndex); if (e.key === "Tab") { e.preventDefault(); commitEdit(row.rowIndex); } if (e.key === "Escape") setEditingIdx(null); }}
                             className="w-full px-2 py-1.5 text-xs text-center bg-amber-100 border-0 outline-none focus:ring-1 focus:ring-amber-400 tabular-nums"
                           />
                         ) : (
@@ -1236,6 +1240,29 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             title="클릭하여 수기 입력"
                           >
                             {row.diff !== null ? `+${row.diff.toFixed(2)}` : "—"}
+                          </button>
+                        )}
+                      </td>
+
+                      {/* 가산사유 */}
+                      <td className={`${cell} bg-amber-50/40 p-0`}>
+                        {editingIdx === row.rowIndex ? (
+                          <input
+                            type="text"
+                            value={editingReason}
+                            placeholder="사유 입력"
+                            onChange={(e) => setEditingReason(e.target.value)}
+                            onBlur={() => commitEdit(row.rowIndex)}
+                            onKeyDown={(e) => { if (e.key === "Enter") commitEdit(row.rowIndex); if (e.key === "Escape") setEditingIdx(null); }}
+                            className="w-full min-w-[100px] px-2 py-1.5 text-xs bg-amber-100 border-0 outline-none focus:ring-1 focus:ring-amber-400"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => startEdit(row)}
+                            className="w-full px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-amber-100 transition-colors truncate max-w-[140px]"
+                            title={row.가산사유 || "클릭하여 사유 입력"}
+                          >
+                            {row.가산사유 || <span className="text-muted-foreground/40">—</span>}
                           </button>
                         )}
                       </td>
