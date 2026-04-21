@@ -24,6 +24,11 @@ interface ContractSection {
   endPage: number;   // 1-based (inclusive)
 }
 
+interface PreviewModal {
+  pageNum: number;
+  dataUrl: string;
+}
+
 interface Props {
   isAdmin: boolean;
   employeeNames?: string[]; // 기존 직원 이름 목록 (자동완성용)
@@ -39,6 +44,7 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
   const [isSplitting, setIsSplitting] = useState(false);
   const [savedContracts, setSavedContracts] = useState<ContractMeta[]>([]);
   const [showSaved, setShowSaved] = useState(false);
+  const [preview, setPreview] = useState<PreviewModal | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 저장된 계약서 목록 로드
@@ -213,6 +219,61 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
   if (!isAdmin) return null;
 
   return (
+    <>
+    {/* 페이지 확대 미리보기 모달 */}
+    {preview && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        onClick={() => setPreview(null)}
+      >
+        <div
+          className="relative bg-white rounded-2xl shadow-2xl overflow-hidden max-w-2xl w-full flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <span className="text-sm font-bold text-gray-700">{preview.pageNum}페이지 미리보기</span>
+            <div className="flex items-center gap-2">
+              {/* 이전/다음 페이지 */}
+              <button
+                disabled={preview.pageNum <= 1}
+                onClick={() => {
+                  const prev = thumbs.find(t => t.pageNum === preview.pageNum - 1);
+                  if (prev) setPreview(prev);
+                }}
+                className="px-2 py-1 text-xs rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+              >← 이전</button>
+              <button
+                disabled={preview.pageNum >= totalPages}
+                onClick={() => {
+                  const next = thumbs.find(t => t.pageNum === preview.pageNum + 1);
+                  if (next) setPreview(next);
+                }}
+                className="px-2 py-1 text-xs rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+              >다음 →</button>
+              <button onClick={() => setPreview(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <X className="h-4 w-4 text-gray-400" />
+              </button>
+            </div>
+          </div>
+          <div className="overflow-auto max-h-[75vh] flex items-center justify-center bg-gray-50 p-4">
+            <img src={preview.dataUrl} alt={`page ${preview.pageNum}`} className="max-w-full h-auto shadow-md rounded" />
+          </div>
+          {/* 이 페이지에서 분리 버튼 */}
+          {preview.pageNum > 1 && (
+            <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-2">
+              <button
+                onClick={() => { splitAt(preview.pageNum); setPreview(null); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500 text-white text-xs font-semibold hover:bg-rose-600 transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {preview.pageNum}p부터 새 계약서로 분리
+              </button>
+              <span className="text-[11px] text-gray-400">이름을 확인 후 구간을 나눠주세요</span>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
     <div className="rounded-xl border border-rose-200 bg-rose-50 shrink-0">
       {/* 헤더 */}
       <button
@@ -381,8 +442,12 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
                           </div>
                         )}
 
-                        {/* 페이지 썸네일 */}
-                        <div className={`rounded-lg border-2 overflow-hidden ${sectionColor} shadow-sm`}>
+                        {/* 페이지 썸네일 — 클릭 시 확대 */}
+                        <div
+                          className={`rounded-lg border-2 overflow-hidden ${sectionColor} shadow-sm cursor-zoom-in hover:opacity-80 transition-opacity`}
+                          onClick={() => setPreview(thumb)}
+                          title="클릭하면 크게 볼 수 있습니다"
+                        >
                           <img
                             src={thumb.dataUrl}
                             alt={`page ${thumb.pageNum}`}
@@ -408,5 +473,6 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
         </div>
       )}
     </div>
+    </>
   );
 }
