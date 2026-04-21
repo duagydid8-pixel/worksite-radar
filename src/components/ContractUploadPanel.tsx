@@ -59,7 +59,9 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
   const [pdfBytes, setPdfBytes]     = useState<ArrayBuffer | null>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [isRendering, setIsRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
   const [isSplitting, setIsSplitting] = useState(false);
+  const [splitProgress, setSplitProgress] = useState({ done: 0, total: 0 });
   const [savedContracts, setSavedContracts] = useState<ContractMeta[]>([]);
   const [showSaved, setShowSaved]   = useState(false);
   const [preview, setPreview]       = useState<PreviewState | null>(null);
@@ -124,6 +126,7 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
     }
 
     setIsRendering(true);
+    setRenderProgress(0);
     setThumbs([]);
     setSections([]);
 
@@ -139,8 +142,7 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
       const firstSectionId = crypto.randomUUID();
       setSections([{ id: firstSectionId, name: "", ocrName: "", ocrStatus: "idle", startPage: 1, endPage: count }]);
 
-      // 저해상도 썸네일 렌더링
-      const rendered: PageThumb[] = [];
+      // 썸네일 렌더링 — 페이지마다 즉시 화면에 추가 (스트리밍)
       for (let i = 1; i <= count; i++) {
         const page     = await pdfDoc.getPage(i);
         const viewport = page.getViewport({ scale: 0.35 });
@@ -148,17 +150,18 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
         canvas.width   = viewport.width;
         canvas.height  = viewport.height;
         await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
-        rendered.push({ pageNum: i, dataUrl: canvas.toDataURL("image/jpeg", 0.6) });
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.55);
+        setThumbs(prev => [...prev, { pageNum: i, dataUrl }]);
+        setRenderProgress(Math.round((i / count) * 100));
       }
-      setThumbs(rendered);
-      toast.success(`${count}페이지 로드 완료 — 1페이지 이름 자동 추출 중...`);
 
-      // 첫 섹션 OCR
+      // 첫 섹션 OCR (렌더링 완료 후 비동기)
       runOcrForSection(firstSectionId, 1);
     } catch {
       toast.error("PDF를 읽는 중 오류가 발생했습니다.");
     } finally {
       setIsRendering(false);
+      setRenderProgress(0);
     }
   };
 
@@ -217,6 +220,7 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
     if (dups.length > 0) { toast.error(`중복 이름: ${[...new Set(dups)].join(", ")}`); return; }
 
     setIsSplitting(true);
+    setSplitProgress({ done: 0, total: sections.length });
     try {
       const src = await PDFDocument.load(pdfBytes);
 
@@ -228,11 +232,13 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
           const pages   = await newPdf.copyPages(src, indices);
           pages.forEach(p => newPdf.addPage(p));
           const bytes = await newPdf.save();
+          setSplitProgress(p => ({ ...p, done: p.done + 1 }));
           return { name: s.name.trim(), pdfBytes: bytes, pageCount: indices.length };
         })
       );
 
       // 2. Storage 업로드 병렬 + Firestore 1회 쓰기
+      setSplitProgress({ done: 0, total: sections.length }); // 업로드 단계 리셋
       const { success, failed } = await uploadContractsBatchFS(splitItems);
 
       if (failed.length > 0) toast.error(`저장 실패: ${failed.join(", ")}`);
@@ -444,12 +450,33 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
                 </div>
 
                 {/* 분리 저장 버튼 */}
-                <button onClick={handleSplit}
-                  disabled={isSplitting || sections.some(s => !s.name.trim())}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 transition-colors disabled:opacity-50 self-start">
-                  {isSplitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Scissors className="h-4 w-4" />}
-                  {isSplitting ? "저장 중..." : `개인별 분리 저장 (${sections.length}명)`}
-                </button>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button onClick={handleSplit}
+                    disabled={isSplitting || sections.some(s => !s.name.trim())}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 transition-colors disabled:opacity-50">
+                    {isSplitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Scissors className="h-4 w-4" />}
+                    {isSplitting
+                      ? splitProgress.done < sections.length
+                        ? `PDF 분리 중... ${splitProgress.done}/${sections.length}`
+                        : `업로드 중... (${sections.length}명 병렬)`
+                      : `개인별 분리 저장 (${sections.length}명)`}
+                  </button>
+                  {isSplitting && (
+                    <div className="flex-1 min-w-[160px]">
+                      <div className="h-2 bg-rose-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-rose-500 rounded-full transition-all duration-300"
+                          style={{ width: splitProgress.total > 0 ? `${(splitProgress.done / splitProgress.total) * 100}%` : "0%" }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-rose-500 mt-1">
+                        {splitProgress.done < sections.length
+                          ? `PDF 분리 ${splitProgress.done}/${splitProgress.total}`
+                          : "Firebase Storage 업로드 중..."}
+                      </p>
+                    </div>
+                  )}
+                </div>
 
                 {/* 썸네일 그리드 */}
                 <div className="flex flex-wrap gap-3">
@@ -491,9 +518,16 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
             )}
 
             {isRendering && (
-              <div className="flex items-center gap-2 text-xs text-rose-600 py-4 justify-center">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                PDF 페이지 렌더링 중... 잠시만 기다려 주세요
+              <div className="flex flex-col items-center gap-2 py-4">
+                <div className="flex items-center gap-2 text-xs text-rose-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  페이지 렌더링 중... {renderProgress > 0 ? `${renderProgress}%` : ""}
+                </div>
+                {renderProgress > 0 && (
+                  <div className="w-48 h-1.5 bg-rose-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-rose-400 rounded-full transition-all duration-200" style={{ width: `${renderProgress}%` }} />
+                  </div>
+                )}
               </div>
             )}
           </div>
