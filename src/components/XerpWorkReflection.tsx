@@ -98,13 +98,16 @@ function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul:
 
   // 지각 시 출근 올림 처리 (standardStart 이후 지각만 적용)
   const ceiledIn = effInMin > standardStart ? ceilToHour(effInMin) : effInMin;
+  // 지각으로 인한 손실 시간 (시간 단위로 올림된 값 - 기준 출근)
+  const lateMin = effInMin > standardStart ? (ceiledIn - standardStart) : 0;
 
   // 표준 시간대(standardStart~17:00) 내 실근무 분
   const stdFrom    = Math.max(ceiledIn, standardStart);
-  const stdMinutes = Math.max(0, Math.min(effOutMin, STANDARD_END) - stdFrom);
+  const stdWorkMin = Math.max(0, Math.min(effOutMin, STANDARD_END) - stdFrom);
 
-  // 주간 공수 (8시간 = 1.0 기준, 0.125/h)
-  const stdGongsu = Math.min(stdMinutes / STANDARD_WORK_MIN, 1.0);
+  // 주간 공수: 지각 손실분(시간 단위) 차감 후 계산
+  const effectiveWorkMin = Math.min(stdWorkMin, STANDARD_WORK_MIN - lateMin);
+  const stdGongsu = Math.max(0, effectiveWorkMin / STANDARD_WORK_MIN);
 
   // 연장 시간 (17:00 이후) — 주간 충족 여부에 따라 단가 분기
   const overtimeMin    = Math.max(0, effOutMin - STANDARD_END);
@@ -116,13 +119,13 @@ function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul:
     ? Math.max(0, Math.floor((standardStart - effInMin) / 60)) * 0.25
     : 0;
 
-  return Math.round((jochulBonus + stdGongsu + overtimeGongsu) * 100) / 100;
+  return jochulBonus + stdGongsu + overtimeGongsu;
 }
 
 function calcDiff(calcVal: number | null, xerpGongsuA: string) {
   const aNum = parseFloat(xerpGongsuA);
   if (calcVal === null || isNaN(aNum)) return { diff: null, needsUpdate: false };
-  const d = Math.round((calcVal - aNum) * 100) / 100;
+  const d = calcVal - aNum;
   if (d > 0.001) return { diff: d, needsUpdate: true };
   return { diff: null, needsUpdate: false };
 }
@@ -357,7 +360,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const isNew = newEmpData.has(r.성명);
       if (isNew) {
         const gongsuA = parseFloat(r.xerpGongsuA) || 0;
-        const diff = Math.round((1.0 - gongsuA) * 100) / 100;
+        const diff = 1.0 - gongsuA;
         return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, diff: diff > 0 ? diff : null, needsUpdate: diff > 0 };
       }
       // 신규자 해제 시 원래 값으로 재계산
@@ -402,7 +405,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (isNaN(num) || num <= 0) {
         return { ...r, diff: null, needsUpdate: false };
       }
-      return { ...r, diff: Math.round(num * 100) / 100, needsUpdate: true };
+      return { ...r, diff: num, needsUpdate: true };
     }));
     setEditingIdx(null);
   };
@@ -474,7 +477,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         } else if (isNewEmployee) {
           calcGongsuVal = 1.0;
           const gongsuA = parseFloat(xerpGongsuA) || 0;
-          const d = Math.round((1.0 - gongsuA) * 100) / 100;
+          const d = 1.0 - gongsuA;
           diff = d > 0 ? d : null;
           needsUpdate = d > 0;
         } else {
