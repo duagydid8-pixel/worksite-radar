@@ -232,7 +232,6 @@ export async function uploadContractFS(
     await uploadBytes(storageRef, pdfBytes, { contentType: "application/pdf" });
     const downloadUrl = await getDownloadURL(storageRef);
     const meta: ContractMeta = { name, storagePath: path, downloadUrl, uploadedAt: new Date().toISOString(), pageCount };
-    // 기존 목록에 추가 (같은 이름이면 교체)
     const current = await loadContractsFS();
     const filtered = current.filter((c) => c.name !== name);
     await fsSet("contracts", { contracts: [...filtered, meta] });
@@ -241,6 +240,43 @@ export async function uploadContractFS(
     console.error("[Storage] uploadContractFS 실패:", e);
     return null;
   }
+}
+
+// 여러 계약서를 한 번에 업로드 — Storage 병렬 + Firestore 1회 쓰기
+export async function uploadContractsBatchFS(
+  items: { name: string; pdfBytes: Uint8Array; pageCount: number }[]
+): Promise<{ success: ContractMeta[]; failed: string[] }> {
+  if (!storage) return { success: [], failed: items.map(i => i.name) };
+
+  const now = new Date().toISOString();
+
+  // 1. Storage 업로드 전부 병렬
+  const results = await Promise.allSettled(
+    items.map(async ({ name, pdfBytes, pageCount }) => {
+      const path = `contracts/${name}_${Date.now()}.pdf`;
+      const storageRef = ref(storage!, path);
+      await uploadBytes(storageRef, pdfBytes, { contentType: "application/pdf" });
+      const downloadUrl = await getDownloadURL(storageRef);
+      return { name, storagePath: path, downloadUrl, uploadedAt: now, pageCount } as ContractMeta;
+    })
+  );
+
+  const success: ContractMeta[] = [];
+  const failed: string[] = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") success.push(r.value);
+    else { failed.push(items[i].name); console.error("[Storage] 업로드 실패:", items[i].name, r.reason); }
+  });
+
+  // 2. Firestore 1회 쓰기
+  if (success.length > 0) {
+    const current = await loadContractsFS();
+    const successNames = new Set(success.map(s => s.name));
+    const filtered = current.filter(c => !successNames.has(c.name));
+    await fsSet("contracts", { contracts: [...filtered, ...success] });
+  }
+
+  return { success, failed };
 }
 
 export async function deleteContractFS(name: string): Promise<boolean> {

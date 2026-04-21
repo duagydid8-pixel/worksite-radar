@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { PDFDocument } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { loadContractsFS, uploadContractFS, deleteContractFS } from "@/lib/firestoreService";
+import { loadContractsFS, uploadContractsBatchFS, deleteContractFS } from "@/lib/firestoreService";
 import type { ContractMeta } from "@/lib/firestoreService";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -208,7 +208,7 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
     setPreview(p => p?.pageNum === pageNum ? { ...p, hiResDataUrl: hiRes, hiResLoading: false } : p);
   };
 
-  // ── 분리 저장 ─────────────────────────────────────────
+  // ── 분리 저장 (병렬 처리) ────────────────────────────
   const handleSplit = async () => {
     if (!pdfBytes) return;
     const unnamed = sections.filter(s => !s.name.trim());
@@ -217,20 +217,27 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
     if (dups.length > 0) { toast.error(`중복 이름: ${[...new Set(dups)].join(", ")}`); return; }
 
     setIsSplitting(true);
-    let ok = 0;
     try {
       const src = await PDFDocument.load(pdfBytes);
-      for (const s of sections) {
-        const newPdf  = await PDFDocument.create();
-        const indices = Array.from({ length: s.endPage - s.startPage + 1 }, (_, i) => s.startPage - 1 + i);
-        const pages   = await newPdf.copyPages(src, indices);
-        pages.forEach(p => newPdf.addPage(p));
-        const bytes = await newPdf.save();
-        const meta  = await uploadContractFS(s.name.trim(), bytes, indices.length);
-        if (meta) ok++; else toast.error(`${s.name} 저장 실패`);
-      }
-      if (ok > 0) {
-        toast.success(`${ok}명 근로계약서 저장 완료`);
+
+      // 1. PDF 분리 전부 병렬
+      const splitItems = await Promise.all(
+        sections.map(async s => {
+          const newPdf  = await PDFDocument.create();
+          const indices = Array.from({ length: s.endPage - s.startPage + 1 }, (_, i) => s.startPage - 1 + i);
+          const pages   = await newPdf.copyPages(src, indices);
+          pages.forEach(p => newPdf.addPage(p));
+          const bytes = await newPdf.save();
+          return { name: s.name.trim(), pdfBytes: bytes, pageCount: indices.length };
+        })
+      );
+
+      // 2. Storage 업로드 병렬 + Firestore 1회 쓰기
+      const { success, failed } = await uploadContractsBatchFS(splitItems);
+
+      if (failed.length > 0) toast.error(`저장 실패: ${failed.join(", ")}`);
+      if (success.length > 0) {
+        toast.success(`${success.length}명 근로계약서 저장 완료`);
         await refreshContracts();
         setShowSaved(true);
         setThumbs([]); setSections([]); setPdfBytes(null); setTotalPages(0);
