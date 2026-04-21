@@ -60,6 +60,22 @@ function roundBy50(min: number): number {
   return m >= 50 ? (h + 1) * 60 : h * 60;
 }
 
+/** 가산 사유 자동 추론 */
+function inferGasanReason(row: { xerpIn: string; xerpOut: string; rawOutMin: number | null }): string {
+  const noXerpIn  = !row.xerpIn;
+  const noXerpOut = !row.xerpOut;
+  const hasOvertime = row.rawOutMin !== null && row.rawOutMin > STANDARD_END;
+
+  if (noXerpIn && noXerpOut) return "출퇴근미타각(주간)";
+  if (noXerpOut) return hasOvertime ? "퇴근미타각(연장)" : "퇴근미타각(주간)";
+  if (noXerpIn)  return "출근미타각(주간)";
+  if (hasOvertime) {
+    const h = (row.rawOutMin! - STANDARD_END) / 60;
+    return `${h}h 연장근무`;
+  }
+  return "";
+}
+
 /** 지각 시 출근 시간을 다음 정각으로 올림 (ex. 16:37 → 17:00) */
 function ceilToHour(min: number): number {
   const m = min % 60;
@@ -279,7 +295,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
         const calcVal = calcGongsu(effInMin, r.rawOutMin, r.isJochul, cfg);
         const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-        return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate };
+        const 가산사유 = needsUpdate ? inferGasanReason(r) : "";
+        return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
       }
       return r;
     });
@@ -423,7 +440,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const calcVal   = calcGongsu(effInMin, r.rawOutMin, newJochul, cfg);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const isLate    = effInMin !== null && effInMin > cfg.standardStart;
-      return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate };
+      const 가산사유 = needsUpdate ? (r.가산사유 || inferGasanReason(r)) : "";
+      return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate, 가산사유 };
     }));
   };
 
@@ -441,7 +459,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (isNaN(num) || num <= 0) {
         return { ...r, diff: null, 가산사유: "", needsUpdate: false };
       }
-      return { ...r, diff: num, 가산사유: editingReason.trim(), needsUpdate: true };
+      const reason = editingReason.trim() || inferGasanReason(r);
+      return { ...r, diff: num, 가산사유: reason, needsUpdate: true };
     }));
     setEditingIdx(null);
   };
@@ -527,7 +546,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           pmisIn: pmisInStr, pmisOut: pmisOutStr,
           rawInMin, rawOutMin, isJochul,
           effIn, effOut, xerpGongsuA,
-          calcGongsuVal, diff, 가산사유: "", needsUpdate, isNoRecord, isLate,
+          calcGongsuVal, diff,
+          가산사유: needsUpdate ? inferGasanReason({ xerpIn: xerpInStr, xerpOut: xerpOutStr, rawOutMin }) : "",
+          needsUpdate, isNoRecord, isLate,
           standardStart: cfg.standardStart,
           isNewEmployee, isWaeju,
         });
