@@ -254,8 +254,19 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       setNewEmpFileName(entry.fileName);
       setNewEmpSavedCount(loaded.size);
     } else {
+      setNewEmpData(new Map());
+      setNewEmpFileName(null);
       setNewEmpSavedCount(null);
     }
+  };
+
+  const deleteNewEmp = (name: string) => {
+    setNewEmpData((prev) => {
+      const next = new Map(prev);
+      next.delete(name);
+      return next;
+    });
+    setNewEmpSavedCount(null);
   };
 
   // 마운트 시 날짜 목록 + 가장 최근 날짜 데이터 로드
@@ -779,6 +790,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         <th className={sth}>공수A</th>
                         <th className={sth}>적용공수</th>
                         <th className={sth}>가산B</th>
+                        <th className={sth}>삭제</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -797,6 +809,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
                             <td className={`${stc} font-bold text-sky-700 tabular-nums`}>1.00</td>
                             <td className={`${stc} font-bold text-amber-600 tabular-nums`}>{r.diff !== null ? `+${r.diff.toFixed(2)}` : "—"}</td>
+                            <td className={stc}>
+                              <button onClick={() => deleteNewEmp(r.성명)} className="text-rose-400 hover:text-rose-600 transition-colors" title="신규자 해제">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -824,6 +841,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             <div className="flex items-center gap-1.5">
                               <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
                               <span className="text-slate-700 font-semibold">{name}</span>
+                              <button onClick={() => deleteNewEmp(name)} className="ml-auto text-rose-400 hover:text-rose-600 transition-colors" title="신규자 해제">
+                                <X className="h-3 w-3" />
+                              </button>
                             </div>
                             {info?.생년월일 && <div className="pl-3 text-slate-400">{info.생년월일}</div>}
                             {info?.단가 && <div className="pl-3 text-emerald-600 font-medium">{Number(info.단가).toLocaleString()}원</div>}
