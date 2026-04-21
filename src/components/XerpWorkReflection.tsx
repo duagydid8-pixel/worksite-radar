@@ -246,8 +246,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     });
   }, [syncSite]);
 
-  // 신규자 명단 날짜별 로드 헬퍼
-  const loadNewEmpForDate = async (date: string) => {
+  // 신규자 명단 날짜별 로드 헬퍼 — 로드된 Map 반환
+  const loadNewEmpForDate = async (date: string): Promise<Map<string, NewEmpInfo>> => {
     const newEmpMap = await loadNewEmpDateMapFS();
     if (newEmpMap?.[date]) {
       const entry = newEmpMap[date];
@@ -255,12 +255,34 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       setNewEmpData(loaded);
       setNewEmpFileName(entry.fileName);
       setNewEmpSavedCount(loaded.size);
+      return loaded;
     } else {
       setNewEmpData(new Map());
       setNewEmpFileName(null);
       setNewEmpSavedCount(null);
+      return new Map();
     }
   };
+
+  // rows에 신규자 데이터 즉시 적용 (타이밍 이슈 방지용)
+  const applyNewEmpToRows = (loadedRows: ProcessedRow[], empData: Map<string, NewEmpInfo>): ProcessedRow[] =>
+    loadedRows.map((r) => {
+      if (r.isWaeju) return r;
+      const isNew = empData.has(r.성명);
+      if (isNew && !r.isNewEmployee) {
+        const gongsuA = parseFloat(r.xerpGongsuA) || 0;
+        const d = 1.0 - gongsuA;
+        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, diff: d > 0 ? d : null, needsUpdate: d > 0 };
+      }
+      if (!isNew && r.isNewEmployee) {
+        const cfg = getTeamConfig(r.팀명);
+        const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+        const calcVal = calcGongsu(effInMin, r.rawOutMin, r.isJochul, cfg);
+        const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+        return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate };
+      }
+      return r;
+    });
 
   const deleteNewEmp = (name: string) => {
     setNewEmpData((prev) => {
@@ -278,14 +300,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (dm && dates.length > 0) {
         const latest = dates[0];
         setWorkDate(latest);
+        const empData = await loadNewEmpForDate(latest);
         const entry = dm[latest];
         if (entry?.rows?.length > 0) {
-          setRows(entry.rows as ProcessedRow[]);
+          setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData));
           setFileName(entry.fileName ?? null);
           setRawExcelRows((entry.rawExcelRows ?? []) as RawExcelRow[]);
           toast.info(`저장된 데이터 불러옴 (${latest} / ${entry.fileName})`);
         }
-        await loadNewEmpForDate(latest);
       } else {
         // 레거시 단일 저장 마이그레이션
         loadXerpWorkFS().then((data) => {
@@ -562,14 +584,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setWorkDate(date);
     if (!date) return;
     setIsLoadingDate(true);
-    const [dm] = await Promise.all([
+    const [dm, empData] = await Promise.all([
       loadXerpWorkDateMapFS(),
       loadNewEmpForDate(date),
     ]);
     setIsLoadingDate(false);
     if (dm?.[date]) {
       const entry = dm[date];
-      setRows(entry.rows as ProcessedRow[]);
+      setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData));
       setFileName(entry.fileName ?? null);
       setOriginalBuffer(null);
       setWorkbook(null);
