@@ -659,6 +659,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     const wbCopy = XLSX.read(new Uint8Array(originalBuffer), { type: "array", cellStyles: true });
     const ws = wbCopy.Sheets[wbCopy.SheetNames[0]];
 
+    // 헤더 행 찾기 (첫 데이터 rowIndex 바로 위 행)
+    const firstDataRowIndex = rows.length > 0 ? Math.min(...rows.map((r) => r.rowIndex)) : -1;
+    if (firstDataRowIndex > 0) {
+      const headerAddr = `${XLSX.utils.encode_col(23)}${firstDataRowIndex}`;
+      ws[headerAddr] = { t: "s", v: "가산사유", w: "가산사유" };
+    }
+
     for (const row of rows) {
       if (row.diff === null) continue;
 
@@ -673,6 +680,20 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const vAddr = `${XLSX.utils.encode_col(21)}${row.rowIndex + 1}`;
       const vCell = ws[vAddr];
       ws[vAddr] = { ...(vCell ?? {}), t: "n", v: gongsuAB, w: String(gongsuAB) };
+
+      // X열 (index 23): 가산사유
+      if (row.가산사유) {
+        const xAddr = `${XLSX.utils.encode_col(23)}${row.rowIndex + 1}`;
+        ws[xAddr] = { t: "s", v: row.가산사유, w: row.가산사유 };
+      }
+    }
+
+    // 시트 범위 확장 (X열까지)
+    const ref = ws["!ref"];
+    if (ref) {
+      const range = XLSX.utils.decode_range(ref);
+      if (range.e.c < 23) range.e.c = 23;
+      ws["!ref"] = XLSX.utils.encode_range(range);
     }
 
     XLSX.writeFile(wbCopy, fileName.replace(/\.xlsx?$/i, "") + "_공수반영.xlsx", { cellStyles: true, bookType: "xlsx" });
