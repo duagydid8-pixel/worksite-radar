@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FileText, Upload, X, ChevronDown, ChevronUp, Scissors, Loader2, Download, Trash2, ExternalLink, Plus, ZoomIn } from "lucide-react";
 import { toast } from "sonner";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, ParseSpeeds } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { loadContractsFS, uploadContractsBatchFS, deleteContractFS } from "@/lib/firestoreService";
@@ -222,23 +222,27 @@ export default function ContractUploadPanel({ isAdmin, employeeNames = [] }: Pro
     setIsSplitting(true);
     setSplitProgress({ done: 0, total: sections.length });
     try {
-      const src = await PDFDocument.load(pdfBytes);
+      // ParseSpeeds.Fastest: 불필요한 검증 생략으로 파싱 속도 향상
+      const src = await PDFDocument.load(pdfBytes, {
+        parseSpeed: ParseSpeeds.Fastest,
+        ignoreEncryption: true,
+      });
 
-      // 1. PDF 분리 전부 병렬
-      const splitItems = await Promise.all(
-        sections.map(async s => {
-          const newPdf  = await PDFDocument.create();
-          const indices = Array.from({ length: s.endPage - s.startPage + 1 }, (_, i) => s.startPage - 1 + i);
-          const pages   = await newPdf.copyPages(src, indices);
-          pages.forEach(p => newPdf.addPage(p));
-          const bytes = await newPdf.save();
-          setSplitProgress(p => ({ ...p, done: p.done + 1 }));
-          return { name: s.name.trim(), pdfBytes: bytes, pageCount: indices.length };
-        })
-      );
+      // 1. PDF 분리 순차 실행 (JS 싱글스레드 — 병렬보다 순차가 빠름)
+      const splitItems: { name: string; pdfBytes: Uint8Array; pageCount: number }[] = [];
+      for (const s of sections) {
+        const newPdf  = await PDFDocument.create();
+        const indices = Array.from({ length: s.endPage - s.startPage + 1 }, (_, i) => s.startPage - 1 + i);
+        const pages   = await newPdf.copyPages(src, indices);
+        pages.forEach(p => newPdf.addPage(p));
+        // useObjectStreams: false → 직렬화 단순화로 save() 속도 향상
+        const bytes = await newPdf.save({ useObjectStreams: false });
+        setSplitProgress(p => ({ ...p, done: p.done + 1 }));
+        splitItems.push({ name: s.name.trim(), pdfBytes: bytes, pageCount: indices.length });
+      }
 
-      // 2. Storage 업로드 병렬 + Firestore 1회 쓰기
-      setSplitProgress({ done: 0, total: sections.length }); // 업로드 단계 리셋
+      // 2. Storage 업로드 병렬 + Firestore 1회 쓰기 (I/O 바운드 — 병렬 효과 있음)
+      setSplitProgress({ done: 0, total: sections.length });
       const { success, failed } = await uploadContractsBatchFS(splitItems);
 
       if (failed.length > 0) toast.error(`저장 실패: ${failed.join(", ")}`);
