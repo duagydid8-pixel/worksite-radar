@@ -853,10 +853,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       filtered = filtered.filter((r) => r.팀명 === teamFilter);
     }
 
-    // 정기안전교육: 16:20 퇴근 → 계산공수 1, 가산사유 자동 설정
+    // 정기안전교육: 16:20~17:00 퇴근 → 계산공수 1, 가산사유 자동 설정
     if (isSafetyEduDate) {
       filtered = filtered.map((r) => {
-        if (parseMin(r.xerpOut) === 16 * 60 + 20) {
+        const outMin = parseMin(r.xerpOut);
+        if (outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60) {
           const xerpA = parseFloat(r.xerpGongsuA) || 0;
           const newDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
           return {
@@ -1377,7 +1378,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               />
               <span className="text-xs font-semibold whitespace-nowrap">정기안전교육</span>
               {isSafetyEduDate && (
-                <span className="text-[10px] font-normal opacity-70">· 16:20 퇴근 = 1공수</span>
+                <span className="text-[10px] font-normal opacity-70">· 16:20~17:00 퇴근 = 1공수</span>
               )}
             </label>
 
@@ -1433,7 +1434,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-100 border border-rose-300 inline-block" /> 기록없음</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 border border-orange-300 inline-block" /> 지각</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-300 inline-block" /> 가산필요</span>
-            {isSafetyEduDate && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-400 inline-block" /> 정기안전교육(16:20)</span>}
+            {isSafetyEduDate && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-400 inline-block" /> 정기안전교육(16:20~17:00)</span>}
             <span className="text-[11px] text-muted-foreground">· 가산B 셀 클릭 시 수기 입력 가능</span>
           </div>
         </div>
@@ -1504,7 +1505,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             ? "bg-amber-50/40 hover:bg-amber-50/70"
                             : "hover:bg-muted/20";
 
-                  const isEarlyOutHighlight = isSafetyEduDate && parseMin(row.xerpOut) === 16 * 60 + 20;
+                  const outMin = parseMin(row.xerpOut);
+                  const isEarlyOutHighlight = isSafetyEduDate && outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60;
                   const finalRowBg = isEarlyOutHighlight ? "bg-amber-50/60 hover:bg-amber-50/80" : rowBg;
                   return (
                     <tr key={`${row.rowIndex}-${row.성명}`} className={`border-b border-border/60 last:border-0 transition-colors ${finalRowBg}`}>
