@@ -302,6 +302,16 @@ export async function saveScheduleFS(data: ScheduleData): Promise<void> {
   if (!db) throw new Error("Firebase가 설정되지 않았습니다. 환경변수를 확인하세요.");
   await setDoc(doc(db, COL, "work_schedule"), data as unknown as object);
 }
+
+// ── 정기안전교육 날짜 ────────────────────────────────────
+export async function loadSafetyEduDatesFS(): Promise<string[]> {
+  const data = await fsGet<{ dates: string[] }>("safety_edu_dates");
+  return data?.dates ?? [];
+}
+export async function saveSafetyEduDatesFS(dates: string[]): Promise<boolean> {
+  return fsSet("safety_edu_dates", { dates });
+}
+
 export function subscribeScheduleFS(
   callback: (data: ScheduleData | null) => void,
 ): () => void {

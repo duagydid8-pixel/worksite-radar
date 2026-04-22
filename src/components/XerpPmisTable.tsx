@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS } from "@/lib/firestoreService";
+import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, saveSafetyEduDatesFS } from "@/lib/firestoreService";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -541,6 +541,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [resignedNames, setResignedNames] = useState<Set<string>>(new Set());
   const [uploadDate, setUploadDate] = useState<string>(TODAY);
   const [search, setSearch] = useState("");
+  const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 달력 모달 상태
@@ -591,6 +592,19 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
   }, [dateMap, resignedNames]);
 
+  const isSafetyEduDate = safetyEduDates.has(selectedDate);
+
+  const toggleSafetyEdu = () => {
+    if (!isAdmin) return;
+    const next = new Set(safetyEduDates);
+    if (next.has(selectedDate)) next.delete(selectedDate);
+    else next.add(selectedDate);
+    setSafetyEduDates(next);
+    saveSafetyEduDatesFS([...next]).then((ok) => {
+      if (!ok) toast.error("정기안전교육 설정 저장 실패");
+    });
+  };
+
   // 마운트 시 안내 알림
   useEffect(() => {
     toast.info("성명 옆 달력 아이콘을 클릭하면 상세한 출퇴근기록과 공수를 확인할 수 있습니다.", {
@@ -619,6 +633,10 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
         const dates = Object.keys(typed).sort().reverse();
         if (dates[0]) setSelectedDate(dates[0]);
       }
+    });
+
+    loadSafetyEduDatesFS().then((dates) => {
+      setSafetyEduDates(new Set(dates));
     });
   }, []);
 
@@ -865,6 +883,28 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           )}
         </div>
 
+        {/* ── 정기안전교육 체크칸 ── */}
+        <label
+          title={isAdmin ? "클릭하여 이 날짜를 정기안전교육 날짜로 설정/해제" : "정기안전교육 날짜 여부"}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors select-none
+            ${isSafetyEduDate
+              ? "bg-amber-50 border-amber-400 text-amber-700"
+              : "bg-white border-border text-muted-foreground"}
+            ${isAdmin ? "cursor-pointer hover:border-amber-400 hover:bg-amber-50/60" : "cursor-default"}`}
+        >
+          <input
+            type="checkbox"
+            checked={isSafetyEduDate}
+            onChange={toggleSafetyEdu}
+            readOnly={!isAdmin}
+            className="h-4 w-4 accent-amber-500"
+          />
+          <span className="text-xs font-semibold whitespace-nowrap">정기안전교육</span>
+          {isSafetyEduDate && (
+            <span className="text-[10px] font-normal opacity-70">· 16:20 퇴근 = 1공수</span>
+          )}
+        </label>
+
         {isAdmin && (
           <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-lg px-3 py-1.5">
             <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">업로드 날짜</span>
@@ -910,7 +950,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
               <th colSpan={2} className={th()}>PMIS 체크시간</th>
               <th colSpan={8} className={th()}>공수 체크A</th>
               <th colSpan={2} className={th()}>초과근무</th>
-              <th colSpan={2} className={th()}>가산공수B</th>
+              <th colSpan={3} className={th()}>가산공수B</th>
               <th rowSpan={2} className={th()}>공수합계<br />(A+B)</th>
               <th rowSpan={2} className={th()}>월누계</th>
             </tr>
@@ -928,12 +968,13 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
               <th className={th()}>점심</th><th className={th()}>합계</th>
               <th className={th()}>당일</th><th className={th()}>합계</th>
               <th className={th()}>신청</th><th className={th()}>승인</th>
+              <th className={th("min-w-[90px]")}>가산사유</th>
             </tr>
           </thead>
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={23} className="py-16 text-center text-muted-foreground text-sm">
+                <td colSpan={24} className="py-16 text-center text-muted-foreground text-sm">
                   {availableDates.length === 0
                     ? isAdmin ? "엑셀을 업로드하여 날짜별 데이터를 저장하세요." : "저장된 데이터가 없습니다."
                     : search
@@ -944,8 +985,12 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
             ) : (
               displayRows.map((row) => {
                 const hasGaasan = row.가산신청 && row.가산신청 !== "0" && row.가산신청 !== "N" && row.가산신청 !== "—" && row.가산신청.trim() !== "";
+                const isEarlyOut = isSafetyEduDate && (row.xerp퇴근 === "16:20" || row.xerp퇴근 === "16:20:00");
+                const rowBg = isEarlyOut
+                  ? "bg-amber-50/60 hover:bg-amber-50/80"
+                  : hasGaasan ? "bg-amber-50/40 hover:bg-amber-50/70" : "hover:bg-muted/20";
                 return (
-                <tr key={row.id} className={`border-b border-border/60 last:border-0 transition-colors ${hasGaasan ? "bg-amber-50/40 hover:bg-amber-50/70" : "hover:bg-muted/20"}`}>
+                <tr key={row.id} className={`border-b border-border/60 last:border-0 transition-colors ${rowBg}`}>
                   <td className={cell}>{row.팀명||"—"}</td>
                   <td className={cell}>{row.직종||"—"}</td>
                   <td className={cell}>{row.사번||"—"}</td>
@@ -969,7 +1014,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                   </td>
                   <td className={cell}>{maskResidentNum(row.생년월일 || "—", isAdmin)}</td>
                   <td className={`${cellNum} text-blue-600 font-semibold`}>{row.xerp출근||"—"}</td>
-                  <td className={`${cellNum} text-red-600 font-semibold`}>{row.xerp퇴근||"—"}</td>
+                  <td className={`${cellNum} font-semibold ${isEarlyOut ? "text-amber-600" : "text-red-600"}`}>{row.xerp퇴근||"—"}</td>
                   <td className={cellNum}>{row.pmis출근||"—"}</td>
                   <td className={cellNum}>{row.pmis퇴근||"—"}</td>
                   <td className={cellNum}>{row.조출||"—"}</td>
@@ -986,13 +1031,21 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                     {hasGaasan ? row.가산신청 : (row.가산신청 || "—")}
                   </td>
                   <td className={cellNum}>{row.가산승인||"—"}</td>
-                  <td className={`${cellNum} font-bold bg-primary/5 text-primary p-0`}>
+                  <td
+                    title={isEarlyOut ? "정기안전교육으로 빠른퇴근타각" : undefined}
+                    className={`px-2 py-1.5 text-[10px] text-center border-r border-border/40 leading-tight
+                      ${isEarlyOut ? "text-amber-700 bg-amber-100/60 font-semibold" : "text-muted-foreground whitespace-nowrap"}`}
+                    style={{ minWidth: "90px" }}
+                  >
+                    {isEarlyOut ? "정기안전교육으로 빠른퇴근타각" : "—"}
+                  </td>
+                  <td className={`${cellNum} font-bold p-0 ${isEarlyOut ? "bg-amber-50 text-amber-700" : "bg-primary/5 text-primary"}`}>
                     <button
                       onClick={() => setDetailRow(row)}
-                      className="w-full h-full px-2 py-1.5 hover:bg-primary/10 transition-colors tabular-nums font-bold"
+                      className="w-full h-full px-2 py-1.5 hover:bg-black/5 transition-colors tabular-nums font-bold"
                       title="공수 상세 검증"
                     >
-                      {row.공수합계AB||"—"}
+                      {isEarlyOut ? "1" : (row.공수합계AB||"—")}
                     </button>
                   </td>
                   <td className={`${cellNum} font-bold`}>{row.월누계||"—"}</td>
