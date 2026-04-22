@@ -788,22 +788,34 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     for (const row of rows) {
       if (row.diff === null) continue;
 
+      // 정기안전교육 날짜이면 16:20~17:00 퇴근 행에 보정 적용
+      let effectiveDiff = row.diff;
+      let effectiveReason = row.가산사유;
+      if (isSafetyEduDate) {
+        const outMin = parseMin(row.xerpOut);
+        if (outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60) {
+          const xerpA = parseFloat(row.xerpGongsuA) || 0;
+          effectiveDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
+          effectiveReason = "정기안전교육으로 빠른퇴근타각";
+        }
+      }
+
       // T열 (index 19): 가산공수(B) 신청
       const tAddr = `${XLSX.utils.encode_col(19)}${row.rowIndex + 1}`;
       const tCell = ws[tAddr];
-      ws[tAddr] = { ...(tCell ?? {}), t: "n", v: row.diff, w: String(row.diff) };
+      ws[tAddr] = { ...(tCell ?? {}), t: "n", v: effectiveDiff, w: String(effectiveDiff) };
 
-      // V열 (index 21): 공수합계 (A+B) = Q열 + T열
+      // V열 (index 21): 공수합계 (A+B)
       const gongsuA = parseFloat(row.xerpGongsuA) || 0;
-      const gongsuAB = Math.round((gongsuA + row.diff) * 100) / 100;
+      const gongsuAB = Math.round((gongsuA + effectiveDiff) * 100) / 100;
       const vAddr = `${XLSX.utils.encode_col(21)}${row.rowIndex + 1}`;
       const vCell = ws[vAddr];
       ws[vAddr] = { ...(vCell ?? {}), t: "n", v: gongsuAB, w: String(gongsuAB) };
 
       // X열 (index 23): 가산사유
-      if (row.가산사유) {
+      if (effectiveReason) {
         const xAddr = `${XLSX.utils.encode_col(23)}${row.rowIndex + 1}`;
-        ws[xAddr] = { t: "s", v: row.가산사유, w: row.가산사유 };
+        ws[xAddr] = { t: "s", v: effectiveReason, w: effectiveReason };
       }
     }
 
