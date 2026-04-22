@@ -1551,8 +1551,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             min="0"
                             value={editingVal}
                             autoFocus
+                            data-editing-row={row.rowIndex}
                             onChange={(e) => setEditingVal(e.target.value)}
-                            onBlur={() => commitEdit(row.rowIndex)}
+                            onBlur={(e) => {
+                              const next = e.relatedTarget as HTMLElement | null;
+                              if (next?.dataset?.editingRow === String(row.rowIndex)) return;
+                              commitEdit(row.rowIndex);
+                            }}
                             onKeyDown={(e) => { if (e.key === "Enter") commitEdit(row.rowIndex); if (e.key === "Tab") { e.preventDefault(); commitEdit(row.rowIndex); } if (e.key === "Escape") setEditingIdx(null); }}
                             className="w-full px-2 py-1.5 text-xs text-center bg-amber-100 border-0 outline-none focus:ring-1 focus:ring-amber-400 tabular-nums"
                           />
@@ -1575,10 +1580,15 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             type="text"
                             value={editingReason}
                             placeholder="사유 입력"
+                            data-editing-row={row.rowIndex}
                             onChange={(e) => setEditingReason(e.target.value)}
-                            onBlur={() => commitEdit(row.rowIndex)}
+                            onBlur={(e) => {
+                              const next = e.relatedTarget as HTMLElement | null;
+                              if (next?.dataset?.editingRow === String(row.rowIndex)) return;
+                              commitEdit(row.rowIndex);
+                            }}
                             onKeyDown={(e) => { if (e.key === "Enter") commitEdit(row.rowIndex); if (e.key === "Escape") setEditingIdx(null); }}
-                            className="w-full min-w-[100px] px-2 py-1.5 text-xs bg-amber-100 border-0 outline-none focus:ring-1 focus:ring-amber-400"
+                            className="w-full min-w-[120px] px-2 py-1.5 text-xs bg-amber-100 border-0 outline-none focus:ring-1 focus:ring-amber-400"
                           />
                         ) : (
                           <button
