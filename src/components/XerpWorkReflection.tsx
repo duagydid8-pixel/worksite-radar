@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw } from "lucide-react";
+import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS } from "@/lib/firestoreService";
 
 // ── 시간 유틸 ─────────────────────────────────────────
 function parseMin(val: unknown): number | null {
@@ -274,6 +274,17 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [workDates, setWorkDates] = useState<string[]>([]);
   const [isLoadingDate, setIsLoadingDate] = useState(false);
 
+  // 일괄 선택
+  const [selectedIdxes, setSelectedIdxes] = useState<Set<number>>(new Set());
+
+  // 정기안전교육
+  const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
+
+  // 정렬
+  type SortColWR = "xerpIn" | "xerpOut" | "pmisIn" | "pmisOut";
+  const [sortColWR, setSortColWR] = useState<SortColWR | null>(null);
+  const [sortDirWR, setSortDirWR] = useState<"asc" | "desc">("asc");
+
   // XERP&PMIS 연동 설정
   const [syncSite, setSyncSite] = useState<"PH4" | "PH2">("PH4");
   const [syncDate, setSyncDate] = useState<string>(today());
@@ -307,6 +318,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       }
     });
   }, [syncSite]);
+
+  // 정기안전교육 날짜 로드
+  useEffect(() => {
+    loadSafetyEduDatesFS().then((dates) => setSafetyEduDates(new Set(dates)));
+  }, []);
+
+  // workDate 변경 시 선택 초기화
+  useEffect(() => { setSelectedIdxes(new Set()); }, [workDate]);
 
   // 신규자 명단 날짜별 로드 헬퍼 — 로드된 Map 반환
   const loadNewEmpForDate = async (date: string): Promise<Map<string, NewEmpInfo>> => {
@@ -789,11 +808,89 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     toast.success("수정된 파일을 다운로드했습니다.");
   };
 
+  // 정기안전교육
+  const isSafetyEduDate = safetyEduDates.has(workDate);
+
+  const toggleSafetyEduDate = () => {
+    if (!isAdmin) return;
+    const next = new Set(safetyEduDates);
+    if (next.has(workDate)) next.delete(workDate); else next.add(workDate);
+    setSafetyEduDates(next);
+    saveSafetyEduDatesFS([...next]).then((ok) => {
+      if (!ok) toast.error("정기안전교육 설정 저장 실패");
+    });
+  };
+
+  // 정렬 핸들러
+  const handleSortWR = (col: SortColWR) => {
+    if (sortColWR === col) setSortDirWR((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortColWR(col); setSortDirWR("asc"); }
+  };
+
   const displayRows = useMemo(() => {
     const q = search.trim();
-    if (!q) return rows;
-    return rows.filter((r) => r.성명.includes(q) || r.팀명.includes(q));
-  }, [rows, search]);
+    let filtered = q
+      ? rows.filter((r) => r.성명.includes(q) || r.팀명.includes(q))
+      : [...rows];
+
+    // 정기안전교육: 16:20 퇴근 → 계산공수 1, 가산사유 자동 설정
+    if (isSafetyEduDate) {
+      filtered = filtered.map((r) => {
+        if (r.xerpOut === "16:20" || r.xerpOut === "16:20:00") {
+          const xerpA = parseFloat(r.xerpGongsuA) || 0;
+          const newDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
+          return {
+            ...r,
+            calcGongsuVal: 1.0,
+            가산사유: "정기안전교육으로 빠른퇴근타각",
+            diff: newDiff > 0 ? newDiff : r.diff,
+            needsUpdate: newDiff > 0 || r.needsUpdate,
+          };
+        }
+        return r;
+      });
+    }
+
+    // 정렬
+    if (sortColWR) {
+      filtered = [...filtered].sort((a, b) => {
+        const av = a[sortColWR] || "9999";
+        const bv = b[sortColWR] || "9999";
+        const cmp = av.localeCompare(bv);
+        return sortDirWR === "asc" ? cmp : -cmp;
+      });
+    }
+
+    return filtered;
+  }, [rows, search, isSafetyEduDate, sortColWR, sortDirWR]);
+
+  // 일괄 선택
+  const allSelected = displayRows.length > 0 && displayRows.every((r) => selectedIdxes.has(r.rowIndex));
+  const someSelected = !allSelected && displayRows.some((r) => selectedIdxes.has(r.rowIndex));
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIdxes((prev) => {
+        const next = new Set(prev);
+        displayRows.forEach((r) => next.delete(r.rowIndex));
+        return next;
+      });
+    } else {
+      setSelectedIdxes((prev) => {
+        const next = new Set(prev);
+        displayRows.forEach((r) => next.add(r.rowIndex));
+        return next;
+      });
+    }
+  };
+
+  const toggleSelectRow = (idx: number) => {
+    setSelectedIdxes((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  };
 
   const totalCount    = rows.length;
   const needCount     = rows.filter((r) => r.needsUpdate).length;
@@ -1208,28 +1305,102 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         );
       })()}
 
-      {/* 검색창 + 범례 */}
+      {/* 검색창 + 정기안전교육 + 정렬 + 범례 */}
       {rows.length > 0 && (
-        <div className="flex flex-wrap items-center gap-4 shrink-0">
-          <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="이름 / 팀명 검색..."
-              className="w-full pl-9 pr-9 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-            />
-            {search && (
-              <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                <X className="h-4 w-4" />
-              </button>
-            )}
+        <div className="flex flex-col gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 검색 */}
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="이름 / 팀명 검색..."
+                className="w-full pl-9 pr-9 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            {/* 정기안전교육 체크칸 */}
+            <label
+              title={isAdmin ? "클릭하여 이 날짜를 정기안전교육 날짜로 설정/해제" : "정기안전교육 날짜 여부"}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors select-none
+                ${isSafetyEduDate
+                  ? "bg-amber-50 border-amber-400 text-amber-700"
+                  : "bg-white border-border text-muted-foreground"}
+                ${isAdmin ? "cursor-pointer hover:border-amber-400 hover:bg-amber-50/60" : "cursor-default"}`}
+            >
+              <input
+                type="checkbox"
+                checked={isSafetyEduDate}
+                onChange={toggleSafetyEduDate}
+                readOnly={!isAdmin}
+                className="h-4 w-4 accent-amber-500"
+              />
+              <span className="text-xs font-semibold whitespace-nowrap">정기안전교육</span>
+              {isSafetyEduDate && (
+                <span className="text-[10px] font-normal opacity-70">· 16:20 퇴근 = 1공수</span>
+              )}
+            </label>
+
+            {/* 정렬 버튼 */}
+            <div className="flex items-center gap-1.5 bg-white border border-border rounded-lg px-3 py-1.5">
+              <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap mr-1">정렬</span>
+              {([
+                { col: "xerpIn"  as const, label: "X출근" },
+                { col: "xerpOut" as const, label: "X퇴근" },
+                { col: "pmisIn"  as const, label: "P출근" },
+                { col: "pmisOut" as const, label: "P퇴근" },
+              ]).map(({ col, label }) => (
+                <button
+                  key={col}
+                  onClick={() => handleSortWR(col)}
+                  className={`flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors
+                    ${sortColWR === col
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
+                >
+                  {label}
+                  {sortColWR === col
+                    ? (sortDirWR === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+                    : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                </button>
+              ))}
+              {sortColWR && (
+                <button
+                  onClick={() => { setSortColWR(null); setSortDirWR("asc"); }}
+                  className="ml-1 text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded-md hover:bg-muted transition-colors"
+                >
+                  초기화
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+
+          {/* 선택 행 액션바 */}
+          {selectedIdxes.size > 0 && (
+            <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-xl px-4 py-2">
+              <span className="text-xs font-semibold text-primary">{selectedIdxes.size}행 선택됨</span>
+              <button
+                onClick={() => setSelectedIdxes(new Set())}
+                className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                선택 해제
+              </button>
+            </div>
+          )}
+
+          {/* 범례 */}
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-100 border border-rose-300 inline-block" /> 기록없음</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 border border-orange-300 inline-block" /> 지각</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-300 inline-block" /> 가산필요</span>
+            {isSafetyEduDate && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-400 inline-block" /> 정기안전교육(16:20)</span>}
             <span className="text-[11px] text-muted-foreground">· 가산B 셀 클릭 시 수기 입력 가능</span>
           </div>
         </div>
@@ -1253,6 +1424,16 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <table className="min-w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-border bg-muted">
+                <th className={`${th} w-[36px]`}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                    onChange={toggleSelectAll}
+                    className="h-4 w-4 accent-primary cursor-pointer"
+                    title="전체 선택"
+                  />
+                </th>
                 <th className={th}>팀명</th>
                 <th className={th}>성명</th>
                 <th className={`${th} bg-violet-50`}>조출근무</th>
@@ -1272,7 +1453,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             <tbody>
               {displayRows.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={15} className="py-12 text-center text-sm text-muted-foreground">
                     "{search}"에 해당하는 데이터가 없습니다.
                   </td>
                 </tr>
@@ -1290,8 +1471,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             ? "bg-amber-50/40 hover:bg-amber-50/70"
                             : "hover:bg-muted/20";
 
+                  const isEarlyOutHighlight = isSafetyEduDate && (row.xerpOut === "16:20" || row.xerpOut === "16:20:00");
+                  const finalRowBg = isEarlyOutHighlight ? "bg-amber-50/60 hover:bg-amber-50/80" : rowBg;
                   return (
-                    <tr key={`${row.rowIndex}-${row.성명}`} className={`border-b border-border/60 last:border-0 transition-colors ${rowBg}`}>
+                    <tr key={`${row.rowIndex}-${row.성명}`} className={`border-b border-border/60 last:border-0 transition-colors ${finalRowBg}`}>
+                      <td className={`${cell} w-[36px]`}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIdxes.has(row.rowIndex)}
+                          onChange={() => toggleSelectRow(row.rowIndex)}
+                          className="h-4 w-4 accent-primary cursor-pointer"
+                        />
+                      </td>
                       <td className={cell}>{row.팀명 || "—"}</td>
                       <td className={`${cell} font-medium`}>{row.성명}</td>
 
