@@ -13,6 +13,16 @@ function parseMin(val: unknown): number | null {
   }
   const s = String(val).trim();
   if (!s) return null;
+  // "H:MM AM/PM" or "HH:MM:SS AM/PM" (Excel 12-hour format)
+  const ampm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+  if (ampm) {
+    let h = parseInt(ampm[1]);
+    const m = parseInt(ampm[2]);
+    const period = ampm[3].toUpperCase();
+    if (period === "AM" && h === 12) h = 0;
+    if (period === "PM" && h !== 12) h += 12;
+    return h * 60 + m;
+  }
   const hm = s.match(/^(\d{1,2}):(\d{2})/);
   if (hm) return parseInt(hm[1]) * 60 + parseInt(hm[2]);
   const d4 = s.match(/^(\d{2})(\d{2})$/);
@@ -846,7 +856,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     // 정기안전교육: 16:20 퇴근 → 계산공수 1, 가산사유 자동 설정
     if (isSafetyEduDate) {
       filtered = filtered.map((r) => {
-        if (r.xerpOut === "16:20" || r.xerpOut === "16:20:00") {
+        if (parseMin(r.xerpOut) === 16 * 60 + 20) {
           const xerpA = parseFloat(r.xerpGongsuA) || 0;
           const newDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
           return {
@@ -1494,7 +1504,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             ? "bg-amber-50/40 hover:bg-amber-50/70"
                             : "hover:bg-muted/20";
 
-                  const isEarlyOutHighlight = isSafetyEduDate && (row.xerpOut === "16:20" || row.xerpOut === "16:20:00");
+                  const isEarlyOutHighlight = isSafetyEduDate && parseMin(row.xerpOut) === 16 * 60 + 20;
                   const finalRowBg = isEarlyOutHighlight ? "bg-amber-50/60 hover:bg-amber-50/80" : rowBg;
                   return (
                     <tr key={`${row.rowIndex}-${row.성명}`} className={`border-b border-border/60 last:border-0 transition-colors ${finalRowBg}`}>
