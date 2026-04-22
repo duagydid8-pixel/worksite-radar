@@ -257,6 +257,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [originalBuffer, setOriginalBuffer] = useState<ArrayBuffer | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [teamFilter, setTeamFilter] = useState<string>("전체");
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -827,11 +828,20 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     else { setSortColWR(col); setSortDirWR("asc"); }
   };
 
+  const teamList = useMemo(() => {
+    const names = [...new Set(rows.map((r) => r.팀명).filter(Boolean))].sort();
+    return ["전체", ...names];
+  }, [rows]);
+
   const displayRows = useMemo(() => {
     const q = search.trim();
     let filtered = q
       ? rows.filter((r) => r.성명.includes(q) || r.팀명.includes(q))
       : [...rows];
+
+    if (teamFilter !== "전체") {
+      filtered = filtered.filter((r) => r.팀명 === teamFilter);
+    }
 
     // 정기안전교육: 16:20 퇴근 → 계산공수 1, 가산사유 자동 설정
     if (isSafetyEduDate) {
@@ -862,7 +872,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     }
 
     return filtered;
-  }, [rows, search, isSafetyEduDate, sortColWR, sortDirWR]);
+  }, [rows, search, teamFilter, isSafetyEduDate, sortColWR, sortDirWR]);
 
   // 일괄 선택
   const allSelected = displayRows.length > 0 && displayRows.every((r) => selectedIdxes.has(r.rowIndex));
@@ -1325,6 +1335,19 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 </button>
               )}
             </div>
+
+            {/* 팀명 필터 */}
+            {teamList.length > 2 && (
+              <select
+                value={teamFilter}
+                onChange={(e) => { setTeamFilter(e.target.value); setSelectedIdxes(new Set()); }}
+                className="border border-border rounded-lg px-3 py-2 text-sm font-semibold text-foreground bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              >
+                {teamList.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            )}
 
             {/* 정기안전교육 체크칸 */}
             <label
