@@ -63,19 +63,57 @@ function roundBy50(min: number): number {
 }
 
 /** 가산 사유 자동 추론 */
-function inferGasanReason(row: { xerpIn: string; xerpOut: string; rawOutMin: number | null }): string {
+function inferGasanReason(row: {
+  xerpIn: string; xerpOut: string;
+  pmisIn: string;
+  rawInMin: number | null; rawOutMin: number | null;
+  isLate: boolean; standardStart: number;
+}): string {
+  const reasons: string[] = [];
   const noXerpIn  = !row.xerpIn;
   const noXerpOut = !row.xerpOut;
   const hasOvertime = row.rawOutMin !== null && row.rawOutMin > STANDARD_END;
+  const jochulCutoff = row.standardStart + 10;
 
-  if (noXerpIn && noXerpOut) return "출퇴근미타각(주간)";
-  if (noXerpOut) return hasOvertime ? "퇴근미타각(연장)" : "퇴근미타각(주간)";
-  if (noXerpIn)  return "출근미타각(주간)";
-  if (hasOvertime) {
-    const h = (row.rawOutMin! - STANDARD_END) / 60;
-    return `${h}h 연장근무`;
+  const xerpInMin = parseMin(row.xerpIn);
+  const pmisInMin = parseMin(row.pmisIn);
+
+  // 출근 관련 사유 판별
+  if (noXerpIn && noXerpOut) {
+    reasons.push("출퇴근미타각(주간)");
+  } else if (noXerpIn) {
+    reasons.push("출근미타각(주간)");
+  } else {
+    // PMIS는 기준 전, XERP는 늦게 찍힌 경우 → 출근 타각 지연
+    const pmisOnTime = pmisInMin !== null && pmisInMin <= row.standardStart;
+    const xerpLate   = xerpInMin !== null && xerpInMin > row.standardStart;
+    if (pmisOnTime && xerpLate) {
+      reasons.push(`출근타각지연(XERP ${row.xerpIn})`);
+    }
+    // 유예 10분 내 지각 → 인정 처리 (isLate = false 이지만 rawInMin이 기준 초과)
+    else if (
+      row.rawInMin !== null &&
+      row.rawInMin > row.standardStart &&
+      row.rawInMin < jochulCutoff &&
+      !row.isLate
+    ) {
+      if (xerpInMin !== null && xerpInMin > row.standardStart) {
+        const lateMin = xerpInMin - row.standardStart;
+        const types = hasOvertime ? "주간, 연장" : "주간";
+        reasons.push(`지각${lateMin}분인정(${types})`);
+      }
+    }
   }
-  return "";
+
+  // 퇴근 관련 사유
+  if (noXerpOut && !noXerpIn) {
+    reasons.push(hasOvertime ? "퇴근미타각(연장)" : "퇴근미타각(주간)");
+  } else if (!noXerpOut && hasOvertime) {
+    const h = (row.rawOutMin! - STANDARD_END) / 60;
+    reasons.push(`${h}h 연장근무`);
+  }
+
+  return reasons.join(" / ");
 }
 
 /** 지각 시 출근 시간을 다음 정각으로 올림 (ex. 16:37 → 17:00) */
@@ -555,7 +593,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           rawInMin, rawOutMin, isJochul,
           effIn, effOut, xerpGongsuA,
           calcGongsuVal, diff,
-          가산사유: needsUpdate ? inferGasanReason({ xerpIn: xerpInStr, xerpOut: xerpOutStr, rawOutMin }) : "",
+          가산사유: needsUpdate ? inferGasanReason({ xerpIn: xerpInStr, xerpOut: xerpOutStr, pmisIn: pmisInStr, rawInMin, rawOutMin, isLate, standardStart: cfg.standardStart }) : "",
           needsUpdate, isNoRecord, isLate,
           standardStart: cfg.standardStart,
           isNewEmployee, isWaeju,
