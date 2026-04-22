@@ -542,6 +542,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [uploadDate, setUploadDate] = useState<string>(TODAY);
   const [search, setSearch] = useState("");
   const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 달력 모달 상태
@@ -640,6 +641,9 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     });
   }, []);
 
+  // 날짜 변경 시 선택 초기화
+  useEffect(() => { setSelectedIds(new Set()); }, [selectedDate]);
+
   // Firestore 저장 헬퍼
   const syncXerpFS = (map: DateMap) => {
     saveXerp(map).then((ok) => {
@@ -672,6 +676,56 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     }
     return rows;
   }, [currentRows, search, sortCol, sortDir]);
+
+  // ── 일괄 선택 ──
+  const allSelected = displayRows.length > 0 && displayRows.every((r) => selectedIds.has(r.id));
+  const someSelected = !allSelected && displayRows.some((r) => selectedIds.has(r.id));
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        displayRows.forEach((r) => next.delete(r.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        displayRows.forEach((r) => next.add(r.id));
+        return next;
+      });
+    }
+  };
+
+  const toggleSelectRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleExportSelected = () => {
+    const rows = currentRows.filter((r) => selectedIds.has(r.id));
+    if (rows.length === 0) return;
+    const headers = [
+      "팀명","직종","사번","성명","생년월일",
+      "X-ERP 출근","X-ERP 퇴근","PMIS 출근","PMIS 퇴근",
+      "조출","오전","오후","연장","야간","철야","점심","공수합계A",
+      "초과당일","초과합계","가산신청","가산승인","공수합계(A+B)","월누계",
+    ];
+    const dataRows = rows.map((r) => [
+      r.팀명,r.직종,r.사번,r.성명,r.생년월일,
+      r.xerp출근,r.xerp퇴근,r.pmis출근,r.pmis퇴근,
+      r.조출,r.오전,r.오후,r.연장,r.야간,r.철야,r.점심,r.공수합계A,
+      r.초과당일,r.초과합계,r.가산신청,r.가산승인,r.공수합계AB,r.월누계,
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    ws["!cols"] = headers.map(() => ({ wch: 10 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "선택행");
+    XLSX.writeFile(wb, `선택행_${selectedDate.replace(/-/g,"")}.xlsx`);
+  };
 
   // ── 업로드 (다중 파일 지원) ──
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -924,6 +978,39 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           </div>
         )}
 
+        {/* ── 정렬 버튼 ── */}
+        <div className="flex items-center gap-1.5 bg-white border border-border rounded-lg px-3 py-1.5">
+          <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap mr-1">정렬</span>
+          {([
+            { col: "xerp출근" as const, label: "X출근" },
+            { col: "xerp퇴근" as const, label: "X퇴근" },
+            { col: "pmis출근" as const, label: "P출근" },
+            { col: "pmis퇴근" as const, label: "P퇴근" },
+          ]).map(({ col, label }) => (
+            <button
+              key={col}
+              onClick={() => handleSort(col)}
+              className={`flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors
+                ${sortCol === col
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
+            >
+              {label}
+              {sortCol === col
+                ? (sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+                : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+            </button>
+          ))}
+          {sortCol && (
+            <button
+              onClick={() => { setSortCol(null); setSortDir("asc"); }}
+              className="ml-1 text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded-md hover:bg-muted transition-colors"
+            >
+              초기화
+            </button>
+          )}
+        </div>
+
         <button
           onClick={handleExport}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
@@ -933,6 +1020,26 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
         </button>
       </div>
 
+      {/* ── 선택 행 액션바 ── */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-xl px-4 py-2.5 shrink-0">
+          <span className="text-xs font-semibold text-primary">{selectedIds.size}행 선택됨</span>
+          <button
+            onClick={handleExportSelected}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-primary/30 bg-white text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            선택 행 내보내기
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            선택 해제
+          </button>
+        </div>
+      )}
+
       {/* ── 테이블 ── */}
       <div
         className="overflow-auto rounded-xl border border-border bg-white shadow-sm"
@@ -941,6 +1048,16 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
         <table className="min-w-full text-xs border-collapse">
           <thead>
             <tr className="border-b border-border bg-muted/50">
+              <th rowSpan={2} className={th("w-[36px]")}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                  onChange={toggleSelectAll}
+                  className="h-4 w-4 accent-primary cursor-pointer"
+                  title="전체 선택"
+                />
+              </th>
               <th rowSpan={2} className={th("w-[72px]")}>팀명</th>
               <th rowSpan={2} className={th("w-[72px]")}>직종</th>
               <th rowSpan={2} className={th("w-[72px]")}>사번</th>
@@ -974,7 +1091,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={24} className="py-16 text-center text-muted-foreground text-sm">
+                <td colSpan={25} className="py-16 text-center text-muted-foreground text-sm">
                   {availableDates.length === 0
                     ? isAdmin ? "엑셀을 업로드하여 날짜별 데이터를 저장하세요." : "저장된 데이터가 없습니다."
                     : search
@@ -991,6 +1108,14 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                   : hasGaasan ? "bg-amber-50/40 hover:bg-amber-50/70" : "hover:bg-muted/20";
                 return (
                 <tr key={row.id} className={`border-b border-border/60 last:border-0 transition-colors ${rowBg}`}>
+                  <td className={`${cell} w-[36px]`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(row.id)}
+                      onChange={() => toggleSelectRow(row.id)}
+                      className="h-4 w-4 accent-primary cursor-pointer"
+                    />
+                  </td>
                   <td className={cell}>{row.팀명||"—"}</td>
                   <td className={cell}>{row.직종||"—"}</td>
                   <td className={cell}>{row.사번||"—"}</td>
