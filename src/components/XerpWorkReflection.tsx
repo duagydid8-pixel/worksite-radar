@@ -48,10 +48,12 @@ function isWaejuTeam(팀명: string): boolean {
 }
 
 // ── 팀별 출근 기준 시간 ────────────────────────────────
-interface TeamConfig { standardStart: number; jochulCutoff: number; }
+interface TeamConfig { standardStart: number; jochulCutoff: number; breakStart: number; breakEnd: number; }
 function getTeamConfig(팀명: string): TeamConfig {
-  if (팀명.includes("태화_S")) return { standardStart: 7 * 60 + 30, jochulCutoff: 7 * 60 + 40 };
-  return { standardStart: 7 * 60, jochulCutoff: 7 * 60 + 10 };
+  // 기본: 07:00 출근, 11:00~13:00 휴게+점심 (오전4h + 오후4h = 8h 기준)
+  // 태화_S: 07:30 출근, 11:30~13:00 휴게+점심 (오전4h + 오후4h = 8h 기준)
+  if (팀명.includes("태화_S")) return { standardStart: 7 * 60 + 30, jochulCutoff: 7 * 60 + 40, breakStart: 11 * 60 + 30, breakEnd: 13 * 60 };
+  return { standardStart: 7 * 60, jochulCutoff: 7 * 60 + 10, breakStart: 11 * 60, breakEnd: 13 * 60 };
 }
 
 function roundBy50(min: number): number {
@@ -110,20 +112,26 @@ function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | null {
 function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul: boolean, cfg: TeamConfig): number | null {
   if (effInMin === null || effOutMin === null) return null;
 
-  const { standardStart } = cfg;
+  const { standardStart, breakStart, breakEnd } = cfg;
+  // 팀 기준 하루 실근무 = 오전(breakStart-standardStart) + 오후(STANDARD_END-breakEnd)
+  const standardWorkMin = (breakStart - standardStart) + (STANDARD_END - breakEnd);
 
   // 지각 시 출근 올림 처리 (standardStart 이후 지각만 적용)
   const ceiledIn = effInMin > standardStart ? ceilToHour(effInMin) : effInMin;
-  // 지각으로 인한 손실 시간 (시간 단위로 올림된 값 - 기준 출근)
-  const lateMin = effInMin > standardStart ? (ceiledIn - standardStart) : 0;
+  const lateMin  = effInMin > standardStart ? (ceiledIn - standardStart) : 0;
 
-  // 표준 시간대(standardStart~17:00) 내 실근무 분
-  const stdFrom    = Math.max(ceiledIn, standardStart);
-  const stdWorkMin = Math.max(0, Math.min(effOutMin, STANDARD_END) - stdFrom);
+  const stdIn  = Math.max(ceiledIn, standardStart);
+  const stdOut = Math.min(effOutMin, STANDARD_END);
 
-  // 주간 공수: 지각 손실분(시간 단위) 차감 후 계산
-  const effectiveWorkMin = Math.min(stdWorkMin, STANDARD_WORK_MIN - lateMin);
-  const stdGongsu = Math.max(0, effectiveWorkMin / STANDARD_WORK_MIN);
+  // 오전 근무 (휴게 시작 전)
+  const morningMin   = Math.max(0, Math.min(stdOut, breakStart) - stdIn);
+  // 오후 근무 (휴게 종료 후)
+  const afternoonMin = Math.max(0, stdOut - Math.max(stdIn, breakEnd));
+  const stdWorkMin   = morningMin + afternoonMin;
+
+  // 지각 손실분 차감 후 공수 계산
+  const effectiveWorkMin = Math.min(stdWorkMin, standardWorkMin - lateMin);
+  const stdGongsu = Math.max(0, effectiveWorkMin / standardWorkMin);
 
   // 연장 시간 (17:00 이후) — 주간 충족 여부에 따라 단가 분기
   const overtimeMin    = Math.max(0, effOutMin - STANDARD_END);
