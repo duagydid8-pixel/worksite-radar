@@ -788,12 +788,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const ws = wb.worksheets[0];
       if (!ws) { toast.error("시트를 찾을 수 없습니다."); return; }
 
-      // 헤더 행 X열에 "가산사유" 삽입
+      // 헤더 행 Z열에 "가산사유" 삽입
       const firstDataRowIndex = rows.length > 0 ? Math.min(...rows.map((r) => r.rowIndex)) : -1;
       if (firstDataRowIndex > 0) {
-        // firstDataRowIndex = 0-based 배열 인덱스 → Excel 1-based 행 번호와 동일
-        // (header row: Excel row firstDataRowIndex, data rows: Excel row firstDataRowIndex+1~)
-        ws.getCell(firstDataRowIndex, 24).value = "가산사유";
+        ws.getCell(firstDataRowIndex, 26).value = "가산사유";
       }
 
       for (const row of rows) {
@@ -820,9 +818,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const gongsuAB = Math.round((gongsuA + effectiveDiff) * 100) / 100;
         ws.getCell(excelRow, 22).value = gongsuAB;
 
-        // X열 (col 24, 0-based 23): 가산사유
+        // Z열 (col 26, 0-based 25): 가산사유 (X열은 작업내용 컬럼이므로 건드리지 않음)
         if (effectiveReason) {
-          ws.getCell(excelRow, 24).value = effectiveReason;
+          ws.getCell(excelRow, 26).value = effectiveReason;
         }
       }
 
