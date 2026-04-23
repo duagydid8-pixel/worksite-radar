@@ -917,7 +917,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
   // ── th 헬퍼 ──
   const th = (extra = "") =>
-    `px-2 py-2 text-[11px] font-semibold text-muted-foreground whitespace-nowrap bg-muted/50 text-center border-r border-border/40 last:border-r-0 sticky top-0 z-20 ${extra}`;
+    `px-2 py-2 text-[11px] font-semibold text-muted-foreground whitespace-nowrap bg-muted text-center border-r border-border/40 last:border-r-0 sticky top-0 z-20 ${extra}`;
 
   return (
     <div className="flex flex-col gap-3">
@@ -1122,7 +1122,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       >
         <table className="min-w-full text-xs border-collapse">
           <thead>
-            <tr className="border-b border-border bg-muted/50">
+            <tr className="border-b border-border bg-muted">
               <th rowSpan={2} className={th("w-[36px]")}>
                 <input
                   type="checkbox"
@@ -1146,7 +1146,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
               <th rowSpan={2} className={th()}>공수합계<br />(A+B)</th>
               <th rowSpan={2} className={th()}>월누계</th>
             </tr>
-            <tr className="border-b border-border bg-muted/40">
+            <tr className="border-b border-border bg-muted">
               {(["xerp출근","xerp퇴근","pmis출근","pmis퇴근"] as const).map((col, i) => (
                 <th key={col} className={`${th()} cursor-pointer select-none hover:bg-muted/80 transition-colors`}
                   onClick={() => handleSort(col)}>
