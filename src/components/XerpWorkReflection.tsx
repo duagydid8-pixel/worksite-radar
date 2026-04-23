@@ -998,7 +998,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       {/* 신규자 명단 패널 */}
       {showNewEmpList && newEmpData.size > 0 && (() => {
         const newEmpRows = rows.filter((r) => r.isNewEmployee);
-        const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-sky-50 border-r border-sky-100 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
+        const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-sky-100 border-r border-sky-200 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
         const stc = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-sky-50 last:border-r-0";
         return (
           <div className="rounded-xl border border-sky-200 bg-white shadow-sm overflow-hidden shrink-0">
@@ -1073,7 +1073,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 if (unmatched.length === 0) return null;
                 return (
                   <div className="border-l border-sky-200 min-w-[140px] bg-slate-50/60">
-                    <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 border-b border-sky-100 sticky top-0 bg-slate-50">
+                    <div className="px-3 py-2 text-[11px] font-semibold text-slate-500 border-b border-sky-100 sticky top-0 bg-slate-100">
                       XERP 미매칭 ({unmatched.length}명)
                     </div>
                     <ul className="p-2 space-y-1.5">
@@ -1263,7 +1263,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const isZeroGongsu = (r: ProcessedRow) =>
           !r.isWaeju && !r.isNoRecord && (parseFloat(r.xerpGongsuA) === 0 || r.calcGongsuVal === 0);
         const specialRows = rows.filter((r) => !r.isWaeju && (r.isNoRecord || r.isLate || r.needsUpdate || isZeroGongsu(r)));
-        const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-slate-100 border-r border-slate-200 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
+        const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-slate-200 border-r border-slate-300 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
         const stc = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-slate-100 last:border-r-0";
         return (
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden shrink-0">

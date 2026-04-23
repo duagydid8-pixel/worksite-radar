@@ -283,7 +283,7 @@ export default function AnnualLeavePanel({ leaveEmployees, leaveDetails, rowOrde
           ) : (
             <div className="overflow-y-auto max-h-72 rounded-lg border border-border">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm">
+                <thead className="sticky top-0 bg-muted">
                   <tr className="border-b border-border">
                     <th className="px-3 py-2 text-left text-muted-foreground font-semibold">날짜</th>
                     <th className="px-3 py-2 text-center text-muted-foreground font-semibold">사용일수</th>
