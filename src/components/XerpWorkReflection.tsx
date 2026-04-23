@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, History, ChevronDown, ChevronUp } from "lucide-react";
 import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 
@@ -777,75 +778,83 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!originalBuffer || !fileName) return;
-    // 원본 버퍼에서 직접 읽어 서식(테두리 등) 완전 보존
-    const wbCopy = XLSX.read(new Uint8Array(originalBuffer), { type: "array", cellStyles: true });
-    const ws = wbCopy.Sheets[wbCopy.SheetNames[0]];
+    try {
+      // ExcelJS로 읽어야 테두리·셀병합 등 원본 서식이 완전 보존됨
+      // (XLSX 무료판은 cellStyles 쓰기가 불완전하여 XERP 반영 불가)
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(originalBuffer);
+      const ws = wb.worksheets[0];
+      if (!ws) { toast.error("시트를 찾을 수 없습니다."); return; }
 
-    // 헤더 행 찾기 (첫 데이터 rowIndex 바로 위 행)
-    const firstDataRowIndex = rows.length > 0 ? Math.min(...rows.map((r) => r.rowIndex)) : -1;
-    if (firstDataRowIndex > 0) {
-      const headerAddr = `${XLSX.utils.encode_col(23)}${firstDataRowIndex}`;
-      ws[headerAddr] = { t: "s", v: "가산사유", w: "가산사유" };
-    }
+      // 헤더 행 X열에 "가산사유" 삽입
+      const firstDataRowIndex = rows.length > 0 ? Math.min(...rows.map((r) => r.rowIndex)) : -1;
+      if (firstDataRowIndex > 0) {
+        // firstDataRowIndex = 0-based 배열 인덱스 → Excel 1-based 행 번호와 동일
+        // (header row: Excel row firstDataRowIndex, data rows: Excel row firstDataRowIndex+1~)
+        ws.getCell(firstDataRowIndex, 24).value = "가산사유";
+      }
 
-    for (const row of rows) {
-      if (row.diff === null) continue;
+      for (const row of rows) {
+        if (row.diff === null) continue;
 
-      // 정기안전교육 날짜이면 16:20~17:00 퇴근 행에 보정 적용
-      let effectiveDiff = row.diff;
-      let effectiveReason = row.가산사유;
-      if (isSafetyEduDate) {
-        const outMin = parseMin(row.xerpOut);
-        if (outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60) {
-          const xerpA = parseFloat(row.xerpGongsuA) || 0;
-          effectiveDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
-          effectiveReason = "정기안전교육으로 빠른퇴근타각";
+        let effectiveDiff = row.diff;
+        let effectiveReason = row.가산사유;
+        if (isSafetyEduDate) {
+          const outMin = parseMin(row.xerpOut);
+          if (outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60) {
+            const xerpA = parseFloat(row.xerpGongsuA) || 0;
+            effectiveDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
+            effectiveReason = "정기안전교육으로 빠른퇴근타각";
+          }
+        }
+
+        const excelRow = row.rowIndex + 1; // 0-based → 1-based
+
+        // T열 (col 20, 0-based 19): 가산공수(B) 신청
+        ws.getCell(excelRow, 20).value = effectiveDiff;
+
+        // V열 (col 22, 0-based 21): 공수합계 (A+B)
+        const gongsuA = parseFloat(row.xerpGongsuA) || 0;
+        const gongsuAB = Math.round((gongsuA + effectiveDiff) * 100) / 100;
+        ws.getCell(excelRow, 22).value = gongsuAB;
+
+        // X열 (col 24, 0-based 23): 가산사유
+        if (effectiveReason) {
+          ws.getCell(excelRow, 24).value = effectiveReason;
         }
       }
 
-      // T열 (index 19): 가산공수(B) 신청
-      const tAddr = `${XLSX.utils.encode_col(19)}${row.rowIndex + 1}`;
-      const tCell = ws[tAddr];
-      ws[tAddr] = { ...(tCell ?? {}), t: "n", v: effectiveDiff, w: String(effectiveDiff) };
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const outName = fileName.replace(/\.xlsx?$/i, "") + "_공수반영.xlsx";
+      a.href = url;
+      a.download = outName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
 
-      // V열 (index 21): 공수합계 (A+B)
-      const gongsuA = parseFloat(row.xerpGongsuA) || 0;
-      const gongsuAB = Math.round((gongsuA + effectiveDiff) * 100) / 100;
-      const vAddr = `${XLSX.utils.encode_col(21)}${row.rowIndex + 1}`;
-      const vCell = ws[vAddr];
-      ws[vAddr] = { ...(vCell ?? {}), t: "n", v: gongsuAB, w: String(gongsuAB) };
+      toast.success("수정된 파일을 다운로드했습니다.");
 
-      // X열 (index 23): 가산사유
-      if (effectiveReason) {
-        const xAddr = `${XLSX.utils.encode_col(23)}${row.rowIndex + 1}`;
-        ws[xAddr] = { t: "s", v: effectiveReason, w: effectiveReason };
-      }
+      const entry: DownloadHistoryEntry = {
+        downloadedAt: new Date().toISOString(),
+        workDate,
+        fileName: outName,
+        rowCount: rows.filter((r) => r.diff !== null).length,
+      };
+      addDownloadHistoryFS(entry).then(() => {
+        setDownloadHistory((prev) => [entry, ...prev].slice(0, 100));
+      });
+    } catch (e) {
+      console.error("[handleDownload]", e);
+      toast.error("다운로드 중 오류가 발생했습니다.");
     }
-
-    // 시트 범위 확장 (X열까지)
-    const ref = ws["!ref"];
-    if (ref) {
-      const range = XLSX.utils.decode_range(ref);
-      if (range.e.c < 23) range.e.c = 23;
-      ws["!ref"] = XLSX.utils.encode_range(range);
-    }
-
-    const outName = fileName.replace(/\.xlsx?$/i, "") + "_공수반영.xlsx";
-    XLSX.writeFile(wbCopy, outName, { cellStyles: true, bookType: "xlsx" });
-    toast.success("수정된 파일을 다운로드했습니다.");
-
-    // 이력 저장
-    const entry: DownloadHistoryEntry = {
-      downloadedAt: new Date().toISOString(),
-      workDate,
-      fileName: outName,
-      rowCount: rows.filter((r) => r.diff !== null).length,
-    };
-    addDownloadHistoryFS(entry).then(() => {
-      setDownloadHistory((prev) => [entry, ...prev].slice(0, 100));
-    });
   };
 
   // 정기안전교육
