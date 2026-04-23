@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Plus, Trash2, Search, X, Download, Upload, Pencil, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Search, X, Download, Upload, FolderOpen, Pencil, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import {
@@ -332,6 +332,53 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
     reader.readAsArrayBuffer(file);
   };
 
+  const handleFolderImport = async () => {
+    if (!("showDirectoryPicker" in window)) {
+      toast.error("이 브라우저는 폴더 선택을 지원하지 않습니다. Chrome/Edge를 사용해주세요.");
+      return;
+    }
+    let dirHandle: FileSystemDirectoryHandle;
+    try {
+      dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker();
+    } catch {
+      return;
+    }
+
+    // 폴더 내 xlsx 파일 수집
+    const candidates: { name: string; handle: FileSystemFileHandle }[] = [];
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind !== "file") continue;
+      if (!/\.xlsx?$/i.test(name)) continue;
+      candidates.push({ name, handle: handle as FileSystemFileHandle });
+    }
+
+    if (candidates.length === 0) {
+      toast.error("폴더에 Excel 파일이 없습니다.");
+      return;
+    }
+
+    // "신규자명단" 또는 "UI 업로드" 포함 파일 우선, 없으면 첫 번째 파일
+    const target =
+      candidates.find((c) => /신규자명단|UI.?업로드/i.test(c.name)) ??
+      candidates[0];
+
+    try {
+      const file = await target.handle.getFile();
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: false });
+      const imported = parseImportedSheet(wb);
+      if (imported.length === 0) {
+        toast.error(`${target.name}: 데이터를 찾을 수 없습니다. 헤더 행을 확인하세요.`);
+        return;
+      }
+      setRows(imported);
+      syncFS(imported);
+      toast.success(`${target.name} — ${imported.length}명 불러오기 완료`);
+    } catch {
+      toast.error(`${target.name}: 파일을 읽는 중 오류가 발생했습니다.`);
+    }
+  };
+
   const exportToExcel = () => {
     const headers = [
       "No", "현장구분", "이름", "주민번호", "연락처", "연령", "남/여",
@@ -623,6 +670,14 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
         >
           <Upload className="h-4 w-4 text-muted-foreground" />
           엑셀 업로드
+        </button>
+        <button
+          onClick={handleFolderImport}
+          title="폴더를 선택하면 신규자명단(UI 업로드).xlsx 파일을 자동으로 불러옵니다"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors"
+        >
+          <FolderOpen className="h-4 w-4" />
+          폴더에서 불러오기
         </button>
         <button
           onClick={exportToExcel}
