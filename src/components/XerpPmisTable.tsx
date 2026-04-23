@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, X, Download, Upload, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, X, Download, Upload, FolderOpen, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, saveSafetyEduDatesFS } from "@/lib/firestoreService";
@@ -161,11 +161,11 @@ function detectConsecutiveAbsences(dateMap: DateMap): XerpPmisRow[] {
 }
 
 // ── 파일명에서 날짜 추출 ──────────────────────────────
-// YYYYMMDD, YYYY-MM-DD, YYYY.MM.DD 등 패턴을 찾아 "YYYY-MM-DD" 반환
+// YYYYMMDD, YYYY-MM-DD, YYYY.MM.DD, YY.MM.DD 등 패턴을 찾아 "YYYY-MM-DD" 반환
 function extractDateFromFilename(filename: string): string | null {
   const name = filename.replace(/\.[^.]+$/, "");
 
-  // YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD
+  // YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD (4자리 연도 우선)
   const sep = name.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
   if (sep) {
     const [, y, m, d] = sep;
@@ -177,6 +177,18 @@ function extractDateFromFilename(filename: string): string | null {
   const compact = name.match(/(\d{4})(\d{2})(\d{2})/);
   if (compact) {
     const [, y, m, d] = compact;
+    const mo = Number(m), dy = Number(d);
+    if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
+      const date = new Date(`${y}-${m}-${d}T00:00:00`);
+      if (!isNaN(date.getTime())) return `${y}-${m}-${d}`;
+    }
+  }
+
+  // YY.MM.DD (2자리 연도, 예: 26.04.01 → 2026-04-01)
+  const yy = name.match(/(?<!\d)(\d{2})\.(\d{2})\.(\d{2})(?!\d)/);
+  if (yy) {
+    const [, y2, m, d] = yy;
+    const y = `20${y2}`;
     const mo = Number(m), dy = Number(d);
     if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
       const date = new Date(`${y}-${m}-${d}T00:00:00`);
@@ -767,6 +779,61 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     }
   };
 
+  // ── 폴더 일괄 업로드 (File System Access API) ──
+  const handleFolderUpload = async () => {
+    if (!("showDirectoryPicker" in window)) {
+      toast.error("이 브라우저는 폴더 선택을 지원하지 않습니다. Chrome/Edge를 사용해주세요.");
+      return;
+    }
+    let dirHandle: FileSystemDirectoryHandle;
+    try {
+      dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker();
+    } catch {
+      return; // 사용자가 취소
+    }
+
+    let newMap = { ...dateMap };
+    let successCount = 0;
+    let lastSavedDate = uploadDate;
+    const errors: string[] = [];
+
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind !== "file") continue;
+      if (!/\.xlsx?$/i.test(name)) continue;
+
+      const dateToUse = extractDateFromFilename(name);
+      if (!dateToUse) continue; // 날짜 없는 파일은 건너뜀
+
+      try {
+        const file = await (handle as FileSystemFileHandle).getFile();
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
+        const imported = parseSheet(wb);
+        if (imported.length === 0) {
+          errors.push(`${name}: 데이터 없음`);
+          continue;
+        }
+        newMap = { ...newMap, [dateToUse]: imported };
+        lastSavedDate = dateToUse;
+        successCount++;
+      } catch {
+        errors.push(`${name}: 읽기 오류`);
+      }
+    }
+
+    if (successCount > 0) {
+      setDateMap(newMap);
+      syncXerpFS(newMap);
+      setSelectedDate(lastSavedDate);
+      toast.success(`폴더에서 ${successCount}개 파일 업로드 완료`);
+    } else {
+      toast.error("날짜가 포함된 Excel 파일을 찾지 못했습니다.");
+    }
+    if (errors.length > 0) {
+      toast.error(`오류: ${errors.slice(0, 3).join(", ")}${errors.length > 3 ? ` 외 ${errors.length - 3}건` : ""}`);
+    }
+  };
+
   // ── 날짜 삭제 ──
   const handleDeleteDate = (date: string) => {
     if (!window.confirm(`${formatLabel(date)} 데이터를 삭제하시겠습니까?`)) return;
@@ -974,6 +1041,14 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
             >
               <Upload className="h-3.5 w-3.5" />
               업로드
+            </button>
+            <button
+              onClick={handleFolderUpload}
+              title="폴더를 선택하면 안에 있는 모든 Excel 파일을 날짜별로 자동 업로드"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              폴더 일괄
             </button>
           </div>
         )}
