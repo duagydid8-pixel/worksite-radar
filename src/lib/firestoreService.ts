@@ -338,6 +338,51 @@ export async function addDownloadHistoryFS(entry: DownloadHistoryEntry): Promise
   return fsSet("xerp_download_history", { history: updated });
 }
 
+// ── 지출결의서 ───────────────────────────────────────
+export interface ExpenseCatalogItem {
+  id: string;
+  name: string;       // 항목명
+  unit: string;       // 단위
+  defaultPrice: number; // 기본단가
+  note: string;
+}
+
+export interface ExpenseLineItem {
+  id: string;
+  name: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  note: string;
+}
+
+export interface ExpenseReport {
+  id: string;
+  title: string;
+  yearMonth: string;   // YYYY-MM
+  writtenDate: string; // 작성일
+  paymentDate: string; // 지급요청일
+  department: string;
+  items: ExpenseLineItem[];
+  savedAt: string;
+}
+
+export async function loadExpenseCatalogFS(): Promise<ExpenseCatalogItem[]> {
+  const data = await fsGet<{ items: ExpenseCatalogItem[] }>("expense_catalog");
+  return data?.items ?? [];
+}
+export async function saveExpenseCatalogFS(items: ExpenseCatalogItem[]): Promise<boolean> {
+  return fsSet("expense_catalog", { items });
+}
+
+export async function loadExpenseReportsFS(): Promise<ExpenseReport[]> {
+  const data = await fsGet<{ reports: ExpenseReport[] }>("expense_reports");
+  return data?.reports ?? [];
+}
+export async function saveExpenseReportsFS(reports: ExpenseReport[]): Promise<boolean> {
+  return fsSet("expense_reports", { reports });
+}
+
 export function subscribeScheduleFS(
   callback: (data: ScheduleData | null) => void,
 ): () => void {
