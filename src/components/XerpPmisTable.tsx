@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, X, Download, Upload, FolderOpen, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, X, Download, Upload, FolderOpen, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown, BarChart2, MessageSquare, TrendingUp } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, saveSafetyEduDatesFS } from "@/lib/firestoreService";
+import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS } from "@/lib/firestoreService";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -158,6 +158,61 @@ function detectConsecutiveAbsences(dateMap: DateMap): XerpPmisRow[] {
   }
 
   return result;
+}
+
+// ── 지각 판별 (7:10 이후 출근) ───────────────────────────
+function isLateTime(timeStr: string): boolean {
+  if (!timeStr) return false;
+  const m = timeStr.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return false;
+  const h = parseInt(m[1]), min = parseInt(m[2]);
+  return h > 7 || (h === 7 && min > 10);
+}
+
+// ── 직원별 월별 통계 ──────────────────────────────────
+interface EmpMonthlyStat {
+  팀명: string; 직종: string; 사번: string; 성명: string;
+  출역일수: number; 지각횟수: number; 결근일수: number; 총공수A: number;
+}
+function calcMonthlyStats(dateMap: DateMap): EmpMonthlyStat[] {
+  const allDates = Object.keys(dateMap).sort();
+  const weekdayDates = allDates.filter((d) => {
+    const dow = new Date(d + "T00:00:00").getDay();
+    return dow >= 1 && dow <= 5;
+  });
+
+  const empMap = new Map<string, EmpMonthlyStat & { firstDate: string; workedDates: Set<string> }>();
+
+  for (const [date, rows] of Object.entries(dateMap)) {
+    for (const row of rows) {
+      if (!row.성명) continue;
+      const key = row.사번 || row.성명;
+      if (!empMap.has(key)) {
+        empMap.set(key, { 팀명: row.팀명, 직종: row.직종, 사번: row.사번, 성명: row.성명,
+          출역일수: 0, 지각횟수: 0, 결근일수: 0, 총공수A: 0, firstDate: date, workedDates: new Set() });
+      }
+      const stat = empMap.get(key)!;
+      if (date < stat.firstDate) stat.firstDate = date;
+      const inTime = row.xerp출근 || row.pmis출근;
+      if (inTime) {
+        stat.출역일수++;
+        stat.workedDates.add(date);
+        if (isLateTime(inTime)) stat.지각횟수++;
+      }
+      const gongsu = parseFloat(row.공수합계A) || 0;
+      stat.총공수A += gongsu;
+    }
+  }
+
+  for (const stat of empMap.values()) {
+    for (const d of weekdayDates) {
+      if (d < stat.firstDate) continue;
+      if (!stat.workedDates.has(d)) stat.결근일수++;
+    }
+  }
+
+  return Array.from(empMap.values())
+    .sort((a, b) => a.팀명.localeCompare(b.팀명) || a.성명.localeCompare(b.성명));
 }
 
 // ── 파일명에서 날짜 추출 ──────────────────────────────
@@ -555,6 +610,10 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [search, setSearch] = useState("");
   const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"daily" | "stats">("daily");
+  const [dateMemos, setDateMemos] = useState<Record<string, string>>({});
+  const [memoInput, setMemoInput] = useState("");
+  const [isSavingMemo, setIsSavingMemo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 달력 모달 상태
@@ -605,6 +664,15 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
   }, [dateMap, resignedNames]);
 
+  // 월별 통계
+  const monthlyStats = useMemo(() => calcMonthlyStats(dateMap), [dateMap]);
+
+  // 이상 근태: 지각 3회 이상 — 퇴사자 제외
+  const frequentLate = useMemo(
+    () => monthlyStats.filter((s) => s.지각횟수 >= 3 && !resignedNames.has(s.성명)),
+    [monthlyStats, resignedNames]
+  );
+
   const isSafetyEduDate = safetyEduDates.has(selectedDate);
 
   const toggleSafetyEdu = () => {
@@ -651,10 +719,27 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     loadSafetyEduDatesFS().then((dates) => {
       setSafetyEduDates(new Set(dates));
     });
+
+    loadDateMemosFS(site).then((memos) => {
+      setDateMemos(memos);
+    });
   }, []);
 
-  // 날짜 변경 시 선택 초기화
-  useEffect(() => { setSelectedIds(new Set()); }, [selectedDate]);
+  // 날짜 변경 시 선택 초기화 + 메모 동기화
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setMemoInput(dateMemos[selectedDate] ?? "");
+  }, [selectedDate, dateMemos]);
+
+  const saveMemo = async () => {
+    setIsSavingMemo(true);
+    const updated = { ...dateMemos, [selectedDate]: memoInput };
+    if (!memoInput.trim()) delete updated[selectedDate];
+    const ok = await saveDateMemosFS(site, updated);
+    if (ok) { setDateMemos(updated); toast.success("메모 저장 완료"); }
+    else toast.error("메모 저장 실패");
+    setIsSavingMemo(false);
+  };
 
   // Firestore 저장 헬퍼
   const syncXerpFS = (map: DateMap) => {
@@ -928,6 +1013,32 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       {/* ── 제목 ── */}
       <h2 className="text-lg font-bold text-foreground shrink-0">XERP &amp; PMIS</h2>
 
+      {/* ── 이상 근태 배너 ── */}
+      {frequentLate.length > 0 && (
+        <div className="flex items-start gap-3 bg-orange-50 border border-orange-300 rounded-xl px-4 py-3 shrink-0">
+          <TrendingUp className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+          <div className="flex flex-col gap-2 min-w-0">
+            <span className="text-sm font-bold text-orange-700">
+              이달 지각 3회 이상 직원 ({frequentLate.length}명)
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {frequentLate.map((s) => (
+                <button
+                  key={s.사번 || s.성명}
+                  onClick={() => openCalendar({ 사번: s.사번, 성명: s.성명, 팀명: s.팀명, 직종: s.직종 } as XerpPmisRow)}
+                  className="px-2.5 py-1 rounded-full bg-orange-100 hover:bg-orange-200 text-orange-700 text-xs font-semibold border border-orange-200 transition-colors"
+                >
+                  {s.성명}
+                  {s.팀명 && <span className="ml-1 font-normal opacity-70">({s.팀명})</span>}
+                  <span className="ml-1 font-bold">·{s.지각횟수}회</span>
+                </button>
+              ))}
+            </div>
+            <span className="text-[11px] text-orange-500/70">이름 클릭 시 달력에서 확인 가능. 07:10 이후 출근 기준.</span>
+          </div>
+        </div>
+      )}
+
       {/* ── 연속 결근 경고 배너 ── */}
       {absentEmployees.length > 0 && (
         <div className="flex items-start gap-3 bg-red-50 border border-red-300 rounded-xl px-4 py-3 shrink-0">
@@ -986,8 +1097,60 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
         )}
       </div>
 
+      {/* ── 날짜 메모 ── */}
+      {availableDates.length > 0 && (
+        <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-2.5 shrink-0">
+          <MessageSquare className="h-4 w-4 text-yellow-500 shrink-0" />
+          <span className="text-xs font-semibold text-yellow-700 whitespace-nowrap">날짜 메모</span>
+          <input
+            type="text"
+            value={memoInput}
+            onChange={(e) => setMemoInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") saveMemo(); }}
+            placeholder={`${formatLabel(selectedDate)} 메모 (예: 현장 회의, 태풍 휴무...)`}
+            className="flex-1 min-w-0 bg-white border border-yellow-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-yellow-300 focus:border-yellow-400"
+          />
+          <button
+            onClick={saveMemo}
+            disabled={isSavingMemo}
+            className="px-3 py-1.5 rounded-lg bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-xs font-semibold transition-colors disabled:opacity-50 whitespace-nowrap"
+          >
+            {isSavingMemo ? "저장 중..." : "저장"}
+          </button>
+          {dateMemos[selectedDate] && (
+            <span className="text-xs text-yellow-600 font-medium">✓ 저장됨</span>
+          )}
+        </div>
+      )}
+
+      {/* ── 뷰 전환 탭 ── */}
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={() => setViewMode("daily")}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+            viewMode === "daily"
+              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+              : "bg-white text-muted-foreground border-border hover:bg-muted/50"
+          }`}
+        >
+          <CalendarDays className="h-4 w-4" />
+          일별 현황
+        </button>
+        <button
+          onClick={() => setViewMode("stats")}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+            viewMode === "stats"
+              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+              : "bg-white text-muted-foreground border-border hover:bg-muted/50"
+          }`}
+        >
+          <BarChart2 className="h-4 w-4" />
+          월별 통계
+        </button>
+      </div>
+
       {/* ── 툴바 ── */}
-      <div className="flex flex-wrap items-center gap-3 shrink-0">
+      <div className={`flex flex-wrap items-center gap-3 shrink-0 ${viewMode === "stats" ? "hidden" : ""}`}>
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input
@@ -1116,7 +1279,52 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       )}
 
       {/* ── 테이블 ── */}
-      <div
+      {/* ── 월별 통계 뷰 ── */}
+      {viewMode === "stats" && (
+        <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm shrink-0" style={{ maxHeight: "calc(100vh - 260px)" }}>
+          {monthlyStats.length === 0 ? (
+            <div className="py-16 text-center text-muted-foreground text-sm">데이터가 없습니다.</div>
+          ) : (
+            <table className="min-w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border bg-muted">
+                  <th className={th()}>팀명</th>
+                  <th className={th()}>직종</th>
+                  <th className={th()}>사번</th>
+                  <th className={th()}>성명</th>
+                  <th className={th()}>출역일수</th>
+                  <th className={th()}>지각횟수</th>
+                  <th className={th()}>결근일수</th>
+                  <th className={th()}>총공수A</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyStats.map((s, i) => (
+                  <tr key={s.사번 || s.성명} className={`border-b border-border/60 last:border-0 hover:bg-muted/20 transition-colors ${i % 2 === 1 ? "bg-slate-50/40" : ""}`}>
+                    <td className="px-3 py-2 text-center text-muted-foreground">{s.팀명 || "—"}</td>
+                    <td className="px-3 py-2 text-center text-muted-foreground">{s.직종 || "—"}</td>
+                    <td className="px-3 py-2 text-center tabular-nums text-muted-foreground">{s.사번 || "—"}</td>
+                    <td className="px-3 py-2 text-center font-semibold">{s.성명}</td>
+                    <td className="px-3 py-2 text-center font-bold text-blue-700">{s.출역일수}</td>
+                    <td className={`px-3 py-2 text-center font-bold tabular-nums ${s.지각횟수 >= 3 ? "text-orange-600" : s.지각횟수 > 0 ? "text-orange-400" : "text-muted-foreground"}`}>
+                      {s.지각횟수}{s.지각횟수 >= 3 && " ⚠"}
+                    </td>
+                    <td className={`px-3 py-2 text-center font-bold tabular-nums ${s.결근일수 >= 3 ? "text-red-600" : s.결근일수 > 0 ? "text-rose-400" : "text-muted-foreground"}`}>
+                      {s.결근일수}
+                    </td>
+                    <td className="px-3 py-2 text-center font-bold tabular-nums text-emerald-700">
+                      {s.총공수A.toFixed(1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ── 일별 현황 테이블 ── */}
+      {viewMode === "daily" && <div
         className="overflow-auto rounded-xl border border-border bg-white shadow-sm"
         style={{ maxHeight: "calc(100vh - 280px)" }}
       >
@@ -1255,7 +1463,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
             )}
           </tbody>
         </table>
-      </div>
+      </div>}
 
       <p className="text-xs text-muted-foreground shrink-0">
         {availableDates.length > 0

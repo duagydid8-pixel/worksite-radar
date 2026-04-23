@@ -312,6 +312,32 @@ export async function saveSafetyEduDatesFS(dates: string[]): Promise<boolean> {
   return fsSet("safety_edu_dates", { dates });
 }
 
+// ── 날짜별 메모 (site별) ──────────────────────────────────
+export async function loadDateMemosFS(site: string): Promise<Record<string, string>> {
+  const data = await fsGet<{ memos: Record<string, string> }>(`date_memos_${site}`);
+  return data?.memos ?? {};
+}
+export async function saveDateMemosFS(site: string, memos: Record<string, string>): Promise<boolean> {
+  return fsSet(`date_memos_${site}`, { memos });
+}
+
+// ── XERP 공수 반영 다운로드 이력 ──────────────────────────
+export interface DownloadHistoryEntry {
+  downloadedAt: string;
+  workDate: string;
+  fileName: string;
+  rowCount: number;
+}
+export async function loadDownloadHistoryFS(): Promise<DownloadHistoryEntry[]> {
+  const data = await fsGet<{ history: DownloadHistoryEntry[] }>("xerp_download_history");
+  return data?.history ?? [];
+}
+export async function addDownloadHistoryFS(entry: DownloadHistoryEntry): Promise<boolean> {
+  const current = await loadDownloadHistoryFS();
+  const updated = [entry, ...current].slice(0, 100);
+  return fsSet("xerp_download_history", { history: updated });
+}
+
 export function subscribeScheduleFS(
   callback: (data: ScheduleData | null) => void,
 ): () => void {

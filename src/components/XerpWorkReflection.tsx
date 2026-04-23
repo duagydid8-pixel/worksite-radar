@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, History, ChevronDown, ChevronUp } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 
 // ── 시간 유틸 ─────────────────────────────────────────
 function parseMin(val: unknown): number | null {
@@ -291,6 +291,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   // 정기안전교육
   const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
 
+  // 다운로드 이력
+  const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
   // 정렬
   type SortColWR = "xerpIn" | "xerpOut" | "pmisIn" | "pmisOut";
   const [sortColWR, setSortColWR] = useState<SortColWR | null>(null);
@@ -333,6 +337,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   // 정기안전교육 날짜 로드
   useEffect(() => {
     loadSafetyEduDatesFS().then((dates) => setSafetyEduDates(new Set(dates)));
+    loadDownloadHistoryFS().then(setDownloadHistory);
   }, []);
 
   // workDate 변경 시 선택 초기화
@@ -827,8 +832,20 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       ws["!ref"] = XLSX.utils.encode_range(range);
     }
 
-    XLSX.writeFile(wbCopy, fileName.replace(/\.xlsx?$/i, "") + "_공수반영.xlsx", { cellStyles: true, bookType: "xlsx" });
+    const outName = fileName.replace(/\.xlsx?$/i, "") + "_공수반영.xlsx";
+    XLSX.writeFile(wbCopy, outName, { cellStyles: true, bookType: "xlsx" });
     toast.success("수정된 파일을 다운로드했습니다.");
+
+    // 이력 저장
+    const entry: DownloadHistoryEntry = {
+      downloadedAt: new Date().toISOString(),
+      workDate,
+      fileName: outName,
+      rowCount: rows.filter((r) => r.diff !== null).length,
+    };
+    addDownloadHistoryFS(entry).then(() => {
+      setDownloadHistory((prev) => [entry, ...prev].slice(0, 100));
+    });
   };
 
   // 정기안전교육
@@ -1212,10 +1229,62 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 <Download className="h-4 w-4 text-muted-foreground" />
                 수정 파일 다운로드
               </button>
+              <button
+                onClick={() => setShowHistory((v) => !v)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-muted-foreground hover:bg-muted/50 transition-colors"
+                title="다운로드 이력"
+              >
+                <History className="h-4 w-4" />
+                이력
+                {showHistory ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </button>
             )}
           </>
         )}
       </div>
+
+      {/* ── 다운로드 이력 패널 ── */}
+      {showHistory && (
+        <div className="bg-white border border-border rounded-xl shadow-sm overflow-hidden shrink-0">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-muted/40">
+            <span className="text-sm font-bold flex items-center gap-2">
+              <History className="h-4 w-4 text-muted-foreground" />
+              공수 반영 다운로드 이력
+            </span>
+            <span className="text-xs text-muted-foreground">최근 100건</span>
+          </div>
+          {downloadHistory.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">다운로드 이력이 없습니다.</div>
+          ) : (
+            <div className="overflow-auto max-h-52">
+              <table className="min-w-full text-xs">
+                <thead className="sticky top-0 bg-muted">
+                  <tr className="border-b border-border">
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground">다운로드 일시</th>
+                    <th className="px-3 py-2 text-center font-semibold text-muted-foreground">작업 날짜</th>
+                    <th className="px-3 py-2 text-left font-semibold text-muted-foreground">파일명</th>
+                    <th className="px-3 py-2 text-center font-semibold text-muted-foreground">반영 건수</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {downloadHistory.map((h, i) => {
+                    const dt = new Date(h.downloadedAt);
+                    const dtStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")} ${String(dt.getHours()).padStart(2,"0")}:${String(dt.getMinutes()).padStart(2,"0")}`;
+                    return (
+                      <tr key={i} className={`border-b border-border/50 last:border-0 hover:bg-muted/20 ${i % 2 === 1 ? "bg-slate-50/40" : ""}`}>
+                        <td className="px-3 py-2 tabular-nums text-muted-foreground">{dtStr}</td>
+                        <td className="px-3 py-2 text-center font-semibold tabular-nums">{h.workDate}</td>
+                        <td className="px-3 py-2 text-blue-600 truncate max-w-[240px]">{h.fileName}</td>
+                        <td className="px-3 py-2 text-center font-bold text-emerald-700">{h.rowCount}건</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* XERP&PMIS 연동 패널 */}
       {rows.length > 0 && (
