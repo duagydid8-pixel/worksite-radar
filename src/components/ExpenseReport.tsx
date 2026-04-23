@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import {
   loadPaymentDatesFS, savePaymentDatesFS,
   loadExpenseReportsFS, saveExpenseReportsFS,
-  type ExpenseLineItem, type ExpenseReport,
+  type PaymentDateEntry, type ExpenseLineItem, type ExpenseReport,
 } from "@/lib/firestoreService";
 
 // ─── Utils ─────────────────────────────────────────────────────────
@@ -74,9 +74,9 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
   const [subTab, setSubTab] = useState<SubTab>("write");
 
   // 지급요청일 관리
-  const [paymentDates, setPaymentDates] = useState<Record<string, string>>({});
-  const [editingPD, setEditingPD] = useState<{ ym: string; date: string } | null>(null);
-  const [newPD, setNewPD] = useState({ ym: currentYM(), date: autoPaymentDate(currentYM()) });
+  const [paymentDates, setPaymentDates] = useState<Record<string, PaymentDateEntry>>({});
+  const [editingPD, setEditingPD] = useState<{ ym: string; date: string; note: string } | null>(null);
+  const [newPD, setNewPD] = useState({ ym: currentYM(), date: autoPaymentDate(currentYM()), note: "" });
   const [showAddPD, setShowAddPD] = useState(false);
 
   // 저장된 결의서
@@ -104,7 +104,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
   // 년월 변경 → 저장된 지급요청일 우선 반영, 없으면 자동 계산
   const handleYMChange = (ym: string) => {
     setYearMonth(ym);
-    setPaymentDate(paymentDates[ym] ?? autoPaymentDate(ym));
+    setPaymentDate(paymentDates[ym]?.date ?? autoPaymentDate(ym));
   };
 
   // 수동 입력 시 주말이면 다음 평일로 자동 보정
@@ -116,17 +116,17 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
   // ── 지급요청일 관리 ──────────────────────────────────────
   const handleAddPD = async () => {
     if (!newPD.ym || !newPD.date) { toast.error("년월과 날짜를 입력하세요."); return; }
-    const updated = { ...paymentDates, [newPD.ym]: newPD.date };
+    const updated = { ...paymentDates, [newPD.ym]: { date: newPD.date, note: newPD.note } };
     setPaymentDates(updated);
     setShowAddPD(false);
-    setNewPD({ ym: currentYM(), date: autoPaymentDate(currentYM()) });
+    setNewPD({ ym: currentYM(), date: autoPaymentDate(currentYM()), note: "" });
     await savePaymentDatesFS(updated);
     toast.success("지급요청일이 저장되었습니다.");
   };
 
   const handleSavePDEdit = async () => {
     if (!editingPD) return;
-    const updated = { ...paymentDates, [editingPD.ym]: editingPD.date };
+    const updated = { ...paymentDates, [editingPD.ym]: { date: editingPD.date, note: editingPD.note } };
     setPaymentDates(updated);
     setEditingPD(null);
     await savePaymentDatesFS(updated);
@@ -288,7 +288,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                     value={newPD.ym}
                     onChange={e => {
                       const ym = e.target.value;
-                      setNewPD(p => ({ ym, date: p.date || autoPaymentDate(ym) }));
+                      setNewPD(p => ({ ...p, ym, date: p.date || autoPaymentDate(ym) }));
                     }}
                   />
                 </div>
@@ -310,6 +310,15 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                   {newPD.date && (
                     <p className="text-[11px] text-muted-foreground mt-1">{dateLabel(newPD.date)}</p>
                   )}
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">항목</label>
+                  <input
+                    className={inputCls + " w-52"}
+                    value={newPD.note}
+                    onChange={e => setNewPD(p => ({ ...p, note: e.target.value }))}
+                    placeholder="예: 인건비, 재료비 등"
+                  />
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -340,11 +349,12 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                   <th className={thCls}>대상 년월</th>
                   <th className={thCls}>지급요청일</th>
                   <th className={thCls}>요일</th>
+                  <th className={thCls}>항목</th>
                   {isAdmin && <th className="px-4 py-2.5 w-24" />}
                 </tr>
               </thead>
               <tbody>
-                {sortedPDEntries.map(([ym, date]) =>
+                {sortedPDEntries.map(([ym, entry]) =>
                   editingPD?.ym === ym ? (
                     <tr key={ym} className="bg-accent/30 border-b border-border">
                       <td className="px-4 py-2.5 font-medium">{ym}</td>
@@ -362,6 +372,14 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground text-xs">
                         {editingPD.date ? DAY_NAMES[new Date(editingPD.date).getDay()] + "요일" : ""}
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          className="border border-border rounded-md px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/30 w-52"
+                          value={editingPD.note}
+                          onChange={e => setEditingPD(p => p ? { ...p, note: e.target.value } : p)}
+                          placeholder="예: 인건비"
+                        />
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex gap-1.5">
@@ -383,15 +401,16 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                   ) : (
                     <tr key={ym} className="border-b border-border hover:bg-muted/20">
                       <td className="px-4 py-3 font-medium">{ym}</td>
-                      <td className="px-4 py-3">{fmtDateKR(date)}</td>
+                      <td className="px-4 py-3">{fmtDateKR(entry.date)}</td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {DAY_NAMES[new Date(date).getDay()]}요일
+                        {DAY_NAMES[new Date(entry.date).getDay()]}요일
                       </td>
+                      <td className="px-4 py-3 text-muted-foreground">{entry.note || "—"}</td>
                       {isAdmin && (
                         <td className="px-3 py-2">
                           <div className="flex gap-1.5 justify-end">
                             <button
-                              onClick={() => setEditingPD({ ym, date })}
+                              onClick={() => setEditingPD({ ym, date: entry.date, note: entry.note })}
                               className="p-1.5 rounded-md border border-border text-muted-foreground hover:bg-muted/50"
                             >
                               <Edit2 className="h-3.5 w-3.5" />
@@ -439,14 +458,14 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                 <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">
                   지급요청일
                   <span className="ml-1 text-[9px] text-primary font-normal normal-case">
-                    {paymentDates[yearMonth] ? "저장된 날짜 적용됨" : "토·일 → 자동조정"}
+                    {paymentDates[yearMonth] ? `저장된 날짜 적용됨${paymentDates[yearMonth].note ? ` (${paymentDates[yearMonth].note})` : ""}` : "토·일 → 자동조정"}
                   </span>
                 </label>
                 <input
                   type="date"
                   value={paymentDate}
                   onChange={e => handlePaymentDateChange(e.target.value)}
-                  className={`${inputCls} ${paymentDates[yearMonth] ? "border-primary/50 bg-primary/5" : ""}`}
+                  className={`${inputCls} ${paymentDates[yearMonth]?.date ? "border-primary/50 bg-primary/5" : ""}`}
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">{dateLabel(paymentDate)}</p>
               </div>

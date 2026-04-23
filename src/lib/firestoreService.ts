@@ -375,12 +375,19 @@ export async function saveExpenseCatalogFS(items: ExpenseCatalogItem[]): Promise
   return fsSet("expense_catalog", { items });
 }
 
-// 월별 지급요청일: { "YYYY-MM": "YYYY-MM-DD" }
-export async function loadPaymentDatesFS(): Promise<Record<string, string>> {
-  const data = await fsGet<{ dates: Record<string, string> }>("expense_payment_dates");
-  return data?.dates ?? {};
+// 월별 지급요청일: { "YYYY-MM": { date: "YYYY-MM-DD", note: "항목명" } }
+export interface PaymentDateEntry { date: string; note: string; }
+export async function loadPaymentDatesFS(): Promise<Record<string, PaymentDateEntry>> {
+  const data = await fsGet<{ dates: Record<string, PaymentDateEntry | string> }>("expense_payment_dates");
+  if (!data?.dates) return {};
+  // 구버전(string) 마이그레이션
+  return Object.fromEntries(
+    Object.entries(data.dates).map(([ym, v]) =>
+      [ym, typeof v === "string" ? { date: v, note: "" } : v]
+    )
+  );
 }
-export async function savePaymentDatesFS(dates: Record<string, string>): Promise<boolean> {
+export async function savePaymentDatesFS(dates: Record<string, PaymentDateEntry>): Promise<boolean> {
   return fsSet("expense_payment_dates", { dates });
 }
 
