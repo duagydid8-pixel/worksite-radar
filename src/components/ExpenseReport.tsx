@@ -1,14 +1,14 @@
 import { useState, useMemo, useEffect } from "react";
-import { Plus, Trash2, Edit2, Save, X, Download, Receipt, Package, History, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Edit2, Save, X, Download, Receipt, CalendarClock, History } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import {
-  loadExpenseCatalogFS, saveExpenseCatalogFS,
+  loadPaymentDatesFS, savePaymentDatesFS,
   loadExpenseReportsFS, saveExpenseReportsFS,
-  type ExpenseCatalogItem, type ExpenseLineItem, type ExpenseReport,
+  type ExpenseLineItem, type ExpenseReport,
 } from "@/lib/firestoreService";
 
-// ─── Utils ────────────────────────────────────────────────────────
+// ─── Utils ─────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
 function getNextWeekday(date: Date): Date {
@@ -19,11 +19,10 @@ function getNextWeekday(date: Date): Date {
   return d;
 }
 
-function calcPaymentDate(ym: string): string {
+function autoPaymentDate(ym: string): string {
   const [y, m] = ym.split("-").map(Number);
   const last = new Date(y, m, 0);
-  const adj = getNextWeekday(last);
-  return fmtDate(adj);
+  return fmtDate(getNextWeekday(last));
 }
 
 function fmtDate(d: Date): string {
@@ -47,46 +46,53 @@ function fmtDateKR(s: string) {
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
-function paymentDateLabel(dateStr: string) {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  return `${fmtDateKR(dateStr)} (${DAY_NAMES[d.getDay()]})`;
+function dateLabel(s: string) {
+  if (!s) return "";
+  const d = new Date(s);
+  return `${fmtDateKR(s)} (${DAY_NAMES[d.getDay()]})`;
 }
 
-// ─── Sub-components ───────────────────────────────────────────────
-type SubTab = "write" | "items" | "history";
+// 최근 N개월 목록
+function recentMonths(n = 12): string[] {
+  const list: string[] = [];
+  const d = new Date();
+  for (let i = 0; i < n; i++) {
+    list.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    d.setMonth(d.getMonth() - 1);
+  }
+  return list;
+}
+
+type SubTab = "write" | "payment" | "history";
 
 function emptyLine(): ExpenseLineItem {
   return { id: uid(), name: "", unit: "", quantity: 1, unitPrice: 0, note: "" };
 }
 
-// ─── Main Component ───────────────────────────────────────────────
+// ─── Main Component ─────────────────────────────────────────────────
 export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
   const [subTab, setSubTab] = useState<SubTab>("write");
 
-  // catalog
-  const [catalog, setCatalog] = useState<ExpenseCatalogItem[]>([]);
-  const [editingCatalogItem, setEditingCatalogItem] = useState<ExpenseCatalogItem | null>(null);
-  const [showAddCatalog, setShowAddCatalog] = useState(false);
-  const [newCatalog, setNewCatalog] = useState<Omit<ExpenseCatalogItem, "id">>({
-    name: "", unit: "", defaultPrice: 0, note: "",
-  });
-  const [showCatalogDropdown, setShowCatalogDropdown] = useState(false);
+  // 지급요청일 관리
+  const [paymentDates, setPaymentDates] = useState<Record<string, string>>({});
+  const [editingPD, setEditingPD] = useState<{ ym: string; date: string } | null>(null);
+  const [newPD, setNewPD] = useState({ ym: currentYM(), date: autoPaymentDate(currentYM()) });
+  const [showAddPD, setShowAddPD] = useState(false);
 
-  // saved reports
+  // 저장된 결의서
   const [reports, setReports] = useState<ExpenseReport[]>([]);
 
-  // write form
+  // 결의서 작성
   const [yearMonth, setYearMonth] = useState(currentYM);
   const [writtenDate, setWrittenDate] = useState(todayStr);
-  const [paymentDate, setPaymentDate] = useState(() => calcPaymentDate(currentYM()));
+  const [paymentDate, setPaymentDate] = useState(() => autoPaymentDate(currentYM()));
   const [department, setDepartment] = useState("P4-PH4");
   const [reportTitle, setReportTitle] = useState("");
   const [lineItems, setLineItems] = useState<ExpenseLineItem[]>([emptyLine()]);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    loadExpenseCatalogFS().then(setCatalog);
+    loadPaymentDatesFS().then(setPaymentDates);
     loadExpenseReportsFS().then(setReports);
   }, []);
 
@@ -95,58 +101,49 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
     [lineItems],
   );
 
-  // ── Year/Month change → auto-recalculate paymentDate ──
+  // 년월 변경 → 저장된 지급요청일 우선 반영, 없으면 자동 계산
   const handleYMChange = (ym: string) => {
     setYearMonth(ym);
-    setPaymentDate(calcPaymentDate(ym));
+    setPaymentDate(paymentDates[ym] ?? autoPaymentDate(ym));
   };
 
-  // ── Manually entered payment date: auto-push past weekends ──
+  // 수동 입력 시 주말이면 다음 평일로 자동 보정
   const handlePaymentDateChange = (val: string) => {
-    if (!val) { setPaymentDate(val); return; }
-    const d = new Date(val);
-    const adj = getNextWeekday(d);
-    setPaymentDate(fmtDate(adj));
+    if (!val) { setPaymentDate(""); return; }
+    setPaymentDate(fmtDate(getNextWeekday(new Date(val))));
   };
 
-  // ── Catalog CRUD ──────────────────────────────────────
-  const handleAddCatalog = async () => {
-    if (!newCatalog.name.trim()) { toast.error("항목명을 입력하세요."); return; }
-    const item: ExpenseCatalogItem = { ...newCatalog, id: uid() };
-    const updated = [...catalog, item];
-    setCatalog(updated);
-    setNewCatalog({ name: "", unit: "", defaultPrice: 0, note: "" });
-    setShowAddCatalog(false);
-    await saveExpenseCatalogFS(updated);
-    toast.success("항목이 추가되었습니다.");
+  // ── 지급요청일 관리 ──────────────────────────────────────
+  const handleAddPD = async () => {
+    if (!newPD.ym || !newPD.date) { toast.error("년월과 날짜를 입력하세요."); return; }
+    const updated = { ...paymentDates, [newPD.ym]: newPD.date };
+    setPaymentDates(updated);
+    setShowAddPD(false);
+    setNewPD({ ym: currentYM(), date: autoPaymentDate(currentYM()) });
+    await savePaymentDatesFS(updated);
+    toast.success("지급요청일이 저장되었습니다.");
   };
 
-  const handleSaveCatalogEdit = async (item: ExpenseCatalogItem) => {
-    const updated = catalog.map(c => (c.id === item.id ? item : c));
-    setCatalog(updated);
-    setEditingCatalogItem(null);
-    await saveExpenseCatalogFS(updated);
-    toast.success("항목이 저장되었습니다.");
+  const handleSavePDEdit = async () => {
+    if (!editingPD) return;
+    const updated = { ...paymentDates, [editingPD.ym]: editingPD.date };
+    setPaymentDates(updated);
+    setEditingPD(null);
+    await savePaymentDatesFS(updated);
+    toast.success("수정되었습니다.");
   };
 
-  const handleDeleteCatalog = async (id: string) => {
-    const updated = catalog.filter(c => c.id !== id);
-    setCatalog(updated);
-    await saveExpenseCatalogFS(updated);
-    toast.success("항목이 삭제되었습니다.");
+  const handleDeletePD = async (ym: string) => {
+    const updated = { ...paymentDates };
+    delete updated[ym];
+    setPaymentDates(updated);
+    await savePaymentDatesFS(updated);
+    toast.success("삭제되었습니다.");
   };
 
-  // ── Line items ────────────────────────────────────────
+  // ── 결의서 행 수정 ────────────────────────────────────────
   const updateLine = (id: string, field: keyof ExpenseLineItem, value: string | number) => {
     setLineItems(prev => prev.map(li => (li.id === id ? { ...li, [field]: value } : li)));
-  };
-
-  const insertFromCatalog = (item: ExpenseCatalogItem) => {
-    setLineItems(prev => [
-      ...prev,
-      { id: uid(), name: item.name, unit: item.unit, quantity: 1, unitPrice: item.defaultPrice, note: "" },
-    ]);
-    setShowCatalogDropdown(false);
   };
 
   const removeLine = (id: string) => {
@@ -156,7 +153,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
     });
   };
 
-  // ── Save report ───────────────────────────────────────
+  // ── 결의서 저장 ───────────────────────────────────────────
   const handleSaveReport = async () => {
     const filled = lineItems.filter(li => li.name.trim());
     if (filled.length === 0) { toast.error("항목을 하나 이상 입력하세요."); return; }
@@ -164,25 +161,14 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
     const [yy, mm] = yearMonth.split("-");
     const title = reportTitle.trim() || `${yy}년 ${parseInt(mm)}월 지출결의서`;
     const report: ExpenseReport = {
-      id: uid(),
-      title,
-      yearMonth,
-      writtenDate,
-      paymentDate,
-      department,
-      items: filled,
+      id: uid(), title, yearMonth, writtenDate, paymentDate, department, items: filled,
       savedAt: new Date().toISOString(),
     };
     const updated = [report, ...reports];
     const ok = await saveExpenseReportsFS(updated);
     setIsSaving(false);
-    if (ok) {
-      setReports(updated);
-      toast.success("결의서가 저장되었습니다.");
-      setReportTitle("");
-    } else {
-      toast.error("저장 실패");
-    }
+    if (ok) { setReports(updated); toast.success("결의서가 저장되었습니다."); setReportTitle(""); }
+    else toast.error("저장 실패");
   };
 
   const handleLoadReport = (r: ExpenseReport) => {
@@ -203,7 +189,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
     toast.success("삭제되었습니다.");
   };
 
-  // ── Excel export ──────────────────────────────────────
+  // ── 엑셀 내보내기 ─────────────────────────────────────────
   const exportExcel = (r?: ExpenseReport) => {
     const items = r ? r.items : lineItems.filter(li => li.name.trim());
     const wd = r ? r.writtenDate : writtenDate;
@@ -219,43 +205,39 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
       ["소  속", dept, "", "결의금액", `${fmtKRW(total)}원`],
       [],
       ["No.", "항목명", "단위", "수량", "단가", "금액", "비고"],
-      ...items.map((li, i) => [
-        i + 1, li.name, li.unit, li.quantity, li.unitPrice, li.quantity * li.unitPrice, li.note,
-      ]),
+      ...items.map((li, i) => [i + 1, li.name, li.unit, li.quantity, li.unitPrice, li.quantity * li.unitPrice, li.note]),
       [],
       ["", "", "", "", "합   계", total, ""],
     ];
-
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [
-      { wch: 6 }, { wch: 22 }, { wch: 8 }, { wch: 8 },
-      { wch: 14 }, { wch: 16 }, { wch: 20 },
-    ];
+    ws["!cols"] = [{ wch: 6 }, { wch: 22 }, { wch: 8 }, { wch: 8 }, { wch: 14 }, { wch: 16 }, { wch: 20 }];
     XLSX.utils.book_append_sheet(wb, ws, "지출결의서");
     XLSX.writeFile(wb, `${yy}년${mm}월_지출결의서.xlsx`);
     toast.success("엑셀 파일이 다운로드되었습니다.");
   };
 
-  // ── Input style ───────────────────────────────────────
-  const inputCls =
-    "w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors";
+  // ── 공통 스타일 ───────────────────────────────────────────
+  const inputCls = "w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors";
   const thCls = "px-4 py-2.5 text-xs font-bold text-muted-foreground text-left whitespace-nowrap";
+
+  // 지급요청일 관리: 저장된 항목 최신순 정렬
+  const sortedPDEntries = Object.entries(paymentDates).sort((a, b) => b[0].localeCompare(a[0]));
 
   return (
     <div className="p-4 md:p-6 max-w-[1100px] mx-auto space-y-4">
-      {/* Header */}
+      {/* 헤더 */}
       <div className="flex items-center gap-2">
         <Receipt className="h-5 w-5 text-primary" />
         <h2 className="text-lg font-bold text-foreground">지출결의서</h2>
       </div>
 
-      {/* Sub-tabs */}
+      {/* 서브탭 */}
       <div className="flex gap-2 flex-wrap">
         {(
           [
             { key: "write" as SubTab, label: "결의서 작성", icon: <Receipt className="h-3.5 w-3.5" /> },
-            { key: "items" as SubTab, label: "항목 관리", icon: <Package className="h-3.5 w-3.5" /> },
+            { key: "payment" as SubTab, label: "지급요청일 관리", icon: <CalendarClock className="h-3.5 w-3.5" /> },
             { key: "history" as SubTab, label: "저장된 결의서", icon: <History className="h-3.5 w-3.5" /> },
           ] as { key: SubTab; label: string; icon: React.ReactNode }[]
         ).map(({ key, label, icon }) => (
@@ -268,129 +250,129 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                 : "bg-white text-muted-foreground border-border hover:bg-muted/50"
             }`}
           >
-            {icon}
-            {label}
+            {icon}{label}
           </button>
         ))}
       </div>
 
-      {/* ═══ 항목 관리 ═══════════════════════════════════════ */}
-      {subTab === "items" && (
+      {/* ═══ 지급요청일 관리 ══════════════════════════════════ */}
+      {subTab === "payment" && (
         <div className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h3 className="font-bold text-sm">항목 카탈로그</h3>
+            <div>
+              <h3 className="font-bold text-sm">월별 지급요청일</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                저장해두면 결의서 작성 시 해당 월의 지급요청일이 자동 입력됩니다
+              </p>
+            </div>
             {isAdmin && (
               <button
-                onClick={() => setShowAddCatalog(v => !v)}
+                onClick={() => setShowAddPD(v => !v)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
               >
-                <Plus className="h-3.5 w-3.5" /> 항목 추가
+                <Plus className="h-3.5 w-3.5" /> 추가
               </button>
             )}
           </div>
 
-          {showAddCatalog && (
+          {/* 추가 폼 */}
+          {showAddPD && (
             <div className="px-5 py-4 bg-accent/40 border-b border-border">
-              <p className="text-xs font-bold text-muted-foreground mb-3">새 항목</p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {(
-                  [
-                    { field: "name", label: "항목명 *", placeholder: "예: 인건비", type: "text" },
-                    { field: "unit", label: "단위", placeholder: "예: 명", type: "text" },
-                    { field: "defaultPrice", label: "기본단가", placeholder: "0", type: "number" },
-                    { field: "note", label: "비고", placeholder: "선택사항", type: "text" },
-                  ] as const
-                ).map(({ field, label, placeholder, type }) => (
-                  <div key={field}>
-                    <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">{label}</label>
-                    <input
-                      type={type}
-                      className={inputCls}
-                      placeholder={placeholder}
-                      value={field === "defaultPrice" ? (newCatalog.defaultPrice || "") : (newCatalog as Record<string, unknown>)[field] as string}
-                      onChange={e =>
-                        setNewCatalog(p => ({
-                          ...p,
-                          [field]: type === "number" ? Number(e.target.value) : e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2 mt-3">
-                <button
-                  onClick={handleAddCatalog}
-                  className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
-                >
-                  추가
-                </button>
-                <button
-                  onClick={() => {
-                    setShowAddCatalog(false);
-                    setNewCatalog({ name: "", unit: "", defaultPrice: 0, note: "" });
-                  }}
-                  className="px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:bg-muted/50 transition-colors"
-                >
-                  취소
-                </button>
+              <p className="text-xs font-bold text-muted-foreground mb-3">새 지급요청일 등록</p>
+              <div className="flex flex-wrap gap-3 items-end">
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">대상 년월</label>
+                  <input
+                    type="month"
+                    className={inputCls + " w-40"}
+                    value={newPD.ym}
+                    onChange={e => {
+                      const ym = e.target.value;
+                      setNewPD(p => ({ ym, date: p.date || autoPaymentDate(ym) }));
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">
+                    지급요청일
+                    <span className="ml-1 text-[9px] text-primary font-normal">토·일 → 자동조정</span>
+                  </label>
+                  <input
+                    type="date"
+                    className={inputCls + " w-44"}
+                    value={newPD.date}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (!val) { setNewPD(p => ({ ...p, date: "" })); return; }
+                      setNewPD(p => ({ ...p, date: fmtDate(getNextWeekday(new Date(val))) }));
+                    }}
+                  />
+                  {newPD.date && (
+                    <p className="text-[11px] text-muted-foreground mt-1">{dateLabel(newPD.date)}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddPD}
+                    className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+                  >
+                    저장
+                  </button>
+                  <button
+                    onClick={() => setShowAddPD(false)}
+                    className="px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:bg-muted/50 transition-colors"
+                  >
+                    취소
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
-          {catalog.length === 0 ? (
+          {sortedPDEntries.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
-              등록된 항목이 없습니다.
+              저장된 지급요청일이 없습니다.
             </div>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-muted border-b border-border">
-                  <th className={thCls}>항목명</th>
-                  <th className={thCls}>단위</th>
-                  <th className={`${thCls} text-right`}>기본단가</th>
-                  <th className={thCls}>비고</th>
-                  {isAdmin && <th className="px-4 py-2.5 w-20" />}
+                  <th className={thCls}>대상 년월</th>
+                  <th className={thCls}>지급요청일</th>
+                  <th className={thCls}>요일</th>
+                  {isAdmin && <th className="px-4 py-2.5 w-24" />}
                 </tr>
               </thead>
               <tbody>
-                {catalog.map(item =>
-                  editingCatalogItem?.id === item.id ? (
-                    <tr key={item.id} className="bg-accent/30 border-b border-border">
-                      {(["name", "unit", "defaultPrice", "note"] as const).map(field => (
-                        <td key={field} className="px-3 py-2">
-                          <input
-                            type={field === "defaultPrice" ? "number" : "text"}
-                            className="w-full border border-border rounded-md px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/30"
-                            value={
-                              field === "defaultPrice"
-                                ? editingCatalogItem.defaultPrice
-                                : editingCatalogItem[field]
-                            }
-                            onChange={e =>
-                              setEditingCatalogItem(p =>
-                                p
-                                  ? {
-                                      ...p,
-                                      [field]:
-                                        field === "defaultPrice" ? Number(e.target.value) : e.target.value,
-                                    }
-                                  : p,
-                              )
-                            }
-                          />
-                        </td>
-                      ))}
+                {sortedPDEntries.map(([ym, date]) =>
+                  editingPD?.ym === ym ? (
+                    <tr key={ym} className="bg-accent/30 border-b border-border">
+                      <td className="px-4 py-2.5 font-medium">{ym}</td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="date"
+                          className="border border-border rounded-md px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary/30 w-40"
+                          value={editingPD.date}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            setEditingPD(p => p ? { ...p, date: fmtDate(getNextWeekday(new Date(val))) } : p);
+                          }}
+                        />
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">
+                        {editingPD.date ? DAY_NAMES[new Date(editingPD.date).getDay()] + "요일" : ""}
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex gap-1.5">
                           <button
-                            onClick={() => handleSaveCatalogEdit(editingCatalogItem)}
+                            onClick={handleSavePDEdit}
                             className="p-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
                           >
                             <Save className="h-3.5 w-3.5" />
                           </button>
                           <button
-                            onClick={() => setEditingCatalogItem(null)}
+                            onClick={() => setEditingPD(null)}
                             className="p-1.5 rounded-md border border-border text-muted-foreground hover:bg-muted/50"
                           >
                             <X className="h-3.5 w-3.5" />
@@ -399,22 +381,23 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                       </td>
                     </tr>
                   ) : (
-                    <tr key={item.id} className="border-b border-border hover:bg-muted/20">
-                      <td className="px-4 py-2.5 font-medium">{item.name}</td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{item.unit}</td>
-                      <td className="px-4 py-2.5 font-mono text-right">{fmtKRW(item.defaultPrice)}</td>
-                      <td className="px-4 py-2.5 text-muted-foreground text-xs">{item.note}</td>
+                    <tr key={ym} className="border-b border-border hover:bg-muted/20">
+                      <td className="px-4 py-3 font-medium">{ym}</td>
+                      <td className="px-4 py-3">{fmtDateKR(date)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {DAY_NAMES[new Date(date).getDay()]}요일
+                      </td>
                       {isAdmin && (
                         <td className="px-3 py-2">
                           <div className="flex gap-1.5 justify-end">
                             <button
-                              onClick={() => setEditingCatalogItem(item)}
+                              onClick={() => setEditingPD({ ym, date })}
                               className="p-1.5 rounded-md border border-border text-muted-foreground hover:bg-muted/50"
                             >
                               <Edit2 className="h-3.5 w-3.5" />
                             </button>
                             <button
-                              onClick={() => handleDeleteCatalog(item.id)}
+                              onClick={() => handleDeletePD(ym)}
                               className="p-1.5 rounded-md border border-border text-destructive hover:bg-destructive/5"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -434,70 +417,48 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
       {/* ═══ 결의서 작성 ══════════════════════════════════════ */}
       {subTab === "write" && (
         <div className="space-y-4">
-          {/* Basic info */}
+          {/* 기본 정보 */}
           <div className="bg-white border border-border rounded-2xl shadow-sm p-5">
             <h3 className="text-sm font-bold text-foreground mb-4">기본 정보</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* 대상 년월 */}
               <div>
                 <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">
                   대상 년월
                 </label>
-                <input
-                  type="month"
-                  value={yearMonth}
-                  onChange={e => handleYMChange(e.target.value)}
-                  className={inputCls}
-                />
+                <input type="month" value={yearMonth} onChange={e => handleYMChange(e.target.value)} className={inputCls} />
               </div>
 
-              {/* 작성일 */}
               <div>
                 <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">
                   작성일
                 </label>
-                <input
-                  type="date"
-                  value={writtenDate}
-                  onChange={e => setWrittenDate(e.target.value)}
-                  className={inputCls}
-                />
+                <input type="date" value={writtenDate} onChange={e => setWrittenDate(e.target.value)} className={inputCls} />
               </div>
 
-              {/* 지급요청일 */}
               <div>
                 <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">
                   지급요청일
                   <span className="ml-1 text-[9px] text-primary font-normal normal-case">
-                    토·일 → 자동조정
+                    {paymentDates[yearMonth] ? "저장된 날짜 적용됨" : "토·일 → 자동조정"}
                   </span>
                 </label>
                 <input
                   type="date"
                   value={paymentDate}
                   onChange={e => handlePaymentDateChange(e.target.value)}
-                  className={inputCls}
+                  className={`${inputCls} ${paymentDates[yearMonth] ? "border-primary/50 bg-primary/5" : ""}`}
                 />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {paymentDateLabel(paymentDate)}
-                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">{dateLabel(paymentDate)}</p>
               </div>
 
-              {/* 소속 */}
               <div>
                 <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">
                   소속
                 </label>
-                <input
-                  value={department}
-                  onChange={e => setDepartment(e.target.value)}
-                  placeholder="예: P4-PH4"
-                  className={inputCls}
-                />
+                <input value={department} onChange={e => setDepartment(e.target.value)} placeholder="예: P4-PH4" className={inputCls} />
               </div>
             </div>
 
-            {/* 제목 */}
             <div className="mt-4">
               <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">
                 결의서 제목 (비워두면 자동 생성)
@@ -511,69 +472,28 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
             </div>
           </div>
 
-          {/* Line items */}
+          {/* 지출 항목 */}
           <div className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-border">
               <h3 className="font-bold text-sm">지출 항목</h3>
-              <div className="flex gap-2">
-                {/* 카탈로그 드롭다운 */}
-                {catalog.length > 0 && (
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowCatalogDropdown(v => !v)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:bg-muted/50 transition-colors"
-                    >
-                      <Package className="h-3.5 w-3.5" />
-                      카탈로그
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                    {showCatalogDropdown && (
-                      <div className="absolute right-0 top-9 z-20 bg-white border border-border rounded-xl shadow-lg min-w-[220px] overflow-hidden">
-                        {catalog.map(item => (
-                          <button
-                            key={item.id}
-                            onClick={() => insertFromCatalog(item)}
-                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-muted/50 flex items-center justify-between gap-3"
-                          >
-                            <span className="font-medium">{item.name}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">
-                              {fmtKRW(item.defaultPrice)}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <button
-                  onClick={() => setLineItems(prev => [...prev, emptyLine()])}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
-                >
-                  <Plus className="h-3.5 w-3.5" /> 행 추가
-                </button>
-              </div>
+              <button
+                onClick={() => setLineItems(prev => [...prev, emptyLine()])}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" /> 행 추가
+              </button>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted border-b border-border">
-                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-center w-10">
-                      No.
-                    </th>
+                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-center w-10">No.</th>
                     <th className={`${thCls} min-w-[150px]`}>항목명</th>
-                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-center w-20">
-                      단위
-                    </th>
-                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-right w-24">
-                      수량
-                    </th>
-                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-right w-32">
-                      단가
-                    </th>
-                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-right w-32">
-                      금액
-                    </th>
+                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-center w-20">단위</th>
+                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-right w-24">수량</th>
+                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-right w-32">단가</th>
+                    <th className="px-3 py-2.5 text-xs font-bold text-muted-foreground text-right w-32">금액</th>
                     <th className={`${thCls} min-w-[120px]`}>비고</th>
                     <th className="px-3 py-2.5 w-10" />
                   </tr>
@@ -584,24 +504,11 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                       <td className="px-3 py-2 text-center text-xs text-muted-foreground">{idx + 1}</td>
                       <td className="px-3 py-2">
                         <input
-                          list={`cat-${li.id}`}
                           className="w-full border-0 border-b border-border focus:border-primary bg-transparent outline-none text-sm py-0.5"
                           value={li.name}
-                          onChange={e => {
-                            updateLine(li.id, "name", e.target.value);
-                            const match = catalog.find(c => c.name === e.target.value);
-                            if (match) {
-                              updateLine(li.id, "unit", match.unit);
-                              updateLine(li.id, "unitPrice", match.defaultPrice);
-                            }
-                          }}
+                          onChange={e => updateLine(li.id, "name", e.target.value)}
                           placeholder="항목명 입력"
                         />
-                        <datalist id={`cat-${li.id}`}>
-                          {catalog.map(c => (
-                            <option key={c.id} value={c.name} />
-                          ))}
-                        </datalist>
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -613,8 +520,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          type="number"
-                          min={0}
+                          type="number" min={0}
                           className="w-full border-0 border-b border-border focus:border-primary bg-transparent outline-none text-sm text-right py-0.5"
                           value={li.quantity || ""}
                           onChange={e => updateLine(li.id, "quantity", Number(e.target.value))}
@@ -622,8 +528,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                       </td>
                       <td className="px-3 py-2">
                         <input
-                          type="number"
-                          min={0}
+                          type="number" min={0}
                           className="w-full border-0 border-b border-border focus:border-primary bg-transparent outline-none text-sm text-right font-mono py-0.5"
                           value={li.unitPrice || ""}
                           onChange={e => updateLine(li.id, "unitPrice", Number(e.target.value))}
@@ -653,9 +558,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
                 </tbody>
                 <tfoot>
                   <tr className="bg-muted">
-                    <td colSpan={5} className="px-4 py-3 text-right text-sm font-bold">
-                      합   계
-                    </td>
+                    <td colSpan={5} className="px-4 py-3 text-right text-sm font-bold">합   계</td>
                     <td className="px-3 py-3 text-right font-mono font-bold text-base text-primary">
                       {fmtKRW(totalAmount)}원
                     </td>
@@ -666,7 +569,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
             </div>
           </div>
 
-          {/* Action buttons */}
+          {/* 액션 버튼 */}
           <div className="flex justify-end gap-2 flex-wrap">
             <button
               onClick={() => exportExcel()}
@@ -696,9 +599,7 @@ export default function ExpenseReportTab({ isAdmin }: { isAdmin: boolean }) {
             <h3 className="font-bold text-sm">저장된 결의서 목록</h3>
           </div>
           {reports.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              저장된 결의서가 없습니다.
-            </div>
+            <div className="py-12 text-center text-sm text-muted-foreground">저장된 결의서가 없습니다.</div>
           ) : (
             <table className="w-full text-sm">
               <thead>

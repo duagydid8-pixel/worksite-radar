@@ -375,6 +375,15 @@ export async function saveExpenseCatalogFS(items: ExpenseCatalogItem[]): Promise
   return fsSet("expense_catalog", { items });
 }
 
+// 월별 지급요청일: { "YYYY-MM": "YYYY-MM-DD" }
+export async function loadPaymentDatesFS(): Promise<Record<string, string>> {
+  const data = await fsGet<{ dates: Record<string, string> }>("expense_payment_dates");
+  return data?.dates ?? {};
+}
+export async function savePaymentDatesFS(dates: Record<string, string>): Promise<boolean> {
+  return fsSet("expense_payment_dates", { dates });
+}
+
 export async function loadExpenseReportsFS(): Promise<ExpenseReport[]> {
   const data = await fsGet<{ reports: ExpenseReport[] }>("expense_reports");
   return data?.reports ?? [];
