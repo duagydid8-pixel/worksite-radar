@@ -68,6 +68,7 @@ export interface AttendanceContextValue {
   handleSaveToCloud: () => Promise<void>;
   handleOrderChange: (context: string, names: string[]) => Promise<void>;
   setFileName: (name: string | null) => void;
+  clearData: () => void;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -310,6 +311,7 @@ export function AttendanceProvider({ children }: { children: ReactNode }) {
     handleSaveToCloud,
     handleOrderChange,
     setFileName,
+    clearData: () => { setData(null); setFileName(null); setPendingBuffer(null); },
   };
 
   return (
