@@ -1222,22 +1222,24 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             </button>
 
             {originalBuffer && (
-              <button
-                onClick={handleDownload}
-                className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
-              >
-                <Download className="h-4 w-4 text-muted-foreground" />
-                수정 파일 다운로드
-              </button>
-              <button
-                onClick={() => setShowHistory((v) => !v)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-muted-foreground hover:bg-muted/50 transition-colors"
-                title="다운로드 이력"
-              >
-                <History className="h-4 w-4" />
-                이력
-                {showHistory ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              </button>
+              <>
+                <button
+                  onClick={handleDownload}
+                  className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
+                >
+                  <Download className="h-4 w-4 text-muted-foreground" />
+                  수정 파일 다운로드
+                </button>
+                <button
+                  onClick={() => setShowHistory((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-muted-foreground hover:bg-muted/50 transition-colors"
+                  title="다운로드 이력"
+                >
+                  <History className="h-4 w-4" />
+                  이력
+                  {showHistory ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </button>
+              </>
             )}
           </>
         )}
