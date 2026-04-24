@@ -1,9 +1,8 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
-import { loadXerpWorkDateMapFS, subscribeScheduleFS, saveScheduleFS } from "@/lib/firestoreService";
+import React, { useMemo, useState, useEffect } from "react";
+import { loadXerpWorkDateMapFS, subscribeScheduleFS } from "@/lib/firestoreService";
 import type { LeaveDetail } from "@/lib/parseExcel";
-import { toast } from "sonner";
 import {
-  Loader2, CalendarDays, FileJson,
+  Loader2, CalendarDays,
   CheckCircle2, XCircle,
   ChevronLeft, ChevronRight,
   Clock, CloudUpload, HardHat,
@@ -95,9 +94,11 @@ function MiniCalendar({ selectedDate }: { selectedDate: string }) {
 
 // ── 작업 유형 메타 ────────────────────────────────────
 const TYPE_META: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  "조출":     { bg:"bg-violet-50",   text:"text-violet-700",  border:"border-violet-200",  label:"조출"  },
   "주간":     { bg:"bg-emerald-50",  text:"text-emerald-700", border:"border-emerald-200", label:"주간"  },
   "연장":     { bg:"bg-blue-50",     text:"text-blue-700",    border:"border-blue-200",    label:"연장"  },
   "야간":     { bg:"bg-orange-50",   text:"text-orange-700",  border:"border-orange-200",  label:"야간"  },
+  "주말중식OT": { bg:"bg-amber-50", text:"text-amber-700", border:"border-amber-200", label:"중식OT" },
   "현장휴무": { bg:"bg-rose-50",     text:"text-rose-600",    border:"border-rose-200",    label:"휴무"  },
 };
 
@@ -178,6 +179,7 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                           const after = type.slice(type.indexOf(key) + key.length);
                           return after.match(/\d{2}:\d{2}~\d{2}:\d{2}/)?.[0] ?? "";
                         };
+                        const memo = type.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
                         const isToday = date === todayStr;
                         return (
                           <td key={date} className={`py-3 px-2 text-center ${isToday?"bg-primary/5":""}`}>
@@ -194,10 +196,15 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                                     </div>
                                   );
                                 })}
+                                {memo && (
+                                  <span className="mt-0.5 max-w-[88px] truncate rounded-md bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500" title={memo}>
+                                    {memo}
+                                  </span>
+                                )}
                               </div>
                             ) : type ? (
-                              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[10px] font-bold border bg-gray-50 text-gray-500 border-gray-200">
-                                {type.slice(0, 4)}
+                              <span className="inline-flex max-w-[92px] items-center justify-center truncate rounded-lg border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-500" title={type}>
+                                {memo || type.slice(0, 8)}
                               </span>
                             ) : <span className="text-gray-200">—</span>}
                           </td>
@@ -227,7 +234,6 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
 function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
   const [loading, setLoading]   = useState(true);
-  const jsonRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const unsub = subscribeScheduleFS((d) => {
@@ -236,18 +242,6 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
     });
     return unsub;
   }, []);
-
-  const handleJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; e.target.value = "";
-    try {
-      const json = JSON.parse(await file.text());
-      if (!json.weekStart || !json.zones || !json.schedule) { toast.error("JSON 형식이 올바르지 않습니다."); return; }
-      const data: ScheduleData = { ...json, uploadedAt: new Date().toISOString() };
-      await saveScheduleFS(data);
-      setSchedule(data);
-      toast.success("작업 일정이 저장되었습니다.");
-    } catch (err) { toast.error(`저장 실패: ${err instanceof Error ? err.message : "JSON 파일 오류"}`); }
-  };
 
   return (
     <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
@@ -261,15 +255,6 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
             {schedule && <p className="text-[11px] text-gray-400">이번주 구역별 작업 현황</p>}
           </div>
         </div>
-        {isAdmin && (
-          <>
-            <button onClick={() => jsonRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 text-white text-xs font-semibold hover:bg-emerald-600 transition-colors shadow-sm">
-              <FileJson className="h-3.5 w-3.5" /> JSON 업로드
-            </button>
-            <input ref={jsonRef} type="file" accept=".json" className="hidden" onChange={handleJson} />
-          </>
-        )}
       </div>
 
       {loading ? (
@@ -282,7 +267,7 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
             <CalendarDays className="h-7 w-7 text-gray-300" />
           </div>
           <p className="text-sm text-gray-400">
-            {isAdmin ? "JSON 파일을 업로드하면 작업 일정이 표시됩니다." : "등록된 작업 일정이 없습니다."}
+            {isAdmin ? "주간일정 탭에서 작업 일정을 등록하세요." : "등록된 작업 일정이 없습니다."}
           </p>
         </div>
       ) : <ScheduleCalendar schedule={schedule} />}
