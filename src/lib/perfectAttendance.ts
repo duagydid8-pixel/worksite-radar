@@ -49,6 +49,12 @@ export interface CalculatePerfectAttendanceInput {
   resignedNames: Set<string>;
 }
 
+const EXCLUDED_PERFECT_ATTENDANCE_TEAMS = new Set(["태화_F", "태화_W", "한성_F"]);
+
+function isExcludedPerfectAttendanceTeam(row: PerfectAttendanceRow): boolean {
+  return EXCLUDED_PERFECT_ATTENDANCE_TEAMS.has((row.팀명 ?? "").trim());
+}
+
 function isLateTime(timeStr: string): boolean {
   if (!timeStr) return false;
   const match = timeStr.match(/^(\d{1,2}):(\d{2})/);
@@ -106,6 +112,7 @@ export function calculatePerfectAttendance(input: CalculatePerfectAttendanceInpu
   if (firstTargetDate) {
     for (const row of input.dateMap[firstTargetDate] ?? []) {
       if (!row.성명 || input.resignedNames.has(row.성명)) continue;
+      if (isExcludedPerfectAttendanceTeam(row)) continue;
       const key = rowKey(row);
       if (!employeeMap.has(key)) employeeMap.set(key, row);
     }
