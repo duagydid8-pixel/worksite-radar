@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
-import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS } from "@/lib/firestoreService";
+import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS } from "@/lib/firestoreService";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -869,17 +869,6 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
   const isSafetyEduDate = safetyEduDates.has(selectedDate);
 
-  const toggleSafetyEdu = () => {
-    if (!isAdmin) return;
-    const next = new Set(safetyEduDates);
-    if (next.has(selectedDate)) next.delete(selectedDate);
-    else next.add(selectedDate);
-    setSafetyEduDates(next);
-    saveSafetyEduDatesFS([...next]).then((ok) => {
-      if (!ok) toast.error("정기안전교육 설정 저장 실패");
-    });
-  };
-
   // 마운트 시 안내 알림
   useEffect(() => {
     toast.info("성명 옆 달력 아이콘을 클릭하면 상세한 출퇴근기록과 공수를 확인할 수 있습니다.", {
@@ -1383,28 +1372,6 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
       {/* ── 툴바 ── */}
       <div className={`flex flex-wrap items-center gap-3 shrink-0 ${viewMode !== "daily" ? "hidden" : ""}`}>
-        {/* ── 정기안전교육 체크칸 ── */}
-        <label
-          title={isAdmin ? "클릭하여 이 날짜를 정기안전교육 날짜로 설정/해제" : "정기안전교육 날짜 여부"}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors select-none
-            ${isSafetyEduDate
-              ? "bg-amber-50 border-amber-400 text-amber-700"
-              : "bg-white border-border text-muted-foreground"}
-            ${isAdmin ? "cursor-pointer hover:border-amber-400 hover:bg-amber-50/60" : "cursor-default"}`}
-        >
-          <input
-            type="checkbox"
-            checked={isSafetyEduDate}
-            onChange={toggleSafetyEdu}
-            readOnly={!isAdmin}
-            className="h-4 w-4 accent-amber-500"
-          />
-          <span className="text-xs font-semibold whitespace-nowrap">정기안전교육</span>
-          {isSafetyEduDate && (
-            <span className="text-[10px] font-normal opacity-70">· 16:20 퇴근 = 1공수</span>
-          )}
-        </label>
-
         {isAdmin && (
           <div className="flex items-center gap-2 bg-muted/40 border border-border rounded-lg px-3 py-1.5">
             <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">업로드 날짜</span>
