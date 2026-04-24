@@ -682,8 +682,24 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     }),
     [dateMap, selectedYearMonth, saturdayWorkDates, resignedNames]
   );
+  const matchesPersonSearch = (person: { 성명: string; 사번?: string }) => {
+    const q = search.trim();
+    return !q || person.성명.includes(q) || (person.사번 ?? "").includes(q);
+  };
+  const filteredMonthlyStats = useMemo(
+    () => monthlyStats.filter(matchesPersonSearch),
+    [monthlyStats, search]
+  );
+  const filteredPerfectPeople = useMemo(
+    () => perfectAttendance.perfect.filter(matchesPersonSearch),
+    [perfectAttendance.perfect, search]
+  );
+  const filteredFailedPeople = useMemo(
+    () => perfectAttendance.failed.filter(matchesPersonSearch),
+    [perfectAttendance.failed, search]
+  );
   const failedReasonTotals = useMemo(
-    () => perfectAttendance.failed.reduce(
+    () => filteredFailedPeople.reduce(
       (acc, person) => ({
         absent: acc.absent + person.결근일수,
         late: acc.late + person.지각횟수,
@@ -691,13 +707,13 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       }),
       { absent: 0, late: 0, short: 0 }
     ),
-    [perfectAttendance.failed]
+    [filteredFailedPeople]
   );
   const reserveForcePeople = useMemo(
-    () => [...perfectAttendance.perfect, ...perfectAttendance.failed]
+    () => [...filteredPerfectPeople, ...filteredFailedPeople]
       .filter((person) => person.예비군인정일수 > 0)
       .sort((a, b) => a.팀명.localeCompare(b.팀명) || a.성명.localeCompare(b.성명)),
-    [perfectAttendance.perfect, perfectAttendance.failed]
+    [filteredPerfectPeople, filteredFailedPeople]
   );
 
   // 이상 근태: 지각 3회 이상 — 퇴사자 제외
@@ -1137,21 +1153,31 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
         <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="text-xs font-semibold text-muted-foreground">날짜 조회</span>
 
-        {availableDates.length === 0 ? (
-          <span className="text-xs text-muted-foreground">저장된 날짜 없음</span>
-        ) : (
-          <select
-            value={selectedDate}
-            onChange={(e) => { setSelectedDate(e.target.value); setSearch(""); }}
-            className="border border-border rounded-lg px-3 py-1.5 text-sm font-semibold text-foreground bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-          >
-            {availableDates.map((d) => (
-              <option key={d} value={d}>
-                {formatLabel(d)} ({(dateMap[d]?.length ?? 0)}건)
-              </option>
-            ))}
-          </select>
-        )}
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="border border-border rounded-lg px-3 py-1.5 text-sm font-semibold text-foreground bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+        />
+        <span className="text-xs text-muted-foreground">
+          {dateMap[selectedDate]?.length ? `${dateMap[selectedDate].length}건 저장됨` : "저장된 데이터 없음"}
+        </span>
+
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="이름 / 사번 검색..."
+            className="w-full pl-9 pr-9 py-1.5 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
 
         {isAdmin && availableDates.length > 0 && (
           <button
@@ -1230,22 +1256,6 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
       {/* ── 툴바 ── */}
       <div className={`flex flex-wrap items-center gap-3 shrink-0 ${viewMode !== "daily" ? "hidden" : ""}`}>
-        <div className="relative flex-1 min-w-[180px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="이름 / 사번 검색..."
-            className="w-full pl-9 pr-9 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-          />
-          {search && (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-
         {/* ── 정기안전교육 체크칸 ── */}
         <label
           title={isAdmin ? "클릭하여 이 날짜를 정기안전교육 날짜로 설정/해제" : "정기안전교육 날짜 여부"}
@@ -1445,17 +1455,17 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                   <span className="text-3xl font-bold text-emerald-700 tabular-nums">{perfectAttendance.summary.perfectCount}</span>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-1.5">
-                  {perfectAttendance.perfect.slice(0, 8).map((person) => (
+                  {filteredPerfectPeople.slice(0, 8).map((person) => (
                     <span key={person.key} className="inline-flex rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-700 whitespace-nowrap">
                       {person.성명}
                     </span>
                   ))}
-                  {perfectAttendance.perfect.length > 8 && (
+                  {filteredPerfectPeople.length > 8 && (
                     <span className="inline-flex rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
-                      +{perfectAttendance.perfect.length - 8}
+                      +{filteredPerfectPeople.length - 8}
                     </span>
                   )}
-                  {perfectAttendance.perfect.length === 0 && (
+                  {filteredPerfectPeople.length === 0 && (
                     <span className="text-xs text-muted-foreground">만근자가 없습니다.</span>
                   )}
                 </div>
@@ -1518,9 +1528,9 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {perfectAttendance.perfect.length === 0 ? (
+                    {filteredPerfectPeople.length === 0 ? (
                       <tr><td colSpan={5} className="py-14 text-center text-muted-foreground">만근자가 없습니다.</td></tr>
-                    ) : perfectAttendance.perfect.map((person) => (
+                    ) : filteredPerfectPeople.map((person) => (
                       <tr key={person.key} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.직종 || "—"}</td>
@@ -1545,9 +1555,9 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {perfectAttendance.failed.length === 0 ? (
+                    {filteredFailedPeople.length === 0 ? (
                       <tr><td colSpan={7} className="py-14 text-center text-muted-foreground">탈락자가 없습니다.</td></tr>
-                    ) : perfectAttendance.failed.map((person) => (
+                    ) : filteredFailedPeople.map((person) => (
                       <tr key={person.key} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
                         <td className="px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[100px]">{person.성명}</td>
@@ -1622,7 +1632,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       {/* ── 월별 통계 뷰 ── */}
       {viewMode === "stats" && (
         <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm shrink-0" style={{ maxHeight: "calc(100vh - 260px)" }}>
-          {monthlyStats.length === 0 ? (
+          {filteredMonthlyStats.length === 0 ? (
             <div className="py-16 text-center text-muted-foreground text-sm">데이터가 없습니다.</div>
           ) : (
             <table className="min-w-full text-xs border-collapse">
@@ -1639,7 +1649,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {monthlyStats.map((s, i) => (
+                {filteredMonthlyStats.map((s, i) => (
                   <tr key={s.사번 || s.성명} className={`border-b border-border/60 last:border-0 hover:bg-muted/20 transition-colors ${i % 2 === 1 ? "bg-slate-50/40" : ""}`}>
                     <td className="px-3 py-2 text-center text-muted-foreground">{s.팀명 || "—"}</td>
                     <td className="px-3 py-2 text-center text-muted-foreground">{s.직종 || "—"}</td>
