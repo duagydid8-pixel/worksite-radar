@@ -100,14 +100,15 @@ describe("calculatePerfectAttendance", () => {
     expect(result.failed).toHaveLength(0);
   });
 
-  it("excludes TaeHwa F/W and HanSung F teams from perfect attendance", () => {
+  it("excludes TaeHwa F/W/S and HanSung F teams from perfect attendance", () => {
     const result = calculatePerfectAttendance({
       dateMap: {
         "2026-04-01": [
           row({ 팀명: "배관", 사번: "E001", 성명: "김철수" }),
           row({ 팀명: "태화_F", 사번: "E002", 성명: "태화에프" }),
           row({ 팀명: "태화_W", 사번: "E003", 성명: "태화더블유" }),
-          row({ 팀명: "한성_F", 사번: "E004", 성명: "한성에프" }),
+          row({ 팀명: "태화_S", 사번: "E004", 성명: "태화에스" }),
+          row({ 팀명: "한성_F", 사번: "E005", 성명: "한성에프" }),
         ],
       },
       yearMonth: "2026-04",

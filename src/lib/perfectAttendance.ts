@@ -49,7 +49,7 @@ export interface CalculatePerfectAttendanceInput {
   resignedNames: Set<string>;
 }
 
-const EXCLUDED_PERFECT_ATTENDANCE_TEAMS = new Set(["태화_F", "태화_W", "한성_F"]);
+const EXCLUDED_PERFECT_ATTENDANCE_TEAMS = new Set(["태화_F", "태화_W", "태화_S", "한성_F"]);
 
 function isExcludedPerfectAttendanceTeam(row: PerfectAttendanceRow): boolean {
   return EXCLUDED_PERFECT_ATTENDANCE_TEAMS.has((row.팀명 ?? "").trim());
