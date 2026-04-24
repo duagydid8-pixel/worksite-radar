@@ -87,7 +87,7 @@ describe("calculatePerfectAttendance", () => {
     expect(result.perfect[0].예비군인정일자).toEqual(["04/01"]);
   });
 
-  it("excludes resigned workers from the result", () => {
+  it("includes resigned workers when they meet perfect attendance for the month", () => {
     const result = calculatePerfectAttendance({
       dateMap: { "2026-04-01": [row({ 성명: "퇴사자" })] },
       yearMonth: "2026-04",
@@ -95,8 +95,8 @@ describe("calculatePerfectAttendance", () => {
       resignedNames: new Set(["퇴사자"]),
     });
 
-    expect(result.summary.totalWorkers).toBe(0);
-    expect(result.perfect).toHaveLength(0);
+    expect(result.summary.totalWorkers).toBe(1);
+    expect(result.perfect.map((person) => person.성명)).toEqual(["퇴사자"]);
     expect(result.failed).toHaveLength(0);
   });
 

@@ -111,7 +111,7 @@ export function calculatePerfectAttendance(input: CalculatePerfectAttendanceInpu
 
   if (firstTargetDate) {
     for (const row of input.dateMap[firstTargetDate] ?? []) {
-      if (!row.성명 || input.resignedNames.has(row.성명)) continue;
+      if (!row.성명) continue;
       if (isExcludedPerfectAttendanceTeam(row)) continue;
       const key = rowKey(row);
       if (!employeeMap.has(key)) employeeMap.set(key, row);
