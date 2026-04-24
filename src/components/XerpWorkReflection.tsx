@@ -1056,8 +1056,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         <th className={sth}>PMIS 출근</th>
                         <th className={sth}>PMIS 퇴근</th>
                         <th className={sth}>공수A</th>
+                        <th className={sth}>가산B 신청</th>
                         <th className={sth}>적용공수</th>
-                        <th className={sth}>가산B</th>
                         <th className={sth}>삭제</th>
                       </tr>
                     </thead>
@@ -1075,8 +1075,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             <td className={`${stc} tabular-nums ${!r.pmisIn ? "text-rose-400" : "text-blue-400"}`}>{r.pmisIn || "미기록"}</td>
                             <td className={`${stc} tabular-nums ${!r.pmisOut ? "text-rose-400" : "text-red-400"}`}>{r.pmisOut || "미기록"}</td>
                             <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
-                            <td className={`${stc} font-bold text-sky-700 tabular-nums`}>1.00</td>
                             <td className={`${stc} font-bold text-amber-600 tabular-nums`}>{r.diff !== null ? `+${r.diff.toFixed(2)}` : "—"}</td>
+                            <td className={`${stc} font-bold text-sky-700 tabular-nums`}>1.00</td>
                             <td className={stc}>
                               <button onClick={() => deleteNewEmp(r.성명)} className="text-rose-400 hover:text-rose-600 transition-colors" title="신규자 해제">
                                 <X className="h-3.5 w-3.5" />
@@ -1375,8 +1375,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                     <th className={sth}>적용 출근</th>
                     <th className={sth}>적용 퇴근</th>
                     <th className={sth}>공수A</th>
+                    <th className={sth}>가산B 신청</th>
                     <th className={sth}>계산공수</th>
-                    <th className={sth}>가산B</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1405,8 +1405,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         </td>
                         <td className={`${stc} font-semibold tabular-nums ${!r.effOut ? "text-rose-400" : "text-blue-700"}`}>{r.effOut || "—"}</td>
                         <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
-                        <td className={`${stc} font-bold text-emerald-700 tabular-nums`}>{r.calcGongsuVal !== null ? r.calcGongsuVal.toFixed(2) : "—"}</td>
                         <td className={`${stc} font-bold text-amber-700 tabular-nums`}>{r.diff !== null ? `+${r.diff.toFixed(2)}` : "—"}</td>
+                        <td className={`${stc} font-bold text-emerald-700 tabular-nums`}>{r.calcGongsuVal !== null ? r.calcGongsuVal.toFixed(2) : "—"}</td>
                       </tr>
                     );
                   })}
@@ -1569,8 +1569,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 <th className={`${th} bg-blue-50`}>적용 출근</th>
                 <th className={`${th} bg-blue-50`}>적용 퇴근</th>
                 <th className={th}>공수A (XERP)</th>
-                <th className={`${th} bg-emerald-50`}>계산 공수</th>
                 <th className={`${th} bg-amber-50`}>가산B 신청</th>
+                <th className={`${th} bg-emerald-50`}>계산 공수</th>
                 <th className={`${th} bg-amber-50`}>가산사유</th>
                 <th className={th}>상태</th>
               </tr>
@@ -1641,9 +1641,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       </td>
 
                       <td className={`${cell} tabular-nums`}>{row.xerpGongsuA || "—"}</td>
-                      <td className={`${cell} bg-emerald-50/40 font-bold text-emerald-700 tabular-nums`}>
-                        {row.calcGongsuVal !== null ? row.calcGongsuVal.toFixed(2) : "—"}
-                      </td>
 
                       {/* 가산B — 클릭 시 수기 입력 */}
                       <td className={`${cell} bg-amber-50/40 p-0`}>
@@ -1674,6 +1671,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             {row.diff !== null ? `+${row.diff.toFixed(2)}` : "—"}
                           </button>
                         )}
+                      </td>
+
+                      <td className={`${cell} bg-emerald-50/40 font-bold text-emerald-700 tabular-nums`}>
+                        {row.calcGongsuVal !== null ? row.calcGongsuVal.toFixed(2) : "—"}
                       </td>
 
                       {/* 가산사유 */}
