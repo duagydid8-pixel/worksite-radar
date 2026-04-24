@@ -295,6 +295,12 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
       .sort((a, b) => b.days - a.days); // 근속 많은 순
   }, [rows]);
 
+  const activeCount = useMemo(
+    () => rows.filter((r) => calcTenure(r.입사일, r.퇴사일).status === "재직중").length,
+    [rows]
+  );
+  const resignedCount = rows.length - activeCount;
+
   const addRow = () => {
     const next = [...rows, emptyRow()];
     setRows(next);
@@ -409,12 +415,12 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   };
 
   // sticky 열 공통 클래스
-  const thBase = "px-2 py-2.5 text-center font-semibold text-foreground whitespace-nowrap bg-muted";
+  const thBase = "px-2 py-3 text-center text-[11px] font-extrabold text-slate-600 whitespace-nowrap bg-slate-50 border-b border-slate-200";
   const thSticky = (left: string, shadow = false) =>
     `${thBase} sticky top-0 z-30 ${left}${shadow ? " shadow-[2px_0_4px_-1px_rgba(0,0,0,0.12)]" : ""}`;
   const thNormal = `${thBase} sticky top-0 z-20`;
 
-  const tdStickyBase = "bg-white group-hover:bg-muted/20 transition-colors";
+  const tdStickyBase = "bg-white group-hover:bg-slate-50 transition-colors";
   const tdSticky = (left: string, extra = "") =>
     `${tdStickyBase} sticky z-10 ${left}${extra ? ` ${extra}` : ""}`;
 
@@ -574,19 +580,19 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
 
       {/* ── 근속 경고 배너 ── */}
       {warningRows.length > 0 && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 shrink-0">
+        <div className="shrink-0 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-            <span className="text-sm font-bold text-amber-800">
+            <span className="text-sm font-extrabold text-amber-900">
               계약 기간 만료 임박 — {warningRows.length}명
             </span>
-            <span className="text-xs text-amber-600 ml-1">(근속 10개월 이상 재직중)</span>
+            <span className="ml-1 text-xs font-semibold text-amber-700">(근속 10개월 이상 재직중)</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {warningRows.map((r) => (
               <div
                 key={r.id}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold ${
                   r.remaining <= 30
                     ? "bg-red-100 border-red-300 text-red-700"
                     : "bg-amber-100 border-amber-300 text-amber-800"
@@ -618,39 +624,61 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
       />
 
       {/* 툴바 */}
-      <div className="flex flex-wrap items-center gap-3 shrink-0">
+      <div className="shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="mr-auto grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-bold text-slate-400">전체</p>
+              <p className="text-lg font-extrabold tabular-nums text-slate-950">{rows.length}</p>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <p className="text-[10px] font-bold text-emerald-600">재직중</p>
+              <p className="text-lg font-extrabold tabular-nums text-emerald-800">{activeCount}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <p className="text-[10px] font-bold text-slate-400">퇴사</p>
+              <p className="text-lg font-extrabold tabular-nums text-slate-700">{resignedCount}</p>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-[10px] font-bold text-amber-700">만료임박</p>
+              <p className="text-lg font-extrabold tabular-nums text-amber-800">{warningRows.length}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="이름 검색..."
-            className="pl-9 pr-9 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary w-44"
+            className="h-10 w-56 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-9 text-sm font-semibold text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-300 focus:bg-white"
           />
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900"
             >
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
         {/* 재직/퇴사 필터 */}
-        <div className="flex items-center gap-1 p-0.5 bg-muted rounded-lg border border-border">
+        <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
           {(["전체", "재직중", "퇴사"] as const).map((opt) => (
             <button
               key={opt}
               onClick={() => setStatusFilter(opt)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              className={`rounded-md px-3 py-1.5 text-xs font-extrabold transition-colors ${
                 statusFilter === opt
                   ? opt === "퇴사"
-                    ? "bg-rose-500 text-white shadow-sm"
+                    ? "bg-white text-rose-700 shadow-sm"
                     : opt === "재직중"
-                    ? "bg-green-500 text-white shadow-sm"
-                    : "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                    ? "bg-white text-emerald-700 shadow-sm"
+                    : "bg-white text-slate-950 shadow-sm"
+                  : "text-slate-500 hover:text-slate-900"
               }`}
             >
               {opt}
@@ -659,38 +687,39 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
         </div>
         <button
           onClick={addRow}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+          className="flex h-10 items-center gap-1.5 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white transition-colors hover:bg-slate-700"
         >
           <Plus className="h-4 w-4" />
           행 추가
         </button>
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
+          className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 transition-colors hover:bg-slate-50"
         >
-          <Upload className="h-4 w-4 text-muted-foreground" />
+          <Upload className="h-4 w-4 text-slate-400" />
           엑셀 업로드
         </button>
         <button
           onClick={handleFolderImport}
           title="폴더를 선택하면 신규자명단(UI 업로드).xlsx 파일을 자동으로 불러옵니다"
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors"
+          className="flex h-10 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-sm font-extrabold text-emerald-700 transition-colors hover:bg-emerald-100"
         >
           <FolderOpen className="h-4 w-4" />
           폴더에서 불러오기
         </button>
         <button
           onClick={exportToExcel}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
+          className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 transition-colors hover:bg-slate-50"
         >
-          <Download className="h-4 w-4 text-muted-foreground" />
+          <Download className="h-4 w-4 text-slate-400" />
           엑셀 내보내기
         </button>
+        </div>
       </div>
 
       {/* 테이블 */}
       <div
-        className="overflow-auto rounded-xl border border-border bg-white shadow-sm"
+        className="overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
         style={{ maxHeight: "calc(100vh - 280px)" }}
       >
         <table className="text-xs border-collapse" style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}>
@@ -708,7 +737,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
             <col style={{ width: 44 }} />
           </colgroup>
           <thead>
-            <tr className="bg-muted border-b border-border">
+            <tr className="border-b border-slate-200 bg-slate-50">
               <th className={thSticky("left-0")}>No</th>
               <th className={thSticky("left-[44px]")}>현장구분</th>
               <th className={thSticky("left-[134px]", true)}>이름</th>
@@ -729,7 +758,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                     onDoubleClick={(e) => resetColWidth(col, e)}
                     title="드래그: 너비 조절 / 더블클릭: 초기화"
                   >
-                    <div className="w-px h-3/5 bg-border group-hover/rh:bg-primary/60 transition-colors" />
+                    <div className="h-3/5 w-px bg-slate-200 transition-colors group-hover/rh:bg-slate-500" />
                   </div>
                 </th>
               ))}
@@ -750,49 +779,49 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                 const { days, months, status } = calcTenure(row.입사일, row.퇴사일);
                 const age = calcAge(row.주민번호);
                 return (
-                  <tr key={row.id} className="group border-b border-border last:border-0">
-                    <td className={tdSticky("left-0") + " px-3 py-1.5 text-center text-muted-foreground font-medium w-[44px]"}>
+                  <tr key={row.id} className="group border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                    <td className={tdSticky("left-0") + " px-3 py-2.5 text-center font-medium text-slate-400 w-[44px]"}>
                       {idx + 1}
                     </td>
-                    <td className={tdSticky("left-[44px]") + " px-3 py-1.5 w-[90px] text-xs"}>
-                      {row.현장구분 || <span className="text-muted-foreground/40">—</span>}
+                    <td className={tdSticky("left-[44px]") + " px-3 py-2.5 w-[90px] text-xs font-semibold text-slate-600"}>
+                      {row.현장구분 || <span className="text-slate-300">—</span>}
                     </td>
-                    <td className={tdSticky("left-[134px]", "px-1 py-1 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.12)]")}>
+                    <td className={tdSticky("left-[134px]", "px-1 py-1.5 shadow-[2px_0_4px_-1px_rgba(15,23,42,0.10)]")}>
                       <button
                         onClick={() => openEdit(row)}
-                        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-primary/10 text-primary font-medium text-xs min-w-[64px] w-full text-left transition-colors group/name"
+                        className="group/name flex min-w-[64px] w-full items-center gap-1 rounded px-2 py-1 text-left text-xs font-extrabold text-slate-900 transition-colors hover:bg-slate-100"
                       >
-                        <span className="flex-1">{row.이름 || <span className="text-muted-foreground font-normal">이름 없음</span>}</span>
+                        <span className="flex-1">{row.이름 || <span className="font-normal text-slate-400">이름 없음</span>}</span>
                         <Pencil className="h-3 w-3 opacity-0 group-hover/name:opacity-60 shrink-0 transition-opacity" />
                       </button>
                     </td>
                     {(["주민번호", "연락처"] as const).map((field) => (
-                      <td key={field} className="px-3 py-1.5 text-xs overflow-hidden text-ellipsis whitespace-nowrap">
-                        {row[field] || <span className="text-muted-foreground/40">—</span>}
+                      <td key={field} className="overflow-hidden text-ellipsis whitespace-nowrap px-3 py-2.5 text-xs font-medium text-slate-600">
+                        {row[field] || <span className="text-slate-300">—</span>}
                       </td>
                     ))}
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden">
+                    <td className="overflow-hidden px-2 py-2.5 text-center text-xs font-medium text-slate-500">
                       {age || "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-xs overflow-hidden">
-                      {row.남여 || <span className="text-muted-foreground/40">—</span>}
+                    <td className="overflow-hidden px-2 py-2.5 text-center text-xs font-medium text-slate-600">
+                      {row.남여 || <span className="text-slate-300">—</span>}
                     </td>
-                    <td className="px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden">
-                      {row.입사일 || <span className="text-muted-foreground/40">—</span>}
+                    <td className="overflow-hidden whitespace-nowrap px-3 py-2.5 text-xs font-medium text-slate-600">
+                      {row.입사일 || <span className="text-slate-300">—</span>}
                     </td>
-                    <td className={`px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden font-semibold ${row.퇴사일 ? "bg-rose-50 text-rose-600" : ""}`}>
-                      {row.퇴사일 || <span className="text-muted-foreground/40 font-normal">—</span>}
+                    <td className={`overflow-hidden whitespace-nowrap px-3 py-2.5 text-xs font-semibold ${row.퇴사일 ? "bg-rose-50 text-rose-600" : "text-slate-500"}`}>
+                      {row.퇴사일 || <span className="font-normal text-slate-300">—</span>}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden">
+                    <td className="overflow-hidden px-2 py-2.5 text-center text-xs font-medium text-slate-500">
                       {days ? `${days}일` : "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center text-muted-foreground text-xs overflow-hidden">
+                    <td className="overflow-hidden px-2 py-2.5 text-center text-xs font-medium text-slate-500">
                       {months ? `${months}개월` : "—"}
                     </td>
-                    <td className="px-2 py-1.5 text-center overflow-hidden">
+                    <td className="overflow-hidden px-2 py-2.5 text-center">
                       {status ? (
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                          status === "재직중" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+                        <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-extrabold ${
+                          status === "재직중" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-100 text-slate-500"
                         }`}>
                           {status}
                         </span>
@@ -806,16 +835,16 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                         : raw;
                       return (
                         <td key={field}
-                          className={`px-3 py-1.5 text-xs whitespace-nowrap overflow-hidden text-ellipsis${isMoney ? " tabular-nums text-right" : ""}`}>
-                          {display || <span className="text-muted-foreground/40">—</span>}
+                          className={`overflow-hidden text-ellipsis whitespace-nowrap px-3 py-2.5 text-xs font-medium text-slate-600${isMoney ? " tabular-nums text-right" : ""}`}>
+                          {display || <span className="text-slate-300">—</span>}
                         </td>
                       );
                     })}
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-2.5">
                       <button
                         onClick={() => deleteRow(row.id)}
                         title="행 삭제"
-                        className="text-muted-foreground hover:text-red-500 transition-colors"
+                        className="text-slate-300 transition-colors hover:text-rose-500"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -828,7 +857,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
         </table>
       </div>
 
-      <p className="text-xs text-muted-foreground shrink-0">
+      <p className="shrink-0 text-xs font-semibold text-slate-400">
         {displayRows.length !== rows.length
           ? `${displayRows.length}명 표시 / 전체 ${rows.length}명`
           : `총 ${rows.length}명`} · 연령 / 근속일수 / 근속개월 / 근속현황은 자동 계산됩니다
@@ -840,10 +869,13 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
 // ── 메인 컴포넌트 ────────────────────────────────────
 export default function NewEmployeeList() {
   return (
-    <div className="flex flex-col gap-3">
-      <h2 className="text-lg font-bold text-foreground">기술인 및 관리자 명단</h2>
+    <div className="flex flex-col gap-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-lg font-extrabold text-slate-950">기술인 및 관리자 명단</h2>
+        <p className="mt-1 text-xs font-semibold text-slate-400">현장별 재직/퇴사 인원과 근속 정보를 관리합니다.</p>
+      </div>
       <Tabs defaultValue="ph4">
-        <TabsList className="mb-2">
+        <TabsList className="mb-3 bg-slate-100 p-1">
           <TabsTrigger value="ph4">P4-PH4 초순수</TabsTrigger>
           <TabsTrigger value="ph2">P4-PH2 초순수</TabsTrigger>
         </TabsList>

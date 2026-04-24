@@ -9,8 +9,8 @@ import {
   Wind, Droplets, Thermometer, TrendingDown, CalendarOff,
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer,
 } from "recharts";
 
 interface ScheduleData {
@@ -55,19 +55,19 @@ function MiniCalendar({ selectedDate }: { selectedDate: string }) {
   const next = () => { if (vm === 11) { setVy(y=>y+1); setVm(0); } else setVm(m=>m+1); };
 
   return (
-    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between mb-4">
-        <button onClick={prev} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors text-gray-400">
+        <button onClick={prev} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <span className="text-sm font-bold text-gray-700">{vy}년 {vm+1}월</span>
-        <button onClick={next} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors text-gray-400">
+        <span className="text-sm font-extrabold text-slate-900">{vy}년 {vm+1}월</span>
+        <button onClick={next} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
       <div className="grid grid-cols-7 mb-2">
         {DAY_KO.map((d, i) => (
-          <div key={d} className={`text-center text-[10px] font-semibold ${i===0?"text-rose-400":i===6?"text-sky-400":"text-gray-400"}`}>{d}</div>
+          <div key={d} className={`text-center text-[10px] font-bold ${i===0?"text-rose-400":i===6?"text-sky-500":"text-slate-400"}`}>{d}</div>
         ))}
       </div>
       <div className="grid grid-cols-7 gap-y-1">
@@ -79,11 +79,11 @@ function MiniCalendar({ selectedDate }: { selectedDate: string }) {
           const isSel   = ds === selectedDate && !isToday;
           return (
             <div key={idx} className={`flex items-center justify-center h-7 w-7 mx-auto rounded-full text-[11px] font-medium transition-colors
-              ${isToday ? "bg-primary text-white font-bold shadow-sm" : ""}
-              ${isSel   ? "bg-primary/10 text-primary font-bold" : ""}
+              ${isToday ? "bg-slate-900 text-white font-extrabold shadow-sm" : ""}
+              ${isSel   ? "bg-slate-100 text-slate-900 font-extrabold" : ""}
               ${!isToday && !isSel && col===0 ? "text-rose-400" : ""}
               ${!isToday && !isSel && col===6 ? "text-sky-400"  : ""}
-              ${!isToday && !isSel && col!==0 && col!==6 ? "text-gray-600" : ""}
+              ${!isToday && !isSel && col!==0 && col!==6 ? "text-slate-600" : ""}
             `}>{day}</div>
           );
         })}
@@ -144,18 +144,18 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
           </span>
         </div>
 
-        <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-slate-50 p-2">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
           <div className="min-w-[720px] space-y-2">
             <div className="grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5">
-              <div className="px-2 py-2 text-[10px] font-bold text-gray-400">구역</div>
+              <div className="px-2 py-2 text-[10px] font-extrabold text-slate-400">구역</div>
               {weekDates.map((date,i)=>{
                 const [,m,d] = date.split("-").map(Number);
                 const isToday   = date === todayStr;
                 const isWeekend = i >= 5;
                 return (
-                  <div key={date} className={`rounded-xl bg-white px-2 py-2 text-center ${isToday ? "ring-1 ring-primary/20" : ""}`}>
-                    <div className={`text-[11px] font-bold ${isToday?"text-primary":isWeekend?"text-sky-500":"text-gray-600"}`}>{m}/{d}</div>
-                    <div className={`text-[10px] mt-0.5 ${isToday?"text-primary/60":isWeekend?"text-sky-400":"text-gray-400"}`}>{WEEK_DAY[i]}</div>
+                  <div key={date} className={`rounded-lg border border-slate-100 bg-white px-2 py-2 text-center ${isToday ? "ring-1 ring-slate-300" : ""}`}>
+                    <div className={`text-[11px] font-extrabold ${isToday?"text-slate-950":isWeekend?"text-sky-500":"text-slate-700"}`}>{m}/{d}</div>
+                    <div className={`mt-0.5 text-[10px] ${isToday?"text-slate-500":isWeekend?"text-sky-400":"text-slate-400"}`}>{WEEK_DAY[i]}</div>
                   </div>
                 );
               })}
@@ -164,13 +164,13 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
             {floorGroups.map(group => (
               <React.Fragment key={group.label}>
                 {group.label && (
-                  <div className="px-2 pt-2 text-[10px] font-bold tracking-widest text-gray-400">
+                  <div className="px-2 pt-2 text-[10px] font-extrabold tracking-widest text-slate-400">
                     {group.label}
                   </div>
                 )}
                 {group.zones.map((zone) => (
-                  <div key={zone} className="grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5 rounded-xl bg-white p-1.5">
-                    <div className="flex items-center px-2 text-xs font-bold text-slate-700">
+                  <div key={zone} className="grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5 rounded-lg border border-slate-100 bg-white p-1.5">
+                    <div className="flex items-center px-2 text-xs font-extrabold text-slate-800">
                       <span className="truncate">{group.label ? zone.replace(/^[13]층\s*/,"") : zone}</span>
                     </div>
                     {weekDates.map(date=>{
@@ -183,7 +183,7 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                       const memo = type.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
                       const isToday = date === todayStr;
                       return (
-                        <div key={date} className={`min-h-[58px] rounded-lg border px-1.5 py-1.5 text-center ${isToday ? "border-primary/20 bg-primary/5" : "border-gray-100 bg-white"}`}>
+                        <div key={date} className={`min-h-[58px] rounded-md border px-1.5 py-1.5 text-center ${isToday ? "border-slate-300 bg-slate-50" : "border-slate-100 bg-white"}`}>
                           {matchedMetas.length > 0 ? (
                             <div className="flex flex-col items-center gap-1">
                               {matchedMetas.slice(0, 3).map(([k, meta]) => {
@@ -246,29 +246,29 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
   }, []);
 
   return (
-    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-2xl bg-primary/10 flex items-center justify-center">
-            <CalendarDays className="h-4.5 w-4.5 text-primary" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100">
+            <CalendarDays className="h-4.5 w-4.5 text-slate-700" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-800">주간 작업 일정</h3>
-            {schedule && <p className="text-[11px] text-gray-400">이번주 구역별 작업 현황</p>}
+            <h3 className="text-sm font-extrabold text-slate-900">주간 작업 일정</h3>
+            {schedule && <p className="text-[11px] font-semibold text-slate-400">이번주 구역별 작업 현황</p>}
           </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 gap-2 text-gray-400 text-sm">
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-400">
           <Loader2 className="h-4 w-4 animate-spin" /> 불러오는 중...
         </div>
       ) : !schedule ? (
         <div className="py-12 text-center">
-          <div className="w-16 h-16 rounded-3xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
-            <CalendarDays className="h-7 w-7 text-gray-300" />
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">
+            <CalendarDays className="h-6 w-6 text-slate-300" />
           </div>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm font-semibold text-slate-400">
             {isAdmin ? "주간일정 탭에서 작업 일정을 등록하세요." : "등록된 작업 일정이 없습니다."}
           </p>
         </div>
@@ -332,49 +332,49 @@ function WeatherCard() {
   const info = weather ? getWeatherInfo(weather.weatherCode, weather.isDay) : null;
 
   return (
-    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-2.5 mb-4">
         <div className="w-9 h-9 rounded-2xl bg-sky-50 flex items-center justify-center">
           <span className="text-base">🌤️</span>
         </div>
         <div>
-          <p className="text-sm font-bold text-gray-800">현장 날씨</p>
-          <p className="text-[11px] text-gray-400">평택시 현재 기상</p>
+          <p className="text-sm font-extrabold text-slate-900">현장 날씨</p>
+          <p className="text-[11px] font-semibold text-slate-400">평택시 현재 기상</p>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-6 gap-2 text-gray-400 text-xs">
+        <div className="flex items-center justify-center gap-2 py-6 text-xs text-slate-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> 불러오는 중...
         </div>
       ) : error || !weather || !info ? (
-        <div className="py-6 text-center text-xs text-gray-400">날씨 정보를 가져올 수 없습니다.</div>
+        <div className="py-6 text-center text-xs font-semibold text-slate-400">날씨 정보를 가져올 수 없습니다.</div>
       ) : (
         <>
           {/* 메인 기온 */}
-          <div className={`rounded-2xl ${info.bg} p-4 flex items-center justify-between mb-3`}>
+          <div className="mb-3 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div>
-              <p className={`text-4xl font-bold tabular-nums ${info.color}`}>{weather.temp}°</p>
-              <p className={`text-sm font-semibold mt-0.5 ${info.color}`}>{info.label}</p>
+              <p className="text-4xl font-extrabold tabular-nums text-slate-950">{weather.temp}°</p>
+              <p className={`mt-0.5 text-sm font-extrabold ${info.color}`}>{info.label}</p>
             </div>
-            <span className="text-5xl select-none">{info.emoji}</span>
+            <span className="select-none text-3xl">{info.emoji}</span>
           </div>
           {/* 세부 정보 3칸 */}
           <div className="grid grid-cols-3 gap-2">
-            <div className="bg-gray-50 rounded-2xl p-2.5 text-center">
+            <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-center">
               <Thermometer className="h-3.5 w-3.5 text-orange-400 mx-auto mb-1" />
-              <p className="text-xs font-bold text-gray-700">{weather.feelsLike}°</p>
-              <p className="text-[10px] text-gray-400">체감</p>
+              <p className="text-xs font-extrabold text-slate-800">{weather.feelsLike}°</p>
+              <p className="text-[10px] font-semibold text-slate-400">체감</p>
             </div>
-            <div className="bg-gray-50 rounded-2xl p-2.5 text-center">
+            <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-center">
               <Droplets className="h-3.5 w-3.5 text-blue-400 mx-auto mb-1" />
-              <p className="text-xs font-bold text-gray-700">{weather.humidity}%</p>
-              <p className="text-[10px] text-gray-400">습도</p>
+              <p className="text-xs font-extrabold text-slate-800">{weather.humidity}%</p>
+              <p className="text-[10px] font-semibold text-slate-400">습도</p>
             </div>
-            <div className="bg-gray-50 rounded-2xl p-2.5 text-center">
+            <div className="rounded-xl border border-slate-200 bg-white p-2.5 text-center">
               <Wind className="h-3.5 w-3.5 text-teal-400 mx-auto mb-1" />
-              <p className="text-xs font-bold text-gray-700">{weather.windSpeed}</p>
-              <p className="text-[10px] text-gray-400">m/s</p>
+              <p className="text-xs font-extrabold text-slate-800">{weather.windSpeed}</p>
+              <p className="text-[10px] font-semibold text-slate-400">m/s</p>
             </div>
           </div>
         </>
@@ -406,73 +406,85 @@ function DailyAttendanceChart({ dateMap }: { dateMap: Record<string, WorkRow[]> 
   const maxVal = Math.max(...data.map(d => d.present), 1);
 
   return (
-    <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-2xl bg-violet-50 flex items-center justify-center">
-            <HardHat className="h-4.5 w-4.5 text-violet-600" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100">
+            <HardHat className="h-4.5 w-4.5 text-slate-700" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-800">일일 출력인원</h3>
-            <p className="text-[11px] text-gray-400">최근 {data.length}일 출근 기준</p>
+            <h3 className="text-sm font-extrabold text-slate-900">일일 출력인원</h3>
+            <p className="text-[11px] font-semibold text-slate-400">최근 {data.length}일 출근 기준</p>
           </div>
         </div>
         <div className="text-right">
-          <p className="text-xl font-bold text-violet-600 tabular-nums">{data[data.length - 1].present}<span className="text-xs font-medium text-gray-400 ml-0.5">명</span></p>
-          <p className="text-[10px] text-gray-400">최근일 출근</p>
+          <p className="text-xl font-extrabold tabular-nums text-slate-950">{data[data.length - 1].present}<span className="ml-0.5 text-xs font-semibold text-slate-400">명</span></p>
+          <p className="text-[10px] font-semibold text-slate-400">최근일 출근</p>
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={180}>
-        <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barCategoryGap="30%">
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+      <ResponsiveContainer width="100%" height={168}>
+        <AreaChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+          <defs>
+            <linearGradient id="attendanceTrendFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0f172a" stopOpacity={0.18} />
+              <stop offset="100%" stopColor="#0f172a" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            tick={{ fontSize: 10, fill: "#64748b", fontWeight: 700 }}
             axisLine={false}
             tickLine={false}
+            interval={0}
+            minTickGap={4}
+            tickMargin={8}
           />
           <YAxis
-            tick={{ fontSize: 10, fill: "#9ca3af" }}
+            tick={{ fontSize: 10, fill: "#94a3b8", fontWeight: 700 }}
             axisLine={false}
             tickLine={false}
             domain={[0, Math.ceil(maxVal * 1.15)]}
             allowDecimals={false}
+            width={32}
           />
           <Tooltip
-            cursor={{ fill: "#f5f3ff" }}
+            cursor={{ stroke: "#94a3b8", strokeWidth: 1, strokeDasharray: "4 4" }}
             content={({ active, payload }) => {
               if (!active || !payload?.length) return null;
               const d = payload[0].payload as DailyPoint;
               return (
-                <div className="bg-white border border-gray-100 rounded-2xl shadow-lg px-3 py-2 text-xs">
-                  <p className="font-bold text-gray-700 mb-1">{d.date}</p>
-                  <p className="text-violet-600 font-semibold">출근 {d.present}명</p>
-                  <p className="text-gray-400">전체 {d.total}명</p>
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
+                  <p className="mb-1 font-extrabold text-slate-800">{d.date}</p>
+                  <p className="font-bold text-slate-900">출근 {d.present}명</p>
+                  <p className="text-slate-400">전체 {d.total}명</p>
                 </div>
               );
             }}
           />
-          <Bar dataKey="present" radius={[6, 6, 0, 0]} maxBarSize={36}>
-            {data.map((entry) => (
-              <Cell
-                key={entry.date}
-                fill={entry.isToday ? "#7c3aed" : "#c4b5fd"}
-              />
-            ))}
-          </Bar>
-        </BarChart>
+          <Area
+            type="monotone"
+            dataKey="present"
+            stroke="#0f172a"
+            strokeWidth={2.5}
+            fill="url(#attendanceTrendFill)"
+            dot={{ r: 3, strokeWidth: 2, stroke: "#0f172a", fill: "#ffffff" }}
+            activeDot={{ r: 5, strokeWidth: 2, stroke: "#0f172a", fill: "#ffffff" }}
+          />
+        </AreaChart>
       </ResponsiveContainer>
 
-      <div className="flex items-center gap-3 mt-2">
+      <div className="mt-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-sm bg-[#7c3aed] inline-block" />
-          <span className="text-[10px] text-gray-400">오늘</span>
+          <span className="inline-block h-2 w-6 rounded-full bg-slate-900" />
+          <span className="text-[10px] font-semibold text-slate-400">출력 추세</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-sm bg-[#c4b5fd] inline-block" />
-          <span className="text-[10px] text-gray-400">이전 날짜</span>
+        <div className="hidden">
+          <span className="hidden" />
+          <span className="text-[10px] font-semibold text-slate-400">이전 날짜</span>
         </div>
+        <span className="text-[10px] font-semibold text-slate-400">최근 14일</span>
       </div>
     </div>
   );
@@ -583,30 +595,30 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
 
           {/* 당일 연차자 카드 */}
           {todayLeaveDetails.length > 0 && (
-            <div className="bg-white rounded-3xl shadow-sm border border-amber-100 p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-2xl bg-amber-50 flex items-center justify-center">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50">
                     <CalendarOff className="h-4.5 w-4.5 text-amber-500" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-gray-800">당일 연차자</h3>
-                    <p className="text-[11px] text-gray-400">{selectedDate} 기준</p>
+                    <h3 className="text-sm font-extrabold text-slate-900">당일 연차자</h3>
+                    <p className="text-[11px] font-semibold text-slate-400">{selectedDate} 기준</p>
                   </div>
                 </div>
                 <span className="text-xl font-bold text-amber-500 tabular-nums">
-                  {todayLeaveDetails.length}<span className="text-xs font-medium text-gray-400 ml-0.5">명</span>
+                  {todayLeaveDetails.length}<span className="ml-0.5 text-xs font-semibold text-slate-400">명</span>
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {todayLeaveDetails.map((item, i) => (
-                  <div key={i} className="flex items-center gap-1.5 bg-amber-50 border border-amber-100 rounded-2xl px-3 py-1.5">
+                  <div key={i} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5">
                     <span className="text-xs font-bold text-amber-700">{item.name}</span>
                     {item.days !== 1 && (
                       <span className="text-[10px] text-amber-500 font-medium">{item.days}일</span>
                     )}
                     {item.reason && (
-                      <span className="text-[10px] text-gray-400">({item.reason})</span>
+                      <span className="text-[10px] font-semibold text-slate-400">({item.reason})</span>
                     )}
                   </div>
                 ))}
@@ -629,32 +641,32 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
           <MiniCalendar selectedDate={selectedDate} />
 
           {/* 업로드 상태 카드 */}
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-9 h-9 rounded-2xl bg-blue-50 flex items-center justify-center">
-                <CloudUpload className="h-4.5 w-4.5 text-primary" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100">
+                <CloudUpload className="h-4.5 w-4.5 text-slate-700" />
               </div>
               <div>
-                <p className="text-sm font-bold text-gray-800">데이터 현황</p>
-                <p className="text-[11px] text-gray-400">근태 파일 업로드 상태</p>
+                <p className="text-sm font-extrabold text-slate-900">데이터 현황</p>
+                <p className="text-[11px] font-semibold text-slate-400">근태 파일 업로드 상태</p>
               </div>
             </div>
             <div className="space-y-3">
               <div className="flex items-center justify-between py-2 border-b border-gray-50">
-                <span className="text-xs text-gray-500">기술인 데이터</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${xerpLoaded && stats.total > 0 ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
+                <span className="text-xs font-semibold text-slate-500">기술인 데이터</span>
+                <span className={`rounded-md border px-2 py-0.5 text-xs font-extrabold ${xerpLoaded && stats.total > 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-100 text-slate-400"}`}>
                   {xerpLoaded && stats.total > 0 ? "로드됨" : "없음"}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-gray-50">
-                <span className="text-xs text-gray-500">최근 업데이트</span>
-                <span className="text-xs font-semibold text-gray-600 text-right max-w-[120px] leading-tight">
+                <span className="text-xs font-semibold text-slate-500">최근 업데이트</span>
+                <span className="max-w-[120px] text-right text-xs font-bold leading-tight text-slate-700">
                   {lastUploadedAt ?? "—"}
                 </span>
               </div>
               <div className="flex items-center justify-between py-2">
-                <span className="text-xs text-gray-500">총 기술인</span>
-                <span className="text-xs font-bold text-primary">
+                <span className="text-xs font-semibold text-slate-500">총 기술인</span>
+                <span className="text-xs font-extrabold text-slate-900">
                   {xerpLoaded ? `${stats.total}명` : "—"}
                 </span>
               </div>
