@@ -24,6 +24,7 @@ export interface PerfectAttendancePerson {
   지각횟수: number;
   공수미달일수: number;
   예비군인정일수: number;
+  예비군인정일자: string[];
   상세사유: string[];
 }
 
@@ -125,6 +126,7 @@ export function calculatePerfectAttendance(input: CalculatePerfectAttendanceInpu
       지각횟수: 0,
       공수미달일수: 0,
       예비군인정일수: 0,
+      예비군인정일자: [],
       상세사유: [],
     };
 
@@ -148,6 +150,7 @@ export function calculatePerfectAttendance(input: CalculatePerfectAttendanceInpu
 
       if (reserveForce) {
         person.예비군인정일수++;
+        person.예비군인정일자.push(dateLabel(date));
         person.출근인정일수++;
         continue;
       }

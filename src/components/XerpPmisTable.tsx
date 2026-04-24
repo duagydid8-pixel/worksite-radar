@@ -619,7 +619,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [isSavingMemo, setIsSavingMemo] = useState(false);
   const [saturdayWorkDates, setSaturdayWorkDates] = useState<string[]>([]);
   const [saturdayInput, setSaturdayInput] = useState(TODAY);
-  const [perfectDialog, setPerfectDialog] = useState<"perfect" | "failed" | null>(null);
+  const [perfectDialog, setPerfectDialog] = useState<"perfect" | "failed" | "reserve" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 달력 모달 상태
@@ -692,6 +692,12 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       { absent: 0, late: 0, short: 0 }
     ),
     [perfectAttendance.failed]
+  );
+  const reserveForcePeople = useMemo(
+    () => [...perfectAttendance.perfect, ...perfectAttendance.failed]
+      .filter((person) => person.예비군인정일수 > 0)
+      .sort((a, b) => a.팀명.localeCompare(b.팀명) || a.성명.localeCompare(b.성명)),
+    [perfectAttendance.perfect, perfectAttendance.failed]
   );
 
   // 이상 근태: 지각 3회 이상 — 퇴사자 제외
@@ -1399,18 +1405,30 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
           <div className="space-y-3 min-w-0">
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {[
-                { label: "대상 근무일", value: perfectAttendance.summary.targetWorkDays, sub: "평일 + 등록 토요일", color: "text-slate-700", icon: <CalendarDays className="h-4 w-4" /> },
-                { label: "만근자", value: perfectAttendance.summary.perfectCount, sub: "결근 0 · 지각 0", color: "text-emerald-700", icon: <Award className="h-4 w-4" /> },
-                { label: "탈락자", value: perfectAttendance.summary.failedCount, sub: "결근/지각/공수미달", color: "text-orange-600", icon: <AlertTriangle className="h-4 w-4" /> },
-                { label: "예비군 인정", value: perfectAttendance.summary.reserveForceCount, sub: "가산사유 기준", color: "text-indigo-700", icon: <ShieldCheck className="h-4 w-4" /> },
-              ].map((item) => (
-                <div key={item.label} className="bg-white border border-border rounded-xl shadow-sm p-4">
-                  <div className={`flex items-center gap-2 text-xs font-semibold ${item.color}`}>{item.icon}{item.label}</div>
-                  <p className={`text-3xl font-bold tabular-nums mt-2 ${item.color}`}>{item.value}</p>
-                  <p className="text-[11px] text-muted-foreground">{item.sub}</p>
-                </div>
-              ))}
+              <div className="bg-white border border-border rounded-xl shadow-sm p-4">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700"><CalendarDays className="h-4 w-4" />대상 근무일</div>
+                <p className="text-3xl font-bold tabular-nums mt-2 text-slate-700">{perfectAttendance.summary.targetWorkDays}</p>
+                <p className="text-[11px] text-muted-foreground">평일 + 등록 토요일</p>
+              </div>
+              <div className="bg-white border border-border rounded-xl shadow-sm p-4">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700"><Award className="h-4 w-4" />만근자</div>
+                <p className="text-3xl font-bold tabular-nums mt-2 text-emerald-700">{perfectAttendance.summary.perfectCount}</p>
+                <p className="text-[11px] text-muted-foreground">결근 0 · 지각 0</p>
+              </div>
+              <div className="bg-white border border-border rounded-xl shadow-sm p-4">
+                <div className="flex items-center gap-2 text-xs font-semibold text-orange-600"><AlertTriangle className="h-4 w-4" />탈락자</div>
+                <p className="text-3xl font-bold tabular-nums mt-2 text-orange-600">{perfectAttendance.summary.failedCount}</p>
+                <p className="text-[11px] text-muted-foreground">결근/지각/공수미달</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPerfectDialog("reserve")}
+                className="text-left bg-white border border-indigo-200 rounded-xl shadow-sm p-4 hover:border-indigo-400 hover:shadow-md transition-all"
+              >
+                <div className="flex items-center gap-2 text-xs font-semibold text-indigo-700"><ShieldCheck className="h-4 w-4" />예비군 인정</div>
+                <p className="text-3xl font-bold tabular-nums mt-2 text-indigo-700">{perfectAttendance.summary.reserveForceCount}</p>
+                <p className="text-[11px] text-muted-foreground">클릭해서 명단/날짜 확인</p>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -1475,7 +1493,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
             <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-border">
               <div>
                 <h3 className="text-base font-bold text-foreground">
-                  {perfectDialog === "perfect" ? "만근자 목록" : "탈락자 사유"}
+                  {perfectDialog === "perfect" ? "만근자 목록" : perfectDialog === "failed" ? "탈락자 사유" : "예비군 인정 명단"}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">{site} · {selectedYearMonth} · 대상 근무일 {perfectAttendance.summary.targetWorkDays}일</p>
               </div>
@@ -1513,7 +1531,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                     ))}
                   </tbody>
                 </table>
-              ) : (
+              ) : perfectDialog === "failed" ? (
                 <table className="min-w-[940px] w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border bg-muted">
@@ -1552,6 +1570,44 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                               ))}
                             </div>
                           )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="min-w-[720px] w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border bg-muted">
+                      <th className={th()}>팀명</th>
+                      <th className={th()}>직종</th>
+                      <th className={th()}>사번</th>
+                      <th className={th("min-w-[100px]")}>성명</th>
+                      <th className={th()}>인정일수</th>
+                      <th className={th("min-w-[260px]")}>인정 날짜</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reserveForcePeople.length === 0 ? (
+                      <tr><td colSpan={6} className="py-14 text-center text-muted-foreground">예비군 인정자가 없습니다.</td></tr>
+                    ) : reserveForcePeople.map((person) => (
+                      <tr key={person.key} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
+                        <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
+                        <td className="px-3 py-2 text-center text-muted-foreground">{person.직종 || "—"}</td>
+                        <td className="px-3 py-2 text-center text-muted-foreground">{person.사번 || "—"}</td>
+                        <td className="px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[100px]">{person.성명}</td>
+                        <td className="px-3 py-2 text-center font-bold text-indigo-700">{person.예비군인정일수}</td>
+                        <td className="px-3 py-2 text-left">
+                          <div className="flex flex-wrap gap-1.5">
+                            {person.예비군인정일자.map((date) => (
+                              <span
+                                key={`${person.key}-${date}`}
+                                className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700 whitespace-nowrap"
+                              >
+                                {date}
+                              </span>
+                            ))}
+                          </div>
                         </td>
                       </tr>
                     ))}

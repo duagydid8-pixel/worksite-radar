@@ -84,6 +84,7 @@ describe("calculatePerfectAttendance", () => {
     expect(result.summary.reserveForceCount).toBe(1);
     expect(result.summary.perfectCount).toBe(1);
     expect(result.perfect[0].예비군인정일수).toBe(1);
+    expect(result.perfect[0].예비군인정일자).toEqual(["04/01"]);
   });
 
   it("excludes resigned workers from the result", () => {
