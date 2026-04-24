@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, X, Download, Upload, FolderOpen, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown, BarChart2, MessageSquare, TrendingUp } from "lucide-react";
+import { Search, X, Download, Upload, FolderOpen, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown, BarChart2, MessageSquare, TrendingUp, Award, Plus, ShieldCheck } from "lucide-react";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
-import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS } from "@/lib/firestoreService";
+import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
+import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS } from "@/lib/firestoreService";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -612,10 +613,12 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [search, setSearch] = useState("");
   const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<"daily" | "stats">("daily");
+  const [viewMode, setViewMode] = useState<"daily" | "stats" | "perfect">("daily");
   const [dateMemos, setDateMemos] = useState<Record<string, string>>({});
   const [memoInput, setMemoInput] = useState("");
   const [isSavingMemo, setIsSavingMemo] = useState(false);
+  const [saturdayWorkDates, setSaturdayWorkDates] = useState<string[]>([]);
+  const [saturdayInput, setSaturdayInput] = useState(TODAY);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 달력 모달 상태
@@ -668,6 +671,16 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
   // 월별 통계
   const monthlyStats = useMemo(() => calcMonthlyStats(dateMap), [dateMap]);
+  const selectedYearMonth = selectedDate.slice(0, 7);
+  const perfectAttendance = useMemo(
+    () => calculatePerfectAttendance({
+      dateMap,
+      yearMonth: selectedYearMonth,
+      saturdayWorkDates,
+      resignedNames,
+    }),
+    [dateMap, selectedYearMonth, saturdayWorkDates, resignedNames]
+  );
 
   // 이상 근태: 지각 3회 이상 — 퇴사자 제외
   const frequentLate = useMemo(
@@ -725,6 +738,10 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     loadDateMemosFS(site).then((memos) => {
       setDateMemos(memos);
     });
+
+    loadPerfectAttendanceSaturdaysFS(site).then((dates) => {
+      setSaturdayWorkDates(dates);
+    });
   }, []);
 
   // 날짜 변경 시 선택 초기화 + 메모 동기화
@@ -741,6 +758,30 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     if (ok) { setDateMemos(updated); toast.success("메모 저장 완료"); }
     else toast.error("메모 저장 실패");
     setIsSavingMemo(false);
+  };
+
+  const saveSaturdayWorkDates = async (dates: string[]): Promise<boolean> => {
+    const normalized = [...new Set(dates)].sort();
+    setSaturdayWorkDates(normalized);
+    const ok = await savePerfectAttendanceSaturdaysFS(site, normalized);
+    if (!ok) toast.error("토요 현장근무일 저장 실패");
+    return ok;
+  };
+
+  const addSaturdayWorkDate = async () => {
+    if (!saturdayInput) return;
+    const date = new Date(`${saturdayInput}T00:00:00`);
+    if (date.getDay() !== 6) {
+      toast.error("토요일만 등록할 수 있습니다.");
+      return;
+    }
+    const ok = await saveSaturdayWorkDates([...saturdayWorkDates, saturdayInput]);
+    if (ok) toast.success(`${formatLabel(saturdayInput)} 토요 현장근무일을 등록했습니다.`);
+  };
+
+  const removeSaturdayWorkDate = async (date: string) => {
+    const ok = await saveSaturdayWorkDates(saturdayWorkDates.filter((d) => d !== date));
+    if (ok) toast.success(`${formatLabel(date)} 토요 현장근무일을 삭제했습니다.`);
   };
 
   // Firestore 저장 헬퍼
@@ -1149,10 +1190,21 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           <BarChart2 className="h-4 w-4" />
           월별 통계
         </button>
+        <button
+          onClick={() => setViewMode("perfect")}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+            viewMode === "perfect"
+              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+              : "bg-white text-muted-foreground border-border hover:bg-muted/50"
+          }`}
+        >
+          <Award className="h-4 w-4" />
+          만근 통계
+        </button>
       </div>
 
       {/* ── 툴바 ── */}
-      <div className={`flex flex-wrap items-center gap-3 shrink-0 ${viewMode === "stats" ? "hidden" : ""}`}>
+      <div className={`flex flex-wrap items-center gap-3 shrink-0 ${viewMode !== "daily" ? "hidden" : ""}`}>
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input
@@ -1281,6 +1333,132 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       )}
 
       {/* ── 테이블 ── */}
+      {/* ── 만근 통계 뷰 ── */}
+      {viewMode === "perfect" && (
+        <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-3 overflow-auto" style={{ maxHeight: "calc(100vh - 260px)" }}>
+          <div className="space-y-3">
+            <div className="bg-white border border-border rounded-xl shadow-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">토요 현장근무일</h3>
+                  <p className="text-[11px] text-muted-foreground">{site} · {selectedYearMonth} 기준</p>
+                </div>
+                <CalendarDays className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={saturdayInput}
+                  onChange={(e) => setSaturdayInput(e.target.value)}
+                  className="min-w-0 flex-1 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+                <button
+                  onClick={addSaturdayWorkDate}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  추가
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {saturdayWorkDates.filter((d) => d.startsWith(selectedYearMonth)).length === 0 ? (
+                  <span className="text-xs text-muted-foreground">등록된 토요일 없음</span>
+                ) : saturdayWorkDates.filter((d) => d.startsWith(selectedYearMonth)).map((date) => (
+                  <button
+                    key={date}
+                    onClick={() => removeSaturdayWorkDate(date)}
+                    className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-xs font-semibold hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-colors"
+                    title="클릭하면 삭제"
+                  >
+                    {formatLabel(date)} 삭제
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-3">일요일은 자동 제외되고, 등록된 토요일만 만근 대상일에 포함됩니다.</p>
+            </div>
+          </div>
+
+          <div className="space-y-3 min-w-0">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                { label: "대상 근무일", value: perfectAttendance.summary.targetWorkDays, sub: "평일 + 등록 토요일", color: "text-slate-700", icon: <CalendarDays className="h-4 w-4" /> },
+                { label: "만근자", value: perfectAttendance.summary.perfectCount, sub: "결근 0 · 지각 0", color: "text-emerald-700", icon: <Award className="h-4 w-4" /> },
+                { label: "탈락자", value: perfectAttendance.summary.failedCount, sub: "결근/지각/공수미달", color: "text-orange-600", icon: <AlertTriangle className="h-4 w-4" /> },
+                { label: "예비군 인정", value: perfectAttendance.summary.reserveForceCount, sub: "가산사유 기준", color: "text-indigo-700", icon: <ShieldCheck className="h-4 w-4" /> },
+              ].map((item) => (
+                <div key={item.label} className="bg-white border border-border rounded-xl shadow-sm p-4">
+                  <div className={`flex items-center gap-2 text-xs font-semibold ${item.color}`}>{item.icon}{item.label}</div>
+                  <p className={`text-3xl font-bold tabular-nums mt-2 ${item.color}`}>{item.value}</p>
+                  <p className="text-[11px] text-muted-foreground">{item.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 2xl:grid-cols-[0.9fr_1.1fr] gap-3">
+              <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm">
+                <div className="px-4 py-3 border-b border-border bg-muted/40 text-sm font-bold">만근자 목록</div>
+                <table className="min-w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border bg-muted">
+                      <th className={th()}>팀명</th>
+                      <th className={th()}>직종</th>
+                      <th className={th()}>사번</th>
+                      <th className={th()}>성명</th>
+                      <th className={th()}>출근인정</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {perfectAttendance.perfect.length === 0 ? (
+                      <tr><td colSpan={5} className="py-12 text-center text-muted-foreground">만근자가 없습니다.</td></tr>
+                    ) : perfectAttendance.perfect.map((person) => (
+                      <tr key={person.key} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
+                        <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
+                        <td className="px-3 py-2 text-center text-muted-foreground">{person.직종 || "—"}</td>
+                        <td className="px-3 py-2 text-center text-muted-foreground">{person.사번 || "—"}</td>
+                        <td className="px-3 py-2 text-center font-semibold">{person.성명}</td>
+                        <td className="px-3 py-2 text-center font-bold text-emerald-700">{person.출근인정일수}/{person.대상근무일수}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm">
+                <div className="px-4 py-3 border-b border-border bg-muted/40 text-sm font-bold">탈락자 사유</div>
+                <table className="min-w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border bg-muted">
+                      <th className={th()}>팀명</th>
+                      <th className={th()}>성명</th>
+                      <th className={th()}>결근</th>
+                      <th className={th()}>지각</th>
+                      <th className={th()}>공수미달</th>
+                      <th className={th()}>예비군</th>
+                      <th className={th("min-w-[220px]")}>상세</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {perfectAttendance.failed.length === 0 ? (
+                      <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">탈락자가 없습니다.</td></tr>
+                    ) : perfectAttendance.failed.map((person) => (
+                      <tr key={person.key} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
+                        <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
+                        <td className="px-3 py-2 text-center font-semibold">{person.성명}</td>
+                        <td className="px-3 py-2 text-center font-bold text-red-600">{person.결근일수}</td>
+                        <td className="px-3 py-2 text-center font-bold text-orange-500">{person.지각횟수}</td>
+                        <td className="px-3 py-2 text-center font-bold text-orange-600">{person.공수미달일수}</td>
+                        <td className="px-3 py-2 text-center font-bold text-indigo-600">{person.예비군인정일수}</td>
+                        <td className="px-3 py-2 text-left text-muted-foreground">{person.상세사유.join(", ") || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── 월별 통계 뷰 ── */}
       {viewMode === "stats" && (
         <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm shrink-0" style={{ maxHeight: "calc(100vh - 260px)" }}>
