@@ -321,6 +321,17 @@ export async function saveDateMemosFS(site: string, memos: Record<string, string
   return fsSet(`date_memos_${site}`, { memos });
 }
 
+// ── 만근 통계: 현장별 토요 현장근무일 ────────────────────────
+export async function loadPerfectAttendanceSaturdaysFS(site: string): Promise<string[]> {
+  const data = await fsGet<{ dates: string[] }>(`perfect_attendance_saturdays_${site}`);
+  return data?.dates ?? [];
+}
+
+export async function savePerfectAttendanceSaturdaysFS(site: string, dates: string[]): Promise<boolean> {
+  const normalized = [...new Set(dates)].sort();
+  return fsSet(`perfect_attendance_saturdays_${site}`, { dates: normalized });
+}
+
 // ── XERP 공수 반영 다운로드 이력 ──────────────────────────
 export interface DownloadHistoryEntry {
   downloadedAt: string;
