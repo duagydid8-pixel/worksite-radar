@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Search, X, Download, Upload, FolderOpen, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown, BarChart2, MessageSquare, TrendingUp, Award, Plus, ShieldCheck } from "lucide-react";
 import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
 import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS } from "@/lib/firestoreService";
@@ -66,6 +67,149 @@ function parseSheet(wb: XLSX.WorkBook): XerpPmisRow[] {
     results.push(emp);
   }
   return results;
+}
+
+const XERP_PMIS_EXPORT_COLUMNS = 26;
+
+const XERP_PMIS_COLUMN_WIDTHS = [
+  12, 9, 9, 10, 16,
+  8, 8, 8, 8,
+  6, 6, 6, 6, 6, 6, 6, 7,
+  6, 7,
+  7, 7,
+  10, 10,
+  14, 10, 24,
+];
+
+const XERP_PMIS_MERGES = [
+  "A1:A2", "B1:B2", "C1:C2", "D1:D2", "E1:E2",
+  "F1:G1", "H1:I1", "J1:Q1", "R1:S1", "T1:U1",
+  "V1:V2", "W1:W2", "X1:X2", "Y1:Y2", "Z1:Z2",
+];
+
+function rowToExportValues(row: XerpPmisRow): (string | number)[] {
+  return [
+    row.팀명, row.직종, row.사번, row.성명, row.생년월일,
+    row.xerp출근, row.xerp퇴근,
+    row.pmis출근, row.pmis퇴근,
+    row.조출, row.오전, row.오후, row.연장, row.야간, row.철야, row.점심, row.공수합계A,
+    row.초과당일, row.초과합계,
+    row.가산신청, row.가산승인,
+    row.공수합계AB, row.월누계,
+    "", "", row.가산사유,
+  ];
+}
+
+function downloadExcelBuffer(buffer: ExcelJS.Buffer, fileName: string) {
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function findTemplateDataStart(ws: ExcelJS.Worksheet): number {
+  const maxRows = Math.min(ws.rowCount || 6, 6);
+  let dataStart = 1;
+  for (let rowNumber = 1; rowNumber <= maxRows; rowNumber++) {
+    const values = ws.getRow(rowNumber).values as unknown[];
+    if (values.some((value) => HEADER_KEYWORDS.has(String(value ?? "").trim()))) {
+      dataStart = rowNumber + 1;
+    }
+  }
+  return dataStart;
+}
+
+async function exportXerpPmisFromTemplate(templateBuffer: ArrayBuffer, rows: XerpPmisRow[], fileName: string) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(templateBuffer.slice(0));
+  const ws = wb.worksheets[0];
+  if (!ws) throw new Error("시트를 찾을 수 없습니다.");
+
+  const dataStart = findTemplateDataStart(ws);
+  rows.forEach((row, idx) => {
+    const excelRow = ws.getRow(dataStart + idx);
+    rowToExportValues(row).forEach((value, colIdx) => {
+      excelRow.getCell(colIdx + 1).value = value;
+    });
+    excelRow.commit();
+  });
+
+  const buffer = await wb.xlsx.writeBuffer();
+  downloadExcelBuffer(buffer, fileName);
+}
+
+async function exportXerpPmisStyled(rows: XerpPmisRow[], fileName: string) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("일일출역 집계");
+  ws.views = [{ state: "frozen", ySplit: 2 }];
+
+  ws.columns = XERP_PMIS_COLUMN_WIDTHS.map((width) => ({ width }));
+  ws.getRow(1).height = 22;
+  ws.getRow(2).height = 22;
+
+  const row1 = [
+    "팀명", "직종", "사번", "성명", "생년월일",
+    "X-ERP 체크시간", "",
+    "PMIS 체크시간", "",
+    "공수 체크(A)", "", "", "", "", "", "", "",
+    "초과근무", "",
+    "가산공수(B)", "",
+    "공수합계", "월누계", "작업내용", "", "가산사유",
+  ];
+  const row2 = [
+    "", "", "", "", "",
+    "출 근", "퇴 근",
+    "출 근", "퇴 근",
+    "조출", "오전", "오후", "연장", "야간", "철야", "점심", "합계",
+    "당일", "합계",
+    "신청", "승인",
+    "(A+B)", "", "", "", "",
+  ];
+  ws.addRow(row1);
+  ws.addRow(row2);
+
+  for (const merge of XERP_PMIS_MERGES) ws.mergeCells(merge);
+
+  const border = {
+    top: { style: "thin", color: { argb: "FF000000" } },
+    left: { style: "thin", color: { argb: "FF000000" } },
+    bottom: { style: "thin", color: { argb: "FF000000" } },
+    right: { style: "thin", color: { argb: "FF000000" } },
+  } as Partial<ExcelJS.Borders>;
+
+  for (let rowNumber = 1; rowNumber <= 2; rowNumber++) {
+    const row = ws.getRow(rowNumber);
+    for (let col = 1; col <= XERP_PMIS_EXPORT_COLUMNS; col++) {
+      const cell = row.getCell(col);
+      cell.font = { name: "맑은 고딕", size: 9, bold: true };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9EAF7" } };
+      cell.border = border;
+    }
+  }
+
+  rows.forEach((sourceRow) => {
+    const row = ws.addRow(rowToExportValues(sourceRow));
+    row.height = 20;
+    for (let col = 1; col <= XERP_PMIS_EXPORT_COLUMNS; col++) {
+      const cell = row.getCell(col);
+      cell.font = { name: "맑은 고딕", size: 9 };
+      cell.alignment = { vertical: "middle", horizontal: col === 26 ? "left" : "center", wrapText: col === 26 };
+      cell.border = border;
+      if ([17, 20, 21, 22, 23].includes(col)) {
+        cell.numFmt = "0.##";
+      }
+    }
+  });
+
+  ws.autoFilter = { from: "A2", to: "Z2" };
+  const buffer = await wb.xlsx.writeBuffer();
+  downloadExcelBuffer(buffer, fileName);
 }
 
 // ── 날짜 유틸 ─────────────────────────────────────────
@@ -621,6 +765,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [saturdayInput, setSaturdayInput] = useState(TODAY);
   const [perfectDialog, setPerfectDialog] = useState<"perfect" | "failed" | "reserve" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadedTemplateBuffersRef = useRef<Record<string, ArrayBuffer>>({});
 
   // 달력 모달 상태
   const [calendarEmp, setCalendarEmp] = useState<XerpPmisRow | null>(null);
@@ -953,6 +1098,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           toast.error(`${file.name}: 데이터를 찾을 수 없습니다.`);
           continue;
         }
+        uploadedTemplateBuffersRef.current[dateToUse] = buffer.slice(0);
         newMap = { ...newMap, [dateToUse]: imported };
         lastSavedDate = dateToUse;
         successCount++;
@@ -1006,6 +1152,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           errors.push(`${name}: 데이터 없음`);
           continue;
         }
+        uploadedTemplateBuffersRef.current[dateToUse] = buffer.slice(0);
         newMap = { ...newMap, [dateToUse]: imported };
         lastSavedDate = dateToUse;
         successCount++;
@@ -1039,73 +1186,22 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     toast.success(`${formatLabel(date)} 데이터를 삭제했습니다.`);
   };
 
-  // ── 내보내기 (원본 XERP 양식과 동일한 구조) ──
-  const handleExport = () => {
+  // ── 내보내기 (업로드 원본 템플릿 우선, 없으면 동일 구조 서식 생성) ──
+  const handleExport = async () => {
     if (currentRows.length === 0) { toast.error("내보낼 데이터가 없습니다."); return; }
+    const outName = `XERP_PMIS_${selectedDate.replace(/-/g,"")}.xlsx`;
+    const templateBuffer = uploadedTemplateBuffersRef.current[selectedDate];
 
-    // Row 1: 그룹 헤더 (원본과 동일)
-    const row1: (string | null)[] = [
-      "팀명","직종","사번","성명","생년월일",
-      "X-ERP 체크시간", null,
-      "PMIS 체크시간",  null,
-      "공수 체크(A)", null, null, null, null, null, null, null,
-      "초과근무", null,
-      "가산공수(B)", null,
-      "공수합계", "월누계",
-    ];
-
-    // Row 2: 서브 헤더
-    const row2: (string | null)[] = [
-      null, null, null, null, null,
-      "출 근", "퇴 근",
-      "출 근", "퇴 근",
-      "조출","오전","오후","연장","야간","철야","점심","합계",
-      "당일","합계",
-      "신청","승인",
-      "(A+B)", null,
-    ];
-
-    // 데이터 행
-    const dataRows = currentRows.map((r) => [
-      r.팀명, r.직종, r.사번, r.성명, r.생년월일,
-      r.xerp출근, r.xerp퇴근,
-      r.pmis출근, r.pmis퇴근,
-      r.조출, r.오전, r.오후, r.연장, r.야간, r.철야, r.점심, r.공수합계A,
-      r.초과당일, r.초과합계,
-      r.가산신청, r.가산승인,
-      r.공수합계AB, r.월누계,
-    ]);
-
-    const ws = XLSX.utils.aoa_to_sheet([row1, row2, ...dataRows]);
-
-    // 병합 (원본과 동일 구조)
-    ws["!merges"] = [
-      { s:{r:0,c:0},  e:{r:1,c:0}  }, // A1:A2  팀명
-      { s:{r:0,c:1},  e:{r:1,c:1}  }, // B1:B2  직종
-      { s:{r:0,c:2},  e:{r:1,c:2}  }, // C1:C2  사번
-      { s:{r:0,c:3},  e:{r:1,c:3}  }, // D1:D2  성명
-      { s:{r:0,c:4},  e:{r:1,c:4}  }, // E1:E2  생년월일
-      { s:{r:0,c:5},  e:{r:0,c:6}  }, // F1:G1  X-ERP 체크시간
-      { s:{r:0,c:7},  e:{r:0,c:8}  }, // H1:I1  PMIS 체크시간
-      { s:{r:0,c:9},  e:{r:0,c:16} }, // J1:Q1  공수 체크(A)
-      { s:{r:0,c:17}, e:{r:0,c:18} }, // R1:S1  초과근무
-      { s:{r:0,c:19}, e:{r:0,c:20} }, // T1:U1  가산공수(B)
-      { s:{r:0,c:22}, e:{r:1,c:22} }, // W1:W2  월누계
-    ];
-
-    // 열 너비 (원본 참고)
-    ws["!cols"] = [
-      {wch:12},{wch:9},{wch:9},{wch:9},{wch:16},
-      {wch:8},{wch:8},{wch:8},{wch:8},
-      {wch:6},{wch:6},{wch:6},{wch:6},{wch:6},{wch:6},{wch:6},{wch:7},
-      {wch:6},{wch:7},
-      {wch:7},{wch:7},
-      {wch:10},{wch:10},
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "일일출역 집계");
-    XLSX.writeFile(wb, `XERP_PMIS_${selectedDate.replace(/-/g,"")}.xlsx`);
+    try {
+      if (templateBuffer) {
+        await exportXerpPmisFromTemplate(templateBuffer, currentRows, outName);
+      } else {
+        await exportXerpPmisStyled(currentRows, outName);
+      }
+      toast.success("엑셀 파일을 다운로드했습니다.");
+    } catch {
+      toast.error("엑셀 파일 생성 중 오류가 발생했습니다.");
+    }
   };
 
   // ── th 헬퍼 ──
