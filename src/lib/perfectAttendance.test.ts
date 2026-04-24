@@ -98,4 +98,23 @@ describe("calculatePerfectAttendance", () => {
     expect(result.perfect).toHaveLength(0);
     expect(result.failed).toHaveLength(0);
   });
+
+  it("excludes workers who first appear after the first target workday", () => {
+    const result = calculatePerfectAttendance({
+      dateMap: {
+        "2026-04-01": [row({ 사번: "E001", 성명: "김철수" })],
+        "2026-04-02": [
+          row({ 사번: "E001", 성명: "김철수" }),
+          row({ 사번: "E002", 성명: "중간입사" }),
+        ],
+      },
+      yearMonth: "2026-04",
+      saturdayWorkDates: [],
+      resignedNames: new Set(),
+    });
+
+    expect(result.summary.totalWorkers).toBe(1);
+    expect(result.perfect.map((person) => person.성명)).toEqual(["김철수"]);
+    expect(result.failed.map((person) => person.성명)).not.toContain("중간입사");
+  });
 });

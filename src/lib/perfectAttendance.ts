@@ -100,10 +100,10 @@ function buildTargetDates(
 export function calculatePerfectAttendance(input: CalculatePerfectAttendanceInput): PerfectAttendanceResult {
   const targetDates = buildTargetDates(input.yearMonth, input.dateMap, input.saturdayWorkDates);
   const employeeMap = new Map<string, PerfectAttendanceRow>();
+  const firstTargetDate = targetDates[0];
 
-  for (const date of Object.keys(input.dateMap)) {
-    if (!date.startsWith(input.yearMonth)) continue;
-    for (const row of input.dateMap[date] ?? []) {
+  if (firstTargetDate) {
+    for (const row of input.dateMap[firstTargetDate] ?? []) {
       if (!row.성명 || input.resignedNames.has(row.성명)) continue;
       const key = rowKey(row);
       if (!employeeMap.has(key)) employeeMap.set(key, row);

@@ -619,6 +619,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [isSavingMemo, setIsSavingMemo] = useState(false);
   const [saturdayWorkDates, setSaturdayWorkDates] = useState<string[]>([]);
   const [saturdayInput, setSaturdayInput] = useState(TODAY);
+  const [perfectDialog, setPerfectDialog] = useState<"perfect" | "failed" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 달력 모달 상태
@@ -680,6 +681,17 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       resignedNames,
     }),
     [dateMap, selectedYearMonth, saturdayWorkDates, resignedNames]
+  );
+  const failedReasonTotals = useMemo(
+    () => perfectAttendance.failed.reduce(
+      (acc, person) => ({
+        absent: acc.absent + person.결근일수,
+        late: acc.late + person.지각횟수,
+        short: acc.short + person.공수미달일수,
+      }),
+      { absent: 0, late: 0, short: 0 }
+    ),
+    [perfectAttendance.failed]
   );
 
   // 이상 근태: 지각 3회 이상 — 퇴사자 제외
@@ -1401,56 +1413,126 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
               ))}
             </div>
 
-            <div className="grid grid-cols-1 gap-3">
-              <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm">
-                <div className="px-4 py-3 border-b border-border bg-muted/40 text-sm font-bold">만근자 목록</div>
-                <table className="min-w-[620px] w-full text-xs border-collapse">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPerfectDialog("perfect")}
+                className="group text-left bg-white border border-emerald-200 rounded-xl shadow-sm p-5 hover:border-emerald-400 hover:shadow-md transition-all"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-emerald-700">만근자 목록</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">클릭해서 별도 창으로 확인</p>
+                  </div>
+                  <span className="text-3xl font-bold text-emerald-700 tabular-nums">{perfectAttendance.summary.perfectCount}</span>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  {perfectAttendance.perfect.slice(0, 8).map((person) => (
+                    <span key={person.key} className="inline-flex rounded-full bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-700 whitespace-nowrap">
+                      {person.성명}
+                    </span>
+                  ))}
+                  {perfectAttendance.perfect.length > 8 && (
+                    <span className="inline-flex rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
+                      +{perfectAttendance.perfect.length - 8}
+                    </span>
+                  )}
+                  {perfectAttendance.perfect.length === 0 && (
+                    <span className="text-xs text-muted-foreground">만근자가 없습니다.</span>
+                  )}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPerfectDialog("failed")}
+                className="group text-left bg-white border border-orange-200 rounded-xl shadow-sm p-5 hover:border-orange-400 hover:shadow-md transition-all"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-orange-700">탈락자 사유</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">클릭해서 상세 사유를 창으로 확인</p>
+                  </div>
+                  <span className="text-3xl font-bold text-orange-600 tabular-nums">{perfectAttendance.summary.failedCount}</span>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="inline-flex rounded-full bg-red-50 border border-red-100 px-2.5 py-1 text-[11px] font-bold text-red-700">결근 {failedReasonTotals.absent}</span>
+                  <span className="inline-flex rounded-full bg-orange-50 border border-orange-100 px-2.5 py-1 text-[11px] font-bold text-orange-700">지각 {failedReasonTotals.late}</span>
+                  <span className="inline-flex rounded-full bg-amber-50 border border-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">공수미달 {failedReasonTotals.short}</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {perfectDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setPerfectDialog(null); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[86vh] flex flex-col overflow-hidden">
+            <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-border">
+              <div>
+                <h3 className="text-base font-bold text-foreground">
+                  {perfectDialog === "perfect" ? "만근자 목록" : "탈락자 사유"}
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">{site} · {selectedYearMonth} · 대상 근무일 {perfectAttendance.summary.targetWorkDays}일</p>
+              </div>
+              <button
+                onClick={() => setPerfectDialog(null)}
+                className="p-2 rounded-xl hover:bg-muted transition-colors text-muted-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="overflow-auto">
+              {perfectDialog === "perfect" ? (
+                <table className="min-w-[680px] w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border bg-muted">
                       <th className={th()}>팀명</th>
                       <th className={th()}>직종</th>
                       <th className={th()}>사번</th>
-                      <th className={th("min-w-[90px]")}>성명</th>
+                      <th className={th("min-w-[100px]")}>성명</th>
                       <th className={th()}>출근인정</th>
                     </tr>
                   </thead>
                   <tbody>
                     {perfectAttendance.perfect.length === 0 ? (
-                      <tr><td colSpan={5} className="py-12 text-center text-muted-foreground">만근자가 없습니다.</td></tr>
+                      <tr><td colSpan={5} className="py-14 text-center text-muted-foreground">만근자가 없습니다.</td></tr>
                     ) : perfectAttendance.perfect.map((person) => (
                       <tr key={person.key} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.직종 || "—"}</td>
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.사번 || "—"}</td>
-                        <td className="px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[90px]">{person.성명}</td>
+                        <td className="px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[100px]">{person.성명}</td>
                         <td className="px-3 py-2 text-center font-bold text-emerald-700">{person.출근인정일수}/{person.대상근무일수}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
-
-              <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm">
-                <div className="px-4 py-3 border-b border-border bg-muted/40 text-sm font-bold">탈락자 사유</div>
-                <table className="min-w-[900px] w-full text-xs border-collapse">
+              ) : (
+                <table className="min-w-[940px] w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border bg-muted">
                       <th className={th()}>팀명</th>
-                      <th className={th("min-w-[90px]")}>성명</th>
+                      <th className={th("min-w-[100px]")}>성명</th>
                       <th className={th()}>결근</th>
                       <th className={th()}>지각</th>
                       <th className={th()}>공수미달</th>
                       <th className={th()}>예비군</th>
-                      <th className={th("min-w-[360px]")}>상세</th>
+                      <th className={th("min-w-[400px]")}>상세</th>
                     </tr>
                   </thead>
                   <tbody>
                     {perfectAttendance.failed.length === 0 ? (
-                      <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">탈락자가 없습니다.</td></tr>
+                      <tr><td colSpan={7} className="py-14 text-center text-muted-foreground">탈락자가 없습니다.</td></tr>
                     ) : perfectAttendance.failed.map((person) => (
                       <tr key={person.key} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
-                        <td className="px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[90px]">{person.성명}</td>
+                        <td className="px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[100px]">{person.성명}</td>
                         <td className="px-3 py-2 text-center font-bold text-red-600">{person.결근일수}</td>
                         <td className="px-3 py-2 text-center font-bold text-orange-500">{person.지각횟수}</td>
                         <td className="px-3 py-2 text-center font-bold text-orange-600">{person.공수미달일수}</td>
@@ -1475,7 +1557,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              )}
             </div>
           </div>
         </div>
