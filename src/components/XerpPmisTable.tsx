@@ -1047,6 +1047,13 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const th = (extra = "") =>
     `px-2 py-2 text-[11px] font-semibold text-muted-foreground whitespace-nowrap bg-muted text-center border-r border-border/40 last:border-r-0 sticky top-0 z-20 ${extra}`;
 
+  const detailReasonClass = (reason: string) => {
+    if (reason.includes("결근")) return "bg-red-50 text-red-700 border-red-200";
+    if (reason.includes("지각")) return "bg-orange-50 text-orange-700 border-orange-200";
+    if (reason.includes("공수")) return "bg-amber-50 text-amber-700 border-amber-200";
+    return "bg-slate-50 text-slate-600 border-slate-200";
+  };
+
   return (
     <div className="flex flex-col gap-3">
       {isAdmin && (
@@ -1394,16 +1401,16 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
               ))}
             </div>
 
-            <div className="grid grid-cols-1 2xl:grid-cols-[0.9fr_1.1fr] gap-3">
+            <div className="grid grid-cols-1 gap-3">
               <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm">
                 <div className="px-4 py-3 border-b border-border bg-muted/40 text-sm font-bold">만근자 목록</div>
-                <table className="min-w-full text-xs border-collapse">
+                <table className="min-w-[620px] w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border bg-muted">
                       <th className={th()}>팀명</th>
                       <th className={th()}>직종</th>
                       <th className={th()}>사번</th>
-                      <th className={th()}>성명</th>
+                      <th className={th("min-w-[90px]")}>성명</th>
                       <th className={th()}>출근인정</th>
                     </tr>
                   </thead>
@@ -1415,7 +1422,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.직종 || "—"}</td>
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.사번 || "—"}</td>
-                        <td className="px-3 py-2 text-center font-semibold">{person.성명}</td>
+                        <td className="px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[90px]">{person.성명}</td>
                         <td className="px-3 py-2 text-center font-bold text-emerald-700">{person.출근인정일수}/{person.대상근무일수}</td>
                       </tr>
                     ))}
@@ -1425,16 +1432,16 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
               <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm">
                 <div className="px-4 py-3 border-b border-border bg-muted/40 text-sm font-bold">탈락자 사유</div>
-                <table className="min-w-full text-xs border-collapse">
+                <table className="min-w-[900px] w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border bg-muted">
                       <th className={th()}>팀명</th>
-                      <th className={th()}>성명</th>
+                      <th className={th("min-w-[90px]")}>성명</th>
                       <th className={th()}>결근</th>
                       <th className={th()}>지각</th>
                       <th className={th()}>공수미달</th>
                       <th className={th()}>예비군</th>
-                      <th className={th("min-w-[220px]")}>상세</th>
+                      <th className={th("min-w-[360px]")}>상세</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1443,12 +1450,27 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                     ) : perfectAttendance.failed.map((person) => (
                       <tr key={person.key} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
                         <td className="px-3 py-2 text-center text-muted-foreground">{person.팀명 || "—"}</td>
-                        <td className="px-3 py-2 text-center font-semibold">{person.성명}</td>
+                        <td className="px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[90px]">{person.성명}</td>
                         <td className="px-3 py-2 text-center font-bold text-red-600">{person.결근일수}</td>
                         <td className="px-3 py-2 text-center font-bold text-orange-500">{person.지각횟수}</td>
                         <td className="px-3 py-2 text-center font-bold text-orange-600">{person.공수미달일수}</td>
                         <td className="px-3 py-2 text-center font-bold text-indigo-600">{person.예비군인정일수}</td>
-                        <td className="px-3 py-2 text-left text-muted-foreground">{person.상세사유.join(", ") || "—"}</td>
+                        <td className="px-3 py-2 text-left">
+                          {person.상세사유.length === 0 ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {person.상세사유.map((reason) => (
+                                <span
+                                  key={reason}
+                                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold whitespace-nowrap ${detailReasonClass(reason)}`}
+                                >
+                                  {reason}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
