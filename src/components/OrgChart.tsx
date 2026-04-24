@@ -434,6 +434,8 @@ export default function OrgChart() {
   }, [teams, members, searchQuery]);
 
   const sortedTeams = useMemo(() => [...filteredTeams].sort((a, b) => a.sort_order - b.sort_order), [filteredTeams]);
+  const totalMembers = members.length;
+  const leaderCount = members.filter((m) => m.is_leader).length;
 
   const getMembersForTeam = useCallback((teamId: string) => {
     let mems = members.filter((m) => m.team_id === teamId);
@@ -445,50 +447,60 @@ export default function OrgChart() {
   }, [members, searchQuery]);
 
   return (
-    <div className="space-y-3">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-          <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="이름 검색..."
-            className="bg-white border border-border rounded-lg pl-8 pr-8 py-1.5 text-sm w-44 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              <X className="h-3.5 w-3.5" />
+    <div className="space-y-4">
+      {/* Header / toolbar */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-extrabold text-slate-950">조직도</h2>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">{totalMembers}명</span>
+            </div>
+            <p className="mt-1 text-xs font-medium text-slate-500">팀 {teams.length}개 · 팀장 {leaderCount}명</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+              <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="이름 검색"
+                className="h-10 w-56 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-9 text-sm font-semibold outline-none transition-colors focus:border-slate-300 focus:bg-white" />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <button onClick={handleExportExcel} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50">
+              <FileSpreadsheet className="h-3.5 w-3.5" /> 엑셀
             </button>
-          )}
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={handleExportExcel} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-white text-xs font-semibold text-foreground hover:bg-muted/50 transition-colors">
-            <FileSpreadsheet className="h-3.5 w-3.5" /> 엑셀
-          </button>
-          <button onClick={handleExportImage} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-white text-xs font-semibold text-foreground hover:bg-muted/50 transition-colors">
-            <Download className="h-3.5 w-3.5" /> 이미지
-          </button>
-          <button onClick={handleSaveAll} disabled={!dirty || saving}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors">
-            <Save className="h-3.5 w-3.5" /> {saving ? "저장 중..." : "저장"}
-          </button>
+            <button onClick={handleExportImage} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50">
+              <Download className="h-3.5 w-3.5" /> 이미지
+            </button>
+            <button onClick={handleSaveAll} disabled={!dirty || saving}
+              className="flex h-10 items-center gap-1.5 rounded-lg bg-slate-900 px-4 text-xs font-bold text-white transition-colors hover:bg-slate-700 disabled:opacity-40">
+              <Save className="h-3.5 w-3.5" /> {saving ? "저장 중..." : "저장"}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Org chart */}
-      <div ref={chartRef} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+      <div ref={chartRef} className="rounded-2xl border border-slate-200 bg-slate-100/70 p-4 shadow-sm">
 
         {/* 현장소장 */}
-        <div className="flex justify-center mb-4">
+        <div className="flex justify-center mb-5">
           <CompactSiteManagerNode info={siteManager} onEdit={() => setEditSiteManager(true)} />
         </div>
 
         {/* Connector: vertical + horizontal bar */}
         {sortedTeams.length > 0 && (
-          <div className="relative flex justify-around mb-0 px-[calc(100%/(var(--n)*2))]"
+          <div className="relative hidden justify-around mb-0 px-[calc(100%/(var(--n)*2))] lg:flex"
             style={{ "--n": sortedTeams.length } as React.CSSProperties}>
-            <div className="absolute left-1/2 -translate-x-1/2 -top-4 w-px h-4 bg-gray-200" />
-            <div className="absolute top-0 left-[calc(100%/(var(--n)*2))] right-[calc(100%/(var(--n)*2))] h-px bg-gray-200" />
+            <div className="absolute left-1/2 -translate-x-1/2 -top-5 w-px h-5 bg-slate-300" />
+            <div className="absolute top-0 left-[calc(100%/(var(--n)*2))] right-[calc(100%/(var(--n)*2))] h-px bg-slate-300" />
             {sortedTeams.map((t) => (
               <div key={t.id} className="flex-1 flex justify-center">
-                <div className="w-px h-4 bg-gray-200" />
+                <div className="w-px h-4 bg-slate-300" />
               </div>
             ))}
           </div>
@@ -496,34 +508,40 @@ export default function OrgChart() {
 
         {/* Teams row */}
         {sortedTeams.length > 0 ? (
-          <div className="flex gap-3 items-start mt-0">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
             {sortedTeams.map((team) => {
               const { leader, others } = getMembersForTeam(team.id);
               return (
-                <div key={team.id} className="flex-1 min-w-0 rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+                <div key={team.id} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                   {/* Team header */}
-                  <div className="flex items-center justify-between px-3 py-2 text-white" style={{ background: team.color }}>
-                    <span className="text-sm font-bold truncate">{team.name}</span>
+                  <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="h-7 w-1 rounded-full" style={{ backgroundColor: team.color }} />
+                      <div className="min-w-0">
+                        <span className="block truncate text-sm font-extrabold text-slate-900">{team.name}</span>
+                        <span className="text-[10px] font-bold text-slate-400">{(leader ? 1 : 0) + others.length}명</span>
+                      </div>
+                    </div>
                     <button onClick={() => handleDeleteTeam(team.id)}
-                      className="shrink-0 ml-1 opacity-60 hover:opacity-100 transition-opacity">
-                      <Trash2 className="h-3 w-3" />
+                      className="shrink-0 rounded-md p-1.5 text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-500">
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
 
                   {/* Leader */}
                   {leader ? (
-                    <div style={{ background: lighten(team.color, 95) }}>
+                    <div className="border-b border-slate-100 bg-slate-50">
                       <CompactRow member={leader} color={team.color} isLeader
                         onEdit={() => setEditMember(leader)}
                         onDelete={() => handleDeleteMember(leader.id)} />
                     </div>
                   ) : (
-                    <div className="px-3 py-2 text-xs text-gray-400 italic">팀장 없음</div>
+                    <div className="border-b border-slate-100 px-3 py-3 text-xs font-semibold text-slate-400">팀장 없음</div>
                   )}
 
                   {/* Members */}
                   {others.length > 0 && (
-                    <div className="divide-y divide-gray-50 border-t border-gray-100">
+                    <div className="divide-y divide-slate-100">
                       {others.map((m) => (
                         <CompactRow key={m.id} member={m} color={team.color}
                           onEdit={() => setEditMember(m)}
@@ -534,7 +552,7 @@ export default function OrgChart() {
 
                   {/* Add member */}
                   <button onClick={() => handleAddMember(team.id)}
-                    className="w-full border-t border-dashed border-gray-200 px-3 py-1.5 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors text-center">
+                    className="w-full border-t border-dashed border-slate-200 px-3 py-2 text-center text-[11px] font-bold text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700">
                     + 인원 추가
                   </button>
                 </div>
@@ -543,7 +561,7 @@ export default function OrgChart() {
 
             {/* Add team */}
             <button onClick={() => setShowAddTeam(true)}
-              className="flex flex-col items-center justify-center gap-1 w-16 shrink-0 self-stretch rounded-xl border-2 border-dashed border-gray-200 text-gray-400 hover:text-gray-500 hover:border-gray-300 transition-colors">
+              className="flex min-h-[160px] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 bg-white text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-600">
               <Plus className="h-4 w-4" />
               <span className="text-[10px] font-semibold">팀 추가</span>
             </button>
@@ -576,29 +594,31 @@ export default function OrgChart() {
 /* ━━━━━━━━━━━━━━━ COMPACT MEMBER ROW ━━━━━━━━━━━━━━━ */
 function CompactRow({ member, color, isLeader, onEdit, onDelete }: { member: OrgMember; color: string; isLeader?: boolean; onEdit: () => void; onDelete: () => void }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 group cursor-pointer hover:bg-black/[0.02] transition-colors" onClick={onEdit}>
+    <div className="group flex cursor-pointer items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-slate-50" onClick={onEdit}>
       {member.photo_url ? (
-        <img src={member.photo_url} className="w-7 h-7 rounded-full object-cover shrink-0" />
+        <img src={member.photo_url} className="h-8 w-8 shrink-0 rounded-full border border-slate-200 object-cover" />
       ) : (
-        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
-          style={{ background: isLeader ? color : lighten(color, 35) }}>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[11px] font-extrabold"
+          style={{ background: isLeader ? color : lighten(color, 88), borderColor: lighten(color, 55), color: isLeader ? "#ffffff" : color }}>
           {member.name.slice(0, 1)}
         </div>
       )}
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-gray-800 leading-tight">{member.name}</p>
-        {member.phone && <p className="text-[10px] text-gray-400 leading-tight">{member.phone}</p>}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-xs font-extrabold leading-tight text-slate-900">{member.name}</p>
+        </div>
+        {member.phone && <p className="truncate text-[10px] font-medium leading-tight text-slate-400">{member.phone}</p>}
       </div>
-      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap"
-        style={{ background: lighten(color, 85), color }}>
+      <span className="shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-bold"
+        style={{ background: lighten(color, 94), borderColor: lighten(color, 70), color }}>
         {member.position}
       </span>
-      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-0.5 rounded hover:bg-gray-100">
-          <Pencil className="h-3 w-3 text-gray-400" />
+      <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="rounded p-1 hover:bg-slate-100">
+          <Pencil className="h-3 w-3 text-slate-400" />
         </button>
-        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-0.5 rounded hover:bg-red-50">
-          <Trash2 className="h-3 w-3 text-red-400" />
+        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="rounded p-1 hover:bg-rose-50">
+          <Trash2 className="h-3 w-3 text-rose-400" />
         </button>
       </div>
     </div>
@@ -608,23 +628,21 @@ function CompactRow({ member, color, isLeader, onEdit, onDelete }: { member: Org
 /* ━━━━━━━━━━━━━━━ COMPACT SITE MANAGER NODE ━━━━━━━━━━━━━━━ */
 function CompactSiteManagerNode({ info, onEdit }: { info: SiteManagerInfo; onEdit: () => void }) {
   return (
-    <div className="group flex items-center gap-3 px-5 py-3 rounded-2xl cursor-pointer hover:shadow-lg transition-all"
-      style={{ border: "2px solid #c8b4f8", boxShadow: "0 2px 12px rgba(168,200,248,0.3)" }}
+    <div className="group flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 shadow-sm transition-colors hover:border-slate-300"
       onClick={onEdit}>
       {info.photo_url ? (
-        <img src={info.photo_url} className="w-10 h-10 rounded-full object-cover shrink-0" style={{ border: "2px solid #c8b4f8" }} />
+        <img src={info.photo_url} className="h-10 w-10 shrink-0 rounded-full border border-slate-200 object-cover" />
       ) : (
-        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-base font-bold shrink-0"
-          style={{ background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" }}>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-base font-extrabold text-white">
           {info.name.slice(0, 1) || "?"}
         </div>
       )}
-      <div>
-        <p className="text-[10px] font-bold text-purple-400 mb-0.5 tracking-wide">현장소장</p>
-        <p className="text-sm font-bold text-gray-800 leading-tight">{info.name}</p>
-        {info.phone && <p className="text-[10px] text-gray-400 mt-0.5">{info.phone}</p>}
+      <div className="min-w-0">
+        <p className="mb-0.5 text-[10px] font-extrabold tracking-wide text-slate-400">현장소장</p>
+        <p className="truncate text-sm font-extrabold leading-tight text-slate-900">{info.name}</p>
+        {info.phone && <p className="mt-0.5 text-[10px] font-medium text-slate-400">{info.phone}</p>}
       </div>
-      <Pencil className="h-3.5 w-3.5 text-gray-300 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+      <Pencil className="ml-1 h-3.5 w-3.5 text-slate-300 opacity-0 transition-opacity group-hover:opacity-100" />
     </div>
   );
 }

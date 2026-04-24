@@ -135,88 +135,90 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
 
     return (
       <div>
-        <p className="text-xs text-gray-400 mb-3 font-medium">
-          {wm}월 {wd}일 ~ {em}월 {ed}일
-        </p>
-        <div className="overflow-x-auto rounded-2xl border border-gray-100">
-          <table className="w-full text-xs border-collapse" style={{minWidth:520}}>
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left text-gray-500 font-semibold py-3 px-4 w-28">구역</th>
-                {weekDates.map((date,i)=>{
-                  const [,m,d] = date.split("-").map(Number);
-                  const isToday   = date === todayStr;
-                  const isWeekend = i >= 5;
-                  return (
-                    <th key={date} className={`text-center py-3 px-2 ${isToday?"bg-primary/5":""}`} style={{minWidth:60}}>
-                      <div className={`text-[11px] font-bold ${isToday?"text-primary":isWeekend?"text-sky-500":"text-gray-600"}`}>{m}/{d}</div>
-                      <div className={`text-[10px] mt-0.5 ${isToday?"text-primary/60":isWeekend?"text-sky-400":"text-gray-400"}`}>({WEEK_DAY[i]})</div>
-                      {isToday && <div className="w-1 h-1 rounded-full bg-primary mx-auto mt-0.5" />}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {floorGroups.map(group => (
-                <React.Fragment key={group.label}>
-                  {group.label && (
-                    <tr className="bg-gray-50/60">
-                      <td colSpan={8} className="py-1.5 px-4">
-                        <span className="text-[10px] font-bold text-gray-400 tracking-widest">{group.label}</span>
-                      </td>
-                    </tr>
-                  )}
-                  {group.zones.map((zone,zi) => (
-                    <tr key={zone} className={`border-b border-gray-50 last:border-0 ${zi%2===1?"bg-gray-50/30":"bg-white"}`}>
-                      <td className="py-3 px-4 font-semibold text-gray-700 text-xs whitespace-nowrap">
-                        {group.label ? zone.replace(/^[13]층\s*/,"") : zone}
-                      </td>
-                      {weekDates.map(date=>{
-                        const type = schedule.schedule[date]?.[zone] ?? "";
-                        const matchedMetas = Object.entries(TYPE_META).filter(([k]) => type.includes(k));
-                        const getTime = (key: string) => {
-                          const after = type.slice(type.indexOf(key) + key.length);
-                          return after.match(/\d{2}:\d{2}~\d{2}:\d{2}/)?.[0] ?? "";
-                        };
-                        const memo = type.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
-                        const isToday = date === todayStr;
-                        return (
-                          <td key={date} className={`py-3 px-2 text-center ${isToday?"bg-primary/5":""}`}>
-                            {matchedMetas.length > 0 ? (
-                              <div className="flex flex-col items-center gap-1">
-                                {matchedMetas.map(([k, meta]) => {
-                                  const time = getTime(k);
-                                  return (
-                                    <div key={k} className="flex flex-col items-center gap-0.5">
-                                      <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${meta.bg} ${meta.text} ${meta.border}`}>
-                                        {meta.label}
-                                      </span>
-                                      {time && <span className="text-[9px] text-gray-400 tabular-nums">{time}</span>}
-                                    </div>
-                                  );
-                                })}
-                                {memo && (
-                                  <span className="mt-0.5 max-w-[88px] truncate rounded-md bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500" title={memo}>
-                                    {memo}
-                                  </span>
-                                )}
-                              </div>
-                            ) : type ? (
-                              <span className="inline-flex max-w-[92px] items-center justify-center truncate rounded-lg border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-500" title={type}>
-                                {memo || type.slice(0, 8)}
-                              </span>
-                            ) : <span className="text-gray-200">—</span>}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-xs font-semibold text-gray-500">
+            {wm}월 {wd}일 ~ {em}월 {ed}일
+          </p>
+          <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-400">
+            {schedule.zones.length}개 구역
+          </span>
         </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-slate-50 p-2">
+          <div className="min-w-[720px] space-y-2">
+            <div className="grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5">
+              <div className="px-2 py-2 text-[10px] font-bold text-gray-400">구역</div>
+              {weekDates.map((date,i)=>{
+                const [,m,d] = date.split("-").map(Number);
+                const isToday   = date === todayStr;
+                const isWeekend = i >= 5;
+                return (
+                  <div key={date} className={`rounded-xl bg-white px-2 py-2 text-center ${isToday ? "ring-1 ring-primary/20" : ""}`}>
+                    <div className={`text-[11px] font-bold ${isToday?"text-primary":isWeekend?"text-sky-500":"text-gray-600"}`}>{m}/{d}</div>
+                    <div className={`text-[10px] mt-0.5 ${isToday?"text-primary/60":isWeekend?"text-sky-400":"text-gray-400"}`}>{WEEK_DAY[i]}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {floorGroups.map(group => (
+              <React.Fragment key={group.label}>
+                {group.label && (
+                  <div className="px-2 pt-2 text-[10px] font-bold tracking-widest text-gray-400">
+                    {group.label}
+                  </div>
+                )}
+                {group.zones.map((zone) => (
+                  <div key={zone} className="grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5 rounded-xl bg-white p-1.5">
+                    <div className="flex items-center px-2 text-xs font-bold text-slate-700">
+                      <span className="truncate">{group.label ? zone.replace(/^[13]층\s*/,"") : zone}</span>
+                    </div>
+                    {weekDates.map(date=>{
+                      const type = schedule.schedule[date]?.[zone] ?? "";
+                      const matchedMetas = Object.entries(TYPE_META).filter(([k]) => type.includes(k));
+                      const getTime = (key: string) => {
+                        const after = type.slice(type.indexOf(key) + key.length);
+                        return after.match(/\d{2}:\d{2}~\d{2}:\d{2}/)?.[0] ?? "";
+                      };
+                      const memo = type.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
+                      const isToday = date === todayStr;
+                      return (
+                        <div key={date} className={`min-h-[58px] rounded-lg border px-1.5 py-1.5 text-center ${isToday ? "border-primary/20 bg-primary/5" : "border-gray-100 bg-white"}`}>
+                          {matchedMetas.length > 0 ? (
+                            <div className="flex flex-col items-center gap-1">
+                              {matchedMetas.slice(0, 3).map(([k, meta]) => {
+                                const time = getTime(k);
+                                return (
+                                  <div key={k} className="flex flex-col items-center gap-0.5">
+                                    <span className={`inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${meta.bg} ${meta.text} ${meta.border}`}>
+                                      {meta.label}
+                                    </span>
+                                    {time && <span className="text-[8px] text-gray-400 tabular-nums">{time}</span>}
+                                  </div>
+                                );
+                              })}
+                              {matchedMetas.length > 3 && <span className="text-[9px] font-bold text-slate-400">+{matchedMetas.length - 3}</span>}
+                              {memo && (
+                                <span className="max-w-[68px] truncate rounded bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500" title={memo}>
+                                  {memo}
+                                </span>
+                              )}
+                            </div>
+                          ) : type ? (
+                            <span className="inline-flex max-w-[68px] items-center justify-center truncate rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[9px] font-bold text-gray-500" title={type}>
+                              {memo || type.slice(0, 8)}
+                            </span>
+                          ) : <span className="text-gray-200">—</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
         <div className="mt-3 flex flex-wrap gap-3">
           {Object.entries(TYPE_META).map(([key,meta]) => (
             <div key={key} className="flex items-center gap-1.5">
@@ -527,44 +529,38 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
   }, [leaveDetails, selectedDate]);
 
   const KPI = [
-    { label:"총 기술인", value: stats.total,   sub:"공수반영 최근 기준",    icon:<HardHat className="h-5 w-5" />,       color:"text-primary",    iconBg:"bg-primary/10", showDash: false },
+    { label:"총 기술인", value: stats.total,   sub:"공수반영 최근 기준",    icon:<HardHat className="h-5 w-5" />,       color:"text-slate-900",   iconBg:"bg-slate-100",   showDash: false },
     { label:"정상 출근", value: stats.present,  sub:"출근 기록 있음",       icon:<CheckCircle2 className="h-5 w-5" />,  color:"text-emerald-600", iconBg:"bg-emerald-50",  showDash: false },
     { label:"결근",      value: stats.absent,   sub:"출근 기록 없음",       icon:<XCircle className="h-5 w-5" />,       color:"text-rose-500",    iconBg:"bg-rose-50",     showDash: false },
-    { label:"감소인원",  value: decreased ?? 0, sub:"전일 대비 인원 감소",  icon:<TrendingDown className="h-5 w-5" />,  color:"text-orange-500",  iconBg:"bg-orange-50",   showDash: decreased === null },
+    { label:"감소인원",  value: decreased ?? 0, sub:"전일 대비 인원 감소",  icon:<TrendingDown className="h-5 w-5" />,  color:"text-amber-600",   iconBg:"bg-amber-50",    showDash: decreased === null },
   ];
 
   return (
-    <div className="p-5 md:p-7 max-w-[1400px] mx-auto" style={{ background: "#f8f8fb", minHeight: "100%" }}>
+    <div className="p-5 md:p-7 max-w-[1440px] mx-auto min-h-full bg-slate-100">
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-5 items-start">
 
         {/* ── 메인 컬럼 ── */}
         <div className="space-y-5">
 
           {/* 히어로 카드 */}
-          <div className="relative overflow-hidden rounded-3xl p-7"
-            style={{ background: "linear-gradient(135deg, #EEF4FF 0%, #E5EDFF 50%, #DDE6FF 100%)" }}>
-            {/* 장식 원 */}
-            <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full opacity-40"
-              style={{ background: "radial-gradient(circle, #a5b4fc 0%, transparent 70%)" }} />
-            <div className="absolute right-16 bottom-0 w-32 h-32 rounded-full opacity-25"
-              style={{ background: "radial-gradient(circle, #818cf8 0%, transparent 70%)" }} />
-
-            <div className="relative z-10 flex items-center justify-between">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-xs font-bold text-indigo-400 tracking-widest uppercase mb-1">평택 초순수 P4 현장</p>
-                <h1 className="text-2xl font-bold text-gray-800 mb-1">현장 관리 시스템</h1>
-                <p className="text-sm text-gray-500 font-medium">{dateLabel}</p>
+                <p className="text-xs font-bold text-slate-500 tracking-wide mb-1">평택 초순수 P4 현장</p>
+                <h1 className="text-2xl font-extrabold text-slate-950 mb-1">현장 관리 시스템</h1>
+                <p className="text-sm text-slate-500 font-medium">{dateLabel}</p>
                 {lastUploadedAt && (
                   <div className="flex items-center gap-1.5 mt-3">
-                    <div className="flex items-center gap-1.5 bg-white/70 backdrop-blur-sm rounded-xl px-3 py-1.5 border border-white/90">
-                      <Clock className="h-3 w-3 text-indigo-400" />
-                      <span className="text-[11px] font-semibold text-gray-600">최근 업데이트 · {lastUploadedAt}</span>
+                    <div className="flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 border border-slate-200">
+                      <Clock className="h-3 w-3 text-slate-400" />
+                      <span className="text-[11px] font-semibold text-slate-600">최근 업데이트 · {lastUploadedAt}</span>
                     </div>
                   </div>
                 )}
               </div>
-              <div className="hidden sm:flex items-center justify-center w-20 h-20 rounded-3xl bg-white/50 backdrop-blur-sm border border-white/70 shadow-sm text-4xl select-none">
-                🏗️
+              <div className="hidden sm:flex flex-col items-end gap-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <span className="text-[11px] font-bold text-slate-400">최근 기술인</span>
+                <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{xerpLoaded ? stats.total : "—"}</span>
               </div>
             </div>
           </div>
@@ -572,15 +568,15 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
           {/* KPI 카드 4개 */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {KPI.map((k) => (
-              <div key={k.label} className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
-                <div className={`w-10 h-10 rounded-2xl ${k.iconBg} flex items-center justify-center mb-4 ${k.color}`}>
+              <div key={k.label} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 hover:border-slate-300 transition-colors">
+                <div className={`w-10 h-10 rounded-xl ${k.iconBg} flex items-center justify-center mb-4 ${k.color}`}>
                   {k.icon}
                 </div>
                 <p className={`text-3xl font-bold tabular-nums mb-0.5 ${k.color}`}>
                   {xerpLoaded ? (k.showDash ? <span className="text-gray-200">—</span> : k.value) : <span className="text-gray-200">—</span>}
                 </p>
-                <p className="text-sm font-semibold text-gray-700">{k.label}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">{k.sub}</p>
+                <p className="text-sm font-bold text-slate-800">{k.label}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{k.sub}</p>
               </div>
             ))}
           </div>

@@ -34,10 +34,10 @@ export default function FileUploadZone({ onFileLoaded, fileName, onClear, onFile
 
   if (fileName) {
     return (
-      <div className="flex items-center gap-3 rounded-lg bg-card px-4 py-3">
-        <FileSpreadsheet className="h-5 w-5 text-primary" />
-        <span className="text-sm text-foreground font-medium">{fileName}</span>
-        <button onClick={onClear} className="ml-auto text-muted-foreground hover:text-foreground transition-colors">
+      <div className="flex h-11 items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4">
+        <FileSpreadsheet className="h-5 w-5 text-slate-500" />
+        <span className="truncate text-sm font-bold text-slate-800">{fileName}</span>
+        <button onClick={onClear} className="ml-auto text-slate-400 transition-colors hover:text-slate-900">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -49,8 +49,8 @@ export default function FileUploadZone({ onFileLoaded, fileName, onClear, onFile
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={onDrop}
-      className={`relative flex flex-row items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 transition-colors cursor-pointer ${
-        isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-primary/50"
+      className={`relative flex h-11 cursor-pointer flex-row items-center justify-center gap-2 rounded-lg border border-dashed px-4 transition-colors ${
+        isDragging ? "border-slate-500 bg-slate-100" : "border-slate-300 bg-slate-50 hover:border-slate-400"
       }`}
     >
       <input
@@ -59,10 +59,10 @@ export default function FileUploadZone({ onFileLoaded, fileName, onClear, onFile
         onChange={onInputChange}
         className="absolute inset-0 opacity-0 cursor-pointer"
       />
-      <Upload className="h-4 w-4 text-muted-foreground shrink-0" />
+      <Upload className="h-4 w-4 shrink-0 text-slate-400" />
       <div className="flex items-center gap-1">
-        <p className="text-sm font-medium text-foreground">엑셀 파일을 드래그하거나 클릭하여 업로드</p>
-        <p className="text-xs text-muted-foreground">(.xlsx)</p>
+        <p className="text-sm font-bold text-slate-800">엑셀 파일 업로드</p>
+        <p className="text-xs font-semibold text-slate-400">(.xlsx)</p>
       </div>
     </div>
   );

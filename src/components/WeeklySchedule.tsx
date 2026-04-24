@@ -40,6 +40,11 @@ function getWeekDates(weekStart: string): string[] {
   });
 }
 
+function formatDateLabel(date: string): string {
+  const d = new Date(`${date}T00:00:00`);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 function parseCell(value: string): { selected: Set<string>; memo: string } {
   const selected = new Set<string>();
   for (const option of SHIFT_OPTIONS) {
@@ -58,6 +63,10 @@ function buildCellValue(selected: Set<string>, memo: string): string {
   return parts.join("\n");
 }
 
+function getShiftOption(key: string) {
+  return SHIFT_OPTIONS.find((option) => option.key === key);
+}
+
 export function WeeklySchedule() {
   const [weekStart, setWeekStart] = useState(getMonday());
   const [zones, setZones] = useState<string[]>(["작업구역 1"]);
@@ -66,6 +75,7 @@ export function WeeklySchedule() {
   const [saving, setSaving] = useState(false);
 
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart]);
+  const weekRange = `${formatDateLabel(weekDates[0])} - ${formatDateLabel(weekDates[6])}`;
 
   useEffect(() => {
     loadScheduleFS().then((data) => {
@@ -80,15 +90,14 @@ export function WeeklySchedule() {
   const updateZoneName = (idx: number, nextName: string) => {
     setZones((prev) => {
       const oldName = prev[idx];
-      const clean = nextName;
       const next = [...prev];
-      next[idx] = clean;
+      next[idx] = nextName;
       setSchedule((current) => {
         const updated: Record<string, Record<string, string>> = {};
         for (const [date, byZone] of Object.entries(current)) {
           updated[date] = { ...byZone };
-          if (oldName !== clean && Object.prototype.hasOwnProperty.call(updated[date], oldName)) {
-            updated[date][clean] = updated[date][oldName];
+          if (oldName !== nextName && Object.prototype.hasOwnProperty.call(updated[date], oldName)) {
+            updated[date][nextName] = updated[date][oldName];
             delete updated[date][oldName];
           }
         }
@@ -179,122 +188,143 @@ export function WeeklySchedule() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-gray-800">주간 작업 일정</h2>
-          <p className="text-xs text-muted-foreground mt-1">달력 기준으로 작업구역별 일정을 직접 입력합니다.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm font-semibold text-foreground">
-            <CalendarDays className="h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={weekStart}
-              onChange={(e) => setWeekStart(e.target.value)}
-              className="bg-transparent outline-none"
-            />
-          </label>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? "저장 중..." : "저장"}
-          </button>
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-slate-900">주간 작업 일정</h2>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">{zones.length}개 구역</span>
+            </div>
+            <p className="mt-1 text-xs font-medium text-muted-foreground">{weekRange} 작업 계획</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 rounded-lg border border-border bg-slate-50 px-3 py-2 text-sm font-semibold text-foreground">
+              <CalendarDays className="h-4 w-4 text-muted-foreground" />
+              <input
+                type="date"
+                value={weekStart}
+                onChange={(e) => setWeekStart(e.target.value)}
+                className="bg-transparent outline-none"
+              />
+            </label>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-slate-700 disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {saving ? "저장 중..." : "저장"}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-white p-3">
-        {SHIFT_OPTIONS.map((option) => (
-          <span key={option.key} className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold ${option.className}`}>
-            {option.label}
-            <span className="font-medium opacity-70">{option.time}</span>
-          </span>
-        ))}
+      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          {SHIFT_OPTIONS.map((option) => (
+            <span key={option.key} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${option.className}`}>
+              {option.label}
+              <span className="font-medium opacity-70">{option.time}</span>
+            </span>
+          ))}
+        </div>
       </div>
 
-      <div className="overflow-auto rounded-xl border border-border bg-white shadow-sm">
-        <table className="w-full min-w-[1120px] border-collapse text-xs">
-          <thead>
-            <tr className="border-b border-border bg-muted/60">
-              <th className="sticky left-0 z-20 w-52 bg-muted px-3 py-3 text-left font-bold text-muted-foreground">작업구역</th>
-              {weekDates.map((date, idx) => {
-                const d = new Date(`${date}T00:00:00`);
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-100/70 p-3 shadow-sm">
+        <div className="min-w-[1240px] space-y-2">
+          <div className="grid grid-cols-[190px_repeat(7,minmax(142px,1fr))] gap-2 px-1">
+            <div className="px-2 py-2 text-xs font-bold text-muted-foreground">작업구역</div>
+            {weekDates.map((date, idx) => (
+              <div key={date} className="rounded-lg border border-white bg-white px-2 py-2 text-center shadow-sm">
+                <div className={`text-sm font-bold ${idx >= 5 ? "text-sky-600" : "text-slate-800"}`}>{formatDateLabel(date)}</div>
+                <div className={`text-[10px] font-semibold ${idx >= 5 ? "text-sky-400" : "text-muted-foreground"}`}>{DAY_KO[idx]}</div>
+              </div>
+            ))}
+          </div>
+
+          {zones.map((zone, zoneIdx) => (
+            <div
+              key={`${zone}-${zoneIdx}`}
+              className="grid grid-cols-[190px_repeat(7,minmax(142px,1fr))] gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm"
+            >
+              <div className="flex min-w-0 flex-col justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 p-2">
+                <input
+                  value={zone}
+                  onChange={(e) => updateZoneName(zoneIdx, e.target.value)}
+                  className="w-full rounded-md border border-transparent bg-white px-2.5 py-2 text-sm font-bold text-slate-800 outline-none focus:border-slate-300"
+                />
+                <button
+                  onClick={() => deleteZone(zone)}
+                  className="inline-flex items-center justify-center gap-1 rounded-md border border-rose-200 px-2 py-1.5 text-xs font-bold text-rose-500 transition-colors hover:bg-rose-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> 삭제
+                </button>
+              </div>
+
+              {weekDates.map((date) => {
+                const parsed = parseCell(schedule[date]?.[zone] ?? "");
+                const selectedKeys = SHIFT_OPTIONS.filter((option) => parsed.selected.has(option.key)).map((option) => option.key);
                 return (
-                  <th key={date} className="min-w-[132px] border-l border-border/60 px-2 py-3 text-center">
-                    <div className={`font-bold ${idx >= 5 ? "text-sky-600" : "text-slate-700"}`}>
-                      {d.getMonth() + 1}/{d.getDate()}
-                    </div>
-                    <div className={`mt-0.5 text-[10px] ${idx >= 5 ? "text-sky-400" : "text-muted-foreground"}`}>
-                      {DAY_KO[idx]}
-                    </div>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {zones.map((zone, zoneIdx) => (
-              <tr key={`${zone}-${zoneIdx}`} className="border-b border-border/60 last:border-0">
-                <td className="sticky left-0 z-10 bg-white px-3 py-3 align-top shadow-[1px_0_0_0_rgba(226,232,240,0.8)]">
-                  <div className="flex items-center gap-2">
-                    <input
-                      value={zone}
-                      onChange={(e) => updateZoneName(zoneIdx, e.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border border-border px-2.5 py-2 text-sm font-semibold outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-                    />
-                    <button
-                      onClick={() => deleteZone(zone)}
-                      className="rounded-lg border border-rose-200 p-2 text-rose-500 transition-colors hover:bg-rose-50"
-                      title="작업구역 삭제"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-                {weekDates.map((date) => {
-                  const parsed = parseCell(schedule[date]?.[zone] ?? "");
-                  return (
-                    <td key={`${date}-${zone}`} className="border-l border-border/60 p-2 align-top">
-                      <div className="flex max-h-[158px] flex-col gap-1.5 overflow-y-auto pr-1">
-                        {SHIFT_OPTIONS.map((option) => {
-                          const selected = parsed.selected.has(option.key);
+                  <div key={`${date}-${zone}`} className="flex min-h-[150px] flex-col rounded-lg border border-slate-200 bg-white p-2 transition-colors hover:border-slate-300">
+                    <div className="flex min-h-[54px] flex-wrap content-start gap-1.5">
+                      {selectedKeys.length === 0 ? (
+                        <span className="flex h-7 items-center rounded-md border border-dashed border-slate-200 px-2 text-[11px] font-semibold text-slate-300">일정 없음</span>
+                      ) : (
+                        selectedKeys.map((key) => {
+                          const option = getShiftOption(key);
+                          if (!option) return null;
                           return (
                             <button
-                              key={option.key}
+                              key={key}
                               type="button"
-                              onClick={() => toggleShift(date, zone, option.key)}
-                              className={`rounded-md border px-2 py-1 text-left text-[11px] font-bold transition-colors ${
-                                selected ? option.className : "border-border bg-white text-muted-foreground hover:bg-muted/50"
-                              }`}
+                              onClick={() => toggleShift(date, zone, key)}
+                              className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-bold ${option.className}`}
+                              title="클릭하면 제거됩니다"
                             >
-                              <span className="block">{option.label}</span>
-                              <span className="block text-[10px] font-medium opacity-70">{option.time}</span>
+                              {option.label}
+                              <span className="text-[10px] opacity-60">×</span>
                             </button>
                           );
-                        })}
-                      </div>
-                      <textarea
-                        value={parsed.memo}
-                        onChange={(e) => updateMemo(date, zone, e.target.value)}
-                        placeholder="수기 입력"
-                        rows={2}
-                        className="mt-2 w-full resize-none rounded-md border border-border px-2 py-1.5 text-[11px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                        })
+                      )}
+                    </div>
+
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        toggleShift(date, zone, e.target.value);
+                        e.currentTarget.value = "";
+                      }}
+                      className="mt-2 h-8 w-full rounded-md border border-slate-200 bg-slate-50 px-2 text-[11px] font-semibold text-slate-600 outline-none focus:border-slate-300 focus:bg-white"
+                    >
+                      <option value="">일정 추가</option>
+                      {SHIFT_OPTIONS.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label} {option.time}
+                        </option>
+                      ))}
+                    </select>
+
+                    <textarea
+                      value={parsed.memo}
+                      onChange={(e) => updateMemo(date, zone, e.target.value)}
+                      placeholder="메모"
+                      rows={2}
+                      className="mt-2 min-h-[44px] w-full flex-1 resize-none rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] outline-none focus:border-slate-300 focus:bg-white"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
 
       <button
         onClick={addZone}
-        className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-2 text-sm font-bold text-foreground transition-colors hover:bg-muted/50"
+        className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-2 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50"
       >
         <Plus className="h-4 w-4" /> 작업구역 추가
       </button>

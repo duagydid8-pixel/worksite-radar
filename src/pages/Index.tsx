@@ -375,15 +375,12 @@ const Index = () => {
       </Dialog>
 
       {/* ── 모바일 상단 헤더 (md 이하) ───────────── */}
-      <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100 shrink-0 z-30 shadow-sm">
+      <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 shrink-0 z-30 shadow-sm">
         <div onClick={() => window.location.reload()} className="cursor-pointer">
-          <div
-            className="text-lg font-extrabold leading-tight tracking-tight"
-            style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
-          >
+          <div className="text-lg font-extrabold leading-tight tracking-tight text-slate-900">
             한성크린텍
           </div>
-          <div className="text-[10px] text-gray-400 font-medium">현장 관리 시스템</div>
+          <div className="text-[10px] text-slate-500 font-medium">현장 관리 시스템</div>
         </div>
         {isAdmin ? (
           <button
@@ -403,37 +400,33 @@ const Index = () => {
       </header>
 
       {/* ── 데스크탑 레이아웃 ────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden bg-slate-100">
 
         {/* ── SIDEBAR (md 이상) ─────────────────── */}
-        <aside className="hidden md:flex w-56 shrink-0 bg-white flex-col shadow-[2px_0_12px_rgba(0,0,0,0.06)] z-20">
+        <aside className="hidden md:flex w-60 shrink-0 bg-white flex-col border-r border-slate-200 z-20">
 
           {/* 로고 */}
           <div
-            className="px-5 py-5 border-b border-gray-100 cursor-pointer shrink-0"
+            className="px-5 py-5 border-b border-slate-200 cursor-pointer shrink-0"
             onClick={() => window.location.reload()}
           >
-            <div
-              className="text-2xl font-extrabold leading-tight tracking-tight"
-              style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
-            >
+            <div className="text-2xl font-extrabold leading-tight tracking-tight text-slate-950">
               한성크린텍
             </div>
-            <div className="text-[13px] text-gray-400 font-medium mt-1">현장 관리 시스템</div>
+            <div className="text-[13px] text-slate-500 font-medium mt-1">현장 관리 시스템</div>
           </div>
 
           {/* 네비게이션 */}
-          <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-0.5">
+          <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-1">
             {[...NAV_PUBLIC, ...NAV_SEMI_PUBLIC].map(({ key, label, icon }) => {
               const isActive = activeTab === key;
               return (
                 <button
                   key={key}
                   onClick={() => handleNavClick(key, false)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
-                    isActive ? "text-[#2d3a8a] font-semibold shadow-[0_2px_8px_rgba(168,200,248,0.35)]" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${
+                    isActive ? "bg-slate-900 text-white font-bold shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-semibold"
                   }`}
-                  style={isActive ? { background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" } : {}}
                 >
                   <span className="shrink-0">{icon}</span>
                   <span>{label}</span>
@@ -443,9 +436,9 @@ const Index = () => {
 
             {/* 관리자 전용 구분선 */}
             <div className="flex items-center gap-2 px-2 pt-4 pb-1">
-              <div className="flex-1 h-px bg-gray-100" />
-              <span className="text-[10px] text-gray-300 font-semibold uppercase tracking-wider whitespace-nowrap">관리자 전용</span>
-              <div className="flex-1 h-px bg-gray-100" />
+              <div className="flex-1 h-px bg-slate-200" />
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider whitespace-nowrap">관리자 전용</span>
+              <div className="flex-1 h-px bg-slate-200" />
             </div>
 
             {NAV_ADMIN.map(({ key, label, icon, adminOnly }) => {
@@ -455,14 +448,13 @@ const Index = () => {
                 <button
                   key={key}
                   onClick={() => handleNavClick(key, adminOnly)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${
                     isActive
-                      ? "text-[#2d3a8a] font-semibold shadow-[0_2px_8px_rgba(168,200,248,0.35)]"
+                      ? "bg-slate-900 text-white font-bold shadow-sm"
                       : locked
-                        ? "text-gray-300 hover:bg-gray-50"
-                        : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                        ? "text-slate-300 hover:bg-slate-50 font-semibold"
+                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-semibold"
                   }`}
-                  style={isActive ? { background: "linear-gradient(135deg,#a8c8f8,#c8b4f8)" } : {}}
                 >
                   <span className="shrink-0">{icon}</span>
                   <span className="flex-1">{label}</span>
@@ -473,11 +465,11 @@ const Index = () => {
           </nav>
 
           {/* 하단 로그인/로그아웃 */}
-          <div className="px-4 py-4 border-t border-gray-100 shrink-0">
+          <div className="px-4 py-4 border-t border-slate-200 shrink-0">
             {isAdmin ? (
               <button
                 onClick={() => { logout(); toast.info("로그아웃 되었습니다."); }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-bold text-slate-500 hover:bg-slate-50 transition-colors"
               >
                 <LogOut className="h-4 w-4" />
                 로그아웃
@@ -485,7 +477,7 @@ const Index = () => {
             ) : (
               <button
                 onClick={() => setLoginDialogOpen(true)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[#c8d8f8] text-sm font-semibold text-[#4a6aaa] hover:bg-[#f0f4ff] transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-slate-300 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
               >
                 <KeyRound className="h-4 w-4" />
                 관리자 로그인
@@ -511,11 +503,11 @@ const Index = () => {
 
         {/* 근태보고 */}
         {activeTab === "근태보고" && (
-          <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-3">
+          <div className="mx-auto max-w-[1440px] space-y-4 p-5 md:p-7">
             <>
               {/* File upload + save (admin only) */}
                 {isAdmin && (
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
                     <div className="flex-1">
                       <FileUploadZone
                         onFileLoaded={handleFileLoaded}
@@ -528,7 +520,7 @@ const Index = () => {
                       <button
                         onClick={handleSaveToCloud}
                         disabled={isSaving}
-                        className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
+                        className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 text-sm font-extrabold text-white transition-colors hover:bg-slate-700 disabled:opacity-50"
                       >
                         {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
                         {isSaving ? "저장 중..." : "업로드 & 저장"}
@@ -540,38 +532,38 @@ const Index = () => {
                 {data && (
                   <>
                     {/* 통합 컨트롤 바 */}
-                    <div className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                       {/* 상단: 날짜 + 주간범위 + 팀필터 */}
-                      <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border/60">
+                      <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-4">
+                        <div className="mr-auto">
+                          <h2 className="text-lg font-extrabold text-slate-950">근태보고</h2>
+                          <p className="mt-0.5 text-xs font-semibold text-slate-400">{formatWeekRange(monday)}</p>
+                        </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-bold text-muted-foreground tracking-wide uppercase whitespace-nowrap">기준일</span>
+                          <span className="text-[11px] font-extrabold tracking-wide text-slate-400 whitespace-nowrap">기준일</span>
                           <input
                             type="date"
                             value={pendingDate}
                             onChange={(e) => setPendingDate(e.target.value)}
-                            className="bg-muted/40 border border-border text-foreground text-sm font-bold px-3 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-colors"
+                            className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none transition-colors focus:border-slate-300 focus:bg-white"
                           />
                           <button
                             onClick={() => { setSelectedDate(pendingDate); localStorage.setItem("attendance_selected_date", pendingDate); }}
                             disabled={pendingDate === selectedDate}
-                            className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary/90 disabled:opacity-40 transition-colors"
+                            className="h-10 rounded-lg bg-slate-900 px-3 text-xs font-extrabold text-white transition-colors hover:bg-slate-700 disabled:opacity-40"
                           >
                             적용
                           </button>
                         </div>
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-secondary bg-secondary/10 border border-secondary/20 px-3 py-1.5 rounded-lg whitespace-nowrap">
-                          <span>📅</span>
-                          <span>{formatWeekRange(monday)}</span>
-                        </div>
-                        <div className="flex gap-1 ml-auto bg-muted rounded-lg p-0.5">
+                        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
                           {(["전체", "한성", "태화"] as TeamFilter[]).map((v) => (
                             <button
                               key={v}
                               onClick={() => setTeamFilter(v)}
-                              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                              className={`rounded-md px-3 py-1.5 text-xs font-extrabold transition-all ${
                                 teamFilter === v
-                                  ? "bg-white text-foreground shadow-sm"
-                                  : "text-muted-foreground hover:text-foreground"
+                                  ? "bg-white text-slate-950 shadow-sm"
+                                  : "text-slate-500 hover:text-slate-900"
                               }`}
                             >
                               {v}
@@ -581,20 +573,20 @@ const Index = () => {
                       </div>
 
                       {/* 하단: 검색 + 다운로드 */}
-                      <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/20">
+                      <div className="flex flex-col gap-2 bg-slate-50 px-5 py-3 sm:flex-row sm:items-center">
                         <div className="relative flex-1">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                           <input
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             placeholder="이름으로 검색..."
-                            className="w-full bg-white border border-border rounded-lg pl-9 pr-9 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
+                            className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-sm font-semibold text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-300"
                           />
                           {searchQuery && (
                             <button
                               onClick={() => setSearchQuery("")}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-900"
                             >
                               <X className="h-4 w-4" />
                             </button>
@@ -602,9 +594,9 @@ const Index = () => {
                         </div>
                         <button
                           onClick={() => exportMonthlyExcel(data.employees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth)}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white border border-border text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors shrink-0 shadow-sm"
+                          className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition-colors hover:bg-slate-50"
                         >
-                          <Download className="h-4 w-4 text-muted-foreground" />
+                          <Download className="h-4 w-4 text-slate-400" />
                           엑셀 다운로드
                         </button>
                       </div>
