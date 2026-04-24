@@ -765,6 +765,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           가산승인: c[20],
           공수합계AB: gongsuAB,
           월누계: c[22],
+          가산사유: pr?.가산사유 ?? c[25] ?? "",
         };
       });
 

@@ -15,6 +15,7 @@ interface XerpPmisRow {
   초과당일: string; 초과합계: string;
   가산신청: string; 가산승인: string;
   공수합계AB: string; 월누계: string;
+  가산사유: string;
 }
 
 type DateMap = Record<string, XerpPmisRow[]>; // key = "YYYY-MM-DD"
@@ -40,7 +41,7 @@ function emptyRow(): XerpPmisRow {
     xerp출근:"", xerp퇴근:"", pmis출근:"", pmis퇴근:"",
     조출:"", 오전:"", 오후:"", 연장:"", 야간:"", 철야:"", 점심:"", 공수합계A:"",
     초과당일:"", 초과합계:"", 가산신청:"", 가산승인:"",
-    공수합계AB:"", 월누계:"",
+    공수합계AB:"", 월누계:"", 가산사유:"",
   };
 }
 
@@ -60,6 +61,7 @@ function parseSheet(wb: XLSX.WorkBook): XerpPmisRow[] {
     for (const [colStr, field] of Object.entries(COL_MAP)) {
       emp[field] = String(row[Number(colStr)] ?? "").trim();
     }
+    emp.가산사유 = String(row[25] ?? "").trim();
     results.push(emp);
   }
   return results;
