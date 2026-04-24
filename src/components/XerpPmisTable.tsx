@@ -901,6 +901,37 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     XLSX.writeFile(wb, `선택행_${selectedDate.replace(/-/g,"")}.xlsx`);
   };
 
+  const handleExportPerfectAttendance = () => {
+    if (filteredPerfectPeople.length === 0) {
+      toast.error("내보낼 만근자가 없습니다.");
+      return;
+    }
+    const headers = [
+      "현장", "기준월", "팀명", "직종", "사번", "성명",
+      "출근인정일수", "대상근무일수", "예비군인정일수", "예비군인정일자",
+    ];
+    const dataRows = filteredPerfectPeople.map((person) => [
+      site,
+      selectedYearMonth,
+      person.팀명,
+      person.직종,
+      person.사번,
+      person.성명,
+      person.출근인정일수,
+      person.대상근무일수,
+      person.예비군인정일수,
+      person.예비군인정일자.join(", "),
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    ws["!cols"] = [
+      { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+      { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 24 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "만근자");
+    XLSX.writeFile(wb, `만근자_${site}_${selectedYearMonth.replace("-", "")}.xlsx`);
+  };
+
   // ── 업로드 (다중 파일 지원) ──
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -1507,12 +1538,23 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">{site} · {selectedYearMonth} · 대상 근무일 {perfectAttendance.summary.targetWorkDays}일</p>
               </div>
-              <button
-                onClick={() => setPerfectDialog(null)}
-                className="p-2 rounded-xl hover:bg-muted transition-colors text-muted-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {perfectDialog === "perfect" && (
+                  <button
+                    onClick={handleExportPerfectAttendance}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition-colors"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    엑셀 내려받기
+                  </button>
+                )}
+                <button
+                  onClick={() => setPerfectDialog(null)}
+                  className="p-2 rounded-xl hover:bg-muted transition-colors text-muted-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="overflow-auto">
