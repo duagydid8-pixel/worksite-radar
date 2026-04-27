@@ -57,7 +57,12 @@ async function copyRichTable(html: string, text: string) {
   await navigator.clipboard.writeText(text);
 }
 
-export default function HeadOfficeMailRequest() {
+interface HeadOfficeMailRequestProps {
+  activeMenu?: MailRequestMenu;
+  onMenuChange?: (menu: MailRequestMenu) => void;
+}
+
+export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu, onMenuChange }: HeadOfficeMailRequestProps) {
   const [dataSource, setDataSource] = useState<EmployeeSite>("PH4");
   const [employees, setEmployees] = useState<unknown[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,7 +71,14 @@ export default function HeadOfficeMailRequest() {
   const [siteName, setSiteName] = useState(SITE_OPTIONS[0].value);
   const [requestDate, setRequestDate] = useState(todayISO());
   const [nameInput, setNameInput] = useState("");
-  const [activeMenu, setActiveMenu] = useState<MailRequestMenu>("certificate");
+  const [internalActiveMenu, setInternalActiveMenu] = useState<MailRequestMenu>("certificate");
+  const activeMenu = controlledActiveMenu ?? internalActiveMenu;
+  const showInternalMenu = controlledActiveMenu === undefined;
+
+  const handleMenuChange = (menu: MailRequestMenu) => {
+    if (onMenuChange) onMenuChange(menu);
+    else setInternalActiveMenu(menu);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -164,12 +176,13 @@ export default function HeadOfficeMailRequest() {
         </div>
       </div>
 
+      {showInternalMenu && (
       <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
         <div className="grid grid-cols-3 gap-1">
           {MAIL_REQUEST_MENU_OPTIONS.map((option) => (
             <button
               key={option.value}
-              onClick={() => setActiveMenu(option.value)}
+              onClick={() => handleMenuChange(option.value)}
               className={`h-10 rounded-lg text-sm font-extrabold transition-colors ${
                 activeMenu === option.value
                   ? "bg-slate-900 text-white shadow-sm"
@@ -181,6 +194,7 @@ export default function HeadOfficeMailRequest() {
           ))}
         </div>
       </div>
+      )}
 
       {activeMenu === "certificate" ? (
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">

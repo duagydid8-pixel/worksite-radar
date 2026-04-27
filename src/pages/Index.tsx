@@ -10,10 +10,11 @@ import { WeeklySchedule } from "@/components/WeeklySchedule";
 import PdfSplitter from "@/components/tabs/PdfSplitter";
 import ExpenseReportTab from "@/components/ExpenseReport";
 import HeadOfficeMailRequest from "@/components/HeadOfficeMailRequest";
+import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOfficeMail";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -69,7 +70,10 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "홈" | "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부";
+type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부";
+type AttendanceSubTab = "근태현황" | "연차현황";
+
+const ATTENDANCE_SUB_TABS: AttendanceSubTab[] = ["근태현황", "연차현황"];
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -92,8 +96,7 @@ interface NavItem {
 
 const NAV_PUBLIC: NavItem[] = [
   { key: "홈", label: "홈", icon: <Home className="h-4 w-4" />, adminOnly: false },
-  { key: "근태보고", label: "근태보고", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
-  { key: "연차관리", label: "연차관리", icon: <CalendarDays className="h-4 w-4" />, adminOnly: false },
+  { key: "근태관리", label: "근태관리", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
   { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
 ];
 
@@ -128,6 +131,8 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [pendingBuffer, setPendingBuffer] = useState<ArrayBuffer | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("홈");
+  const [attendanceSubTab, setAttendanceSubTab] = useState<AttendanceSubTab>("근태현황");
+  const [mailSubTab, setMailSubTab] = useState<MailRequestMenu>("certificate");
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const { isAdmin, login, logout } = useAdminAuth();
@@ -329,8 +334,7 @@ const Index = () => {
   // 모바일 하단 네비 아이템 (5개)
   const MOBILE_NAV: NavItem[] = [
     { key: "홈",      label: "홈",      icon: <Home className="h-5 w-5" />,          adminOnly: false },
-    { key: "근태보고", label: "근태보고", icon: <ClipboardList className="h-5 w-5" />, adminOnly: false },
-    { key: "연차관리", label: "연차",    icon: <CalendarDays className="h-5 w-5" />,   adminOnly: false },
+    { key: "근태관리", label: "근태관리", icon: <ClipboardList className="h-5 w-5" />, adminOnly: false },
     { key: "조직도",  label: "조직도",  icon: <GitBranch className="h-5 w-5" />,      adminOnly: false },
     { key: "XERP&PMIS", label: "XERP", icon: <Database className="h-5 w-5" />,       adminOnly: false },
   ];
@@ -423,16 +427,34 @@ const Index = () => {
             {[...NAV_PUBLIC, ...NAV_SEMI_PUBLIC].map(({ key, label, icon }) => {
               const isActive = activeTab === key;
               return (
-                <button
-                  key={key}
-                  onClick={() => handleNavClick(key, false)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${
-                    isActive ? "bg-slate-900 text-white font-bold shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-semibold"
-                  }`}
-                >
-                  <span className="shrink-0">{icon}</span>
-                  <span>{label}</span>
-                </button>
+                <div key={key}>
+                  <button
+                    onClick={() => handleNavClick(key, false)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${
+                      isActive ? "bg-slate-900 text-white font-bold shadow-sm" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-semibold"
+                    }`}
+                  >
+                    <span className="shrink-0">{icon}</span>
+                    <span>{label}</span>
+                  </button>
+                  {key === "근태관리" && isActive && (
+                    <div className="ml-9 mt-1 space-y-1 border-l border-slate-200 pl-3">
+                      {ATTENDANCE_SUB_TABS.map((tab) => (
+                        <button
+                          key={tab}
+                          onClick={() => setAttendanceSubTab(tab)}
+                          className={`block w-full rounded-md px-2 py-1.5 text-left text-xs font-extrabold transition-colors ${
+                            attendanceSubTab === tab
+                              ? "bg-slate-100 text-slate-950"
+                              : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                          }`}
+                        >
+                          {tab}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })}
 
@@ -447,21 +469,39 @@ const Index = () => {
               const isActive = activeTab === key;
               const locked = !isAdmin;
               return (
-                <button
-                  key={key}
-                  onClick={() => handleNavClick(key, adminOnly)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${
-                    isActive
-                      ? "bg-slate-900 text-white font-bold shadow-sm"
-                      : locked
-                        ? "text-slate-300 hover:bg-slate-50 font-semibold"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-semibold"
-                  }`}
-                >
-                  <span className="shrink-0">{icon}</span>
-                  <span className="flex-1">{label}</span>
-                  {locked && <Lock className="h-3 w-3 opacity-30 shrink-0" />}
-                </button>
+                <div key={key}>
+                  <button
+                    onClick={() => handleNavClick(key, adminOnly)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left ${
+                      isActive
+                        ? "bg-slate-900 text-white font-bold shadow-sm"
+                        : locked
+                          ? "text-slate-300 hover:bg-slate-50 font-semibold"
+                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 font-semibold"
+                    }`}
+                  >
+                    <span className="shrink-0">{icon}</span>
+                    <span className="flex-1">{label}</span>
+                    {locked && <Lock className="h-3 w-3 opacity-30 shrink-0" />}
+                  </button>
+                  {key === "본사메일송부" && isActive && !locked && (
+                    <div className="ml-9 mt-1 space-y-1 border-l border-slate-200 pl-3">
+                      {MAIL_REQUEST_MENU_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => setMailSubTab(option.value)}
+                          className={`block w-full rounded-md px-2 py-1.5 text-left text-xs font-extrabold transition-colors ${
+                            mailSubTab === option.value
+                              ? "bg-slate-100 text-slate-950"
+                              : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </nav>
@@ -503,9 +543,28 @@ const Index = () => {
           </div>
         )}
 
-        {/* 근태보고 */}
-        {activeTab === "근태보고" && (
+        {/* 근태관리 */}
+        {activeTab === "근태관리" && (
           <div className="mx-auto max-w-[1440px] space-y-4 p-5 md:p-7">
+            <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm md:hidden">
+              <div className="grid grid-cols-2 gap-1 sm:w-[320px]">
+                {ATTENDANCE_SUB_TABS.map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setAttendanceSubTab(tab)}
+                    className={`h-10 rounded-lg text-sm font-extrabold transition-colors ${
+                      attendanceSubTab === tab
+                        ? "bg-slate-900 text-white shadow-sm"
+                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {attendanceSubTab === "근태현황" ? (
             <>
               {/* File upload + save (admin only) */}
                 {isAdmin && (
@@ -538,7 +597,7 @@ const Index = () => {
                       {/* 상단: 날짜 + 주간범위 + 팀필터 */}
                       <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-4">
                         <div className="mr-auto">
-                          <h2 className="text-lg font-extrabold text-slate-950">근태보고</h2>
+                          <h2 className="text-lg font-extrabold text-slate-950">근태현황</h2>
                           <p className="mt-0.5 text-xs font-semibold text-slate-400">{formatWeekRange(monday)}</p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -640,25 +699,23 @@ const Index = () => {
                   </div>
                 )}
               </>
-          </div>
-        )}
-
-        {/* 연차관리 */}
-        {activeTab === "연차관리" && (
-          <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-3">
-            {data ? (
-              <AnnualLeavePanel
-                leaveEmployees={data.leaveEmployees}
-                leaveDetails={data.leaveDetails}
-                rowOrder={rowOrders["leave"] || []}
-                onOrderChange={handleOrderChange}
-              />
             ) : (
-              <div className="py-16 text-center">
-                <div className="text-5xl mb-4">⬆️</div>
-                <h2 className="text-sm font-semibold text-muted-foreground mb-2">
-                  근태보고 탭에서 Excel 파일을 먼저 업로드하세요
-                </h2>
+              <div className="space-y-3">
+                {data ? (
+                  <AnnualLeavePanel
+                    leaveEmployees={data.leaveEmployees}
+                    leaveDetails={data.leaveDetails}
+                    rowOrder={rowOrders["leave"] || []}
+                    onOrderChange={handleOrderChange}
+                  />
+                ) : (
+                  <div className="py-16 text-center">
+                    <div className="text-5xl mb-4">⬆️</div>
+                    <h2 className="text-sm font-semibold text-muted-foreground mb-2">
+                      근태현황에서 Excel 파일을 먼저 업로드하세요
+                    </h2>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -693,7 +750,24 @@ const Index = () => {
           {/* 본사 메일송부 */}
           {activeTab === "본사메일송부" && isAdmin && (
             <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-              <HeadOfficeMailRequest />
+              <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm md:hidden">
+                <div className="grid grid-cols-3 gap-1">
+                  {MAIL_REQUEST_MENU_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setMailSubTab(option.value)}
+                      className={`h-10 rounded-lg text-sm font-extrabold transition-colors ${
+                        mailSubTab === option.value
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <HeadOfficeMailRequest activeMenu={mailSubTab} onMenuChange={setMailSubTab} />
             </div>
           )}
 
