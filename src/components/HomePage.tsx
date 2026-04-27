@@ -191,8 +191,10 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                     {group.label}
                   </div>
                 )}
-                {group.zones.map((zone) => (
-                  <div key={zone} className="grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5 rounded-lg border border-slate-100 bg-white p-1.5">
+                {group.zones.map((zone, zoneIdx) => {
+                  const rowClass = `hp-sched-r${Math.min(zoneIdx + 1, 5)}`;
+                  return (
+                  <div key={zone} className={`grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5 rounded-lg border border-slate-100 bg-white p-1.5 ${rowClass}`}>
                     <div className="flex items-center px-2 text-xs font-extrabold text-slate-800">
                       <span className="truncate">{group.label ? zone.replace(/^[13]층\s*/,"") : zone}</span>
                     </div>
@@ -236,7 +238,8 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                       );
                     })}
                   </div>
-                ))}
+                  );
+                })}
               </React.Fragment>
             ))}
           </div>
@@ -494,6 +497,10 @@ function DailyAttendanceChart({ dateMap }: { dateMap: Record<string, WorkRow[]> 
             fill="url(#attendanceTrendFill)"
             dot={{ r: 3, strokeWidth: 2, stroke: "#0f172a", fill: "#ffffff" }}
             activeDot={{ r: 5, strokeWidth: 2, stroke: "#0f172a", fill: "#ffffff" }}
+            isAnimationActive={true}
+            animationBegin={400}
+            animationDuration={1400}
+            animationEasing="ease-out"
           />
         </AreaChart>
       </ResponsiveContainer>
