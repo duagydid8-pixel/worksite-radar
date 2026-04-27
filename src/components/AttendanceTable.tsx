@@ -153,7 +153,7 @@ export default function AttendanceTable({
       if (isToday || isWeekend) return <td key={dayIndex} className={baseTd} />;
       return (
         <td key={dayIndex} className={baseTd}>
-          <span className="inline-flex min-w-9 justify-center rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-700">결근</span>
+          <span className="inline-flex min-w-9 justify-center rounded-md border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-700">미타각</span>
         </td>
       );
     }
@@ -206,7 +206,7 @@ export default function AttendanceTable({
 
       if (!rec || (!rec.punchIn && !rec.punchOut)) {
         const isToday2 = cellDate.getTime() === today2.getTime();
-        if (!isToday2 && emp.name !== "이형우") absentCount++;
+        if (!isToday2 && emp.name !== "이형우") uncheckCount++;
         return;
       }
       if (rec?.punchIn && isLate(rec.punchIn) && emp.name !== "이형우") lateCount++;
@@ -222,7 +222,7 @@ export default function AttendanceTable({
       <div className="flex flex-wrap justify-center gap-1">
         {absentCount > 0 && <span className="rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-700">결근 {absentCount}</span>}
         {lateCount   > 0 && <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-800">지각 {lateCount}</span>}
-        {uncheckCount > 0 && <span className="rounded-md border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-700">미체크 {uncheckCount}</span>}
+        {uncheckCount > 0 && <span className="rounded-md border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-700">미타각 {uncheckCount}</span>}
         {leaveCount  > 0 && <span className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-extrabold text-blue-700">연차 {leaveCount}</span>}
       </div>
     );
