@@ -252,6 +252,36 @@ function calcDiff(calcVal: number | null, xerpGongsuA: string) {
   return { diff: null, needsUpdate: false };
 }
 
+export interface XerpSpecialListRow {
+  isWaeju: boolean;
+  isNoRecord: boolean;
+  isLate: boolean;
+  needsUpdate: boolean;
+  isNewEmployee?: boolean;
+}
+
+export function shouldShowInSpecialList(row: XerpSpecialListRow): boolean {
+  return !row.isWaeju && !row.isNoRecord && (row.isLate || row.needsUpdate);
+}
+
+export function getSpecialListLabels(row: XerpSpecialListRow): string[] {
+  const labels: string[] = [];
+  if (row.isNewEmployee) labels.push("신규자");
+  if (row.isLate) labels.push("지각");
+  if (row.needsUpdate) labels.push("가산");
+  return labels;
+}
+
+export interface XerpEarlyLeaveRow {
+  isWaeju: boolean;
+  effOut: string;
+}
+
+export function shouldShowInEarlyLeaveList(row: XerpEarlyLeaveRow): boolean {
+  const outMin = parseMin(row.effOut);
+  return !row.isWaeju && outMin !== null && outMin < 13 * 60;
+}
+
 // ── 파일명 유틸 ───────────────────────────────────────
 function extractDateFromFilename(filename: string): string | null {
   const name = filename.replace(/\.[^.]+$/, "");
@@ -324,6 +354,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [editingVal, setEditingVal] = useState("");
   const [editingReason, setEditingReason] = useState("");
   const [showSpecialList, setShowSpecialList] = useState(false);
+  const [showEarlyLeaveList, setShowEarlyLeaveList] = useState(false);
   const [showNewEmpList, setShowNewEmpList] = useState(false);
   const [newEmpData, setNewEmpData] = useState<Map<string, NewEmpInfo>>(new Map());
   const [newEmpFileName, setNewEmpFileName] = useState<string | null>(null);
@@ -1003,9 +1034,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const needCount     = rows.filter((r) => r.needsUpdate).length;
   const noRecCount    = rows.filter((r) => r.isNoRecord).length;
   const lateCount     = rows.filter((r) => r.isLate).length;
-  const zeroGongsuCount = rows.filter((r) =>
-    !r.isWaeju && !r.isNoRecord && (parseFloat(r.xerpGongsuA) === 0 || r.calcGongsuVal === 0)
-  ).length;
+  const earlyLeaveCount = rows.filter(shouldShowInEarlyLeaveList).length;
 
   const cell = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-border/40 last:border-r-0";
   const th   = "px-2 py-2 text-[11px] font-semibold text-foreground bg-muted text-center border-r border-border/40 last:border-r-0 sticky top-0 z-10";
@@ -1249,6 +1278,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 <Clock className="h-3.5 w-3.5" /> 지각 {lateCount}명
               </span>
             )}
+            {earlyLeaveCount > 0 && (
+              <span className="flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 px-2.5 py-1.5 rounded-lg">
+                <Clock className="h-3.5 w-3.5" /> 조퇴 {earlyLeaveCount}명
+              </span>
+            )}
             {needCount > 0 ? (
               <span className="flex items-center gap-1 text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
                 <AlertTriangle className="h-3.5 w-3.5" /> 가산필요 {needCount}명
@@ -1259,13 +1293,23 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               </span>
             )}
 
-            {(noRecCount > 0 || lateCount > 0 || needCount > 0 || zeroGongsuCount > 0) && (
+            {(lateCount > 0 || needCount > 0) && (
               <button
                 onClick={() => setShowSpecialList((v) => !v)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
               >
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                 {showSpecialList ? "명단 닫기" : "특이자 명단 보기"}
+              </button>
+            )}
+
+            {earlyLeaveCount > 0 && (
+              <button
+                onClick={() => setShowEarlyLeaveList((v) => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
+              >
+                <Clock className="h-3.5 w-3.5" />
+                {showEarlyLeaveList ? "조퇴 명단 닫기" : "조퇴 명단 보기"}
               </button>
             )}
 
@@ -1388,9 +1432,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       {/* 특이자 명단 패널 */}
       {showSpecialList && rows.length > 0 && (() => {
-        const isZeroGongsu = (r: ProcessedRow) =>
-          !r.isWaeju && !r.isNoRecord && (parseFloat(r.xerpGongsuA) === 0 || r.calcGongsuVal === 0);
-        const specialRows = rows.filter((r) => !r.isWaeju && (r.isNoRecord || r.isLate || r.needsUpdate || isZeroGongsu(r)));
+        const specialRows = rows.filter(shouldShowInSpecialList);
         const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-slate-200 border-r border-slate-300 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
         const stc = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-slate-100 last:border-r-0";
         return (
@@ -1403,7 +1445,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                   {noRecCount > 0 && <span className="text-rose-500 mr-2">기록없음 {noRecCount}명</span>}
                   {lateCount > 0 && <span className="text-orange-500 mr-2">지각 {lateCount}명</span>}
                   {needCount > 0 && <span className="text-amber-500 mr-2">가산공수 {needCount}명</span>}
-                  {zeroGongsuCount > 0 && <span className="text-red-500">공수0 {zeroGongsuCount}명</span>}
                 </span>
               </span>
               <button onClick={() => setShowSpecialList(false)} className="text-muted-foreground hover:text-foreground">
@@ -1430,20 +1471,27 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 </thead>
                 <tbody>
                   {specialRows.map((r) => {
-                    const zeroGs = isZeroGongsu(r);
+                    const labels = getSpecialListLabels(r);
                     const tags: React.ReactNode[] = [];
-                    if (r.isNoRecord) tags.push(<span key="nr" className="inline-flex items-center gap-0.5 text-rose-600 font-bold"><UserX className="h-3 w-3" /> 기록없음</span>);
                     if (r.isLate)     tags.push(<span key="lt" className="inline-flex items-center gap-0.5 text-orange-600 font-bold"><Clock className="h-3 w-3" /> 지각</span>);
-                    if (!r.isNoRecord && r.needsUpdate) tags.push(<span key="gs" className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><AlertTriangle className="h-3 w-3" /> 가산</span>);
-                    if (zeroGs) tags.push(<span key="zg" className="inline-flex items-center gap-0.5 text-red-600 font-bold"><MinusCircle className="h-3 w-3" /> 공수0</span>);
-                    const rowBg = r.isNoRecord ? "bg-rose-50/60" : zeroGs ? "bg-red-50/60" : r.isLate ? "bg-orange-50/60" : "bg-amber-50/40";
+                    if (r.needsUpdate) tags.push(<span key="gs" className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><AlertTriangle className="h-3 w-3" /> 가산</span>);
+                    const rowBg = r.isLate ? "bg-orange-50/60" : "bg-amber-50/40";
                     return (
                       <tr key={r.rowIndex} className={`border-b border-slate-100 last:border-0 ${rowBg}`}>
                         <td className={stc}>
                           <div className="flex flex-col items-center gap-0.5">{tags}</div>
                         </td>
                         <td className={`${stc} text-muted-foreground`}>{r.팀명 || "—"}</td>
-                        <td className={`${stc} font-semibold`}>{r.성명}</td>
+                        <td className={`${stc} font-semibold`}>
+                          <span className="inline-flex items-center justify-center gap-1.5">
+                            {r.성명}
+                            {labels.includes("신규자") && (
+                              <span className="rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">
+                                신규자
+                              </span>
+                            )}
+                          </span>
+                        </td>
                         <td className={`${stc} tabular-nums ${!r.xerpIn ? "text-rose-400" : "text-blue-600"}`}>{r.xerpIn || "미기록"}</td>
                         <td className={`${stc} tabular-nums ${!r.xerpOut ? "text-rose-400" : "text-red-600"}`}>{r.xerpOut || "미기록"}</td>
                         <td className={`${stc} tabular-nums ${!r.pmisIn ? "text-rose-400" : "text-blue-400"}`}>{r.pmisIn || "미기록"}</td>
@@ -1455,6 +1503,66 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         <td className={`${stc} font-semibold tabular-nums ${!r.effOut ? "text-rose-400" : "text-blue-700"}`}>{r.effOut || "—"}</td>
                         <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
                         <td className={`${stc} font-bold text-amber-700 tabular-nums`}>{r.diff !== null ? `+${r.diff.toFixed(2)}` : "—"}</td>
+                        <td className={`${stc} font-bold text-emerald-700 tabular-nums`}>{r.calcGongsuVal !== null ? r.calcGongsuVal.toFixed(2) : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 조퇴 명단 패널 */}
+      {showEarlyLeaveList && rows.length > 0 && (() => {
+        const earlyLeaveRows = rows.filter(shouldShowInEarlyLeaveList);
+        const sth = "px-2 py-2 text-[11px] font-semibold text-center bg-red-100 border-r border-red-200 last:border-r-0 sticky top-0 z-10 whitespace-nowrap";
+        const stc = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-red-100 last:border-r-0";
+        return (
+          <div className="rounded-xl border border-red-200 bg-white shadow-sm overflow-hidden shrink-0">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-red-50 border-b border-red-200">
+              <span className="text-xs font-bold text-red-700 flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" />
+                조퇴 명단 — {earlyLeaveRows.length}명
+              </span>
+              <button onClick={() => setShowEarlyLeaveList(false)} className="text-red-500 hover:text-red-700">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="overflow-auto" style={{ maxHeight: "280px" }}>
+              <table className="min-w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-red-200">
+                    <th className={sth}>팀명</th>
+                    <th className={sth}>성명</th>
+                    <th className={sth}>XERP 퇴근</th>
+                    <th className={sth}>PMIS 퇴근</th>
+                    <th className={sth}>적용 퇴근</th>
+                    <th className={sth}>공수A</th>
+                    <th className={sth}>계산공수</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {earlyLeaveRows.map((r) => {
+                    const labels = getSpecialListLabels(r);
+                    return (
+                      <tr key={r.rowIndex} className="border-b border-red-100 last:border-0 bg-red-50/50">
+                        <td className={`${stc} text-muted-foreground`}>{r.팀명 || "—"}</td>
+                        <td className={`${stc} font-semibold`}>
+                          <span className="inline-flex items-center justify-center gap-1.5">
+                            {r.성명}
+                            {labels.includes("신규자") && (
+                              <span className="rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">
+                                신규자
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td className={`${stc} tabular-nums ${!r.xerpOut ? "text-rose-400" : "text-red-600"}`}>{r.xerpOut || "미기록"}</td>
+                        <td className={`${stc} tabular-nums ${!r.pmisOut ? "text-rose-400" : "text-red-400"}`}>{r.pmisOut || "미기록"}</td>
+                        <td className={`${stc} font-bold text-red-700 tabular-nums`}>{r.effOut || "—"}</td>
+                        <td className={`${stc} tabular-nums`}>{r.xerpGongsuA || "—"}</td>
                         <td className={`${stc} font-bold text-emerald-700 tabular-nums`}>{r.calcGongsuVal !== null ? r.calcGongsuVal.toFixed(2) : "—"}</td>
                       </tr>
                     );

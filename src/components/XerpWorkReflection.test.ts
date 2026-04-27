@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { calcGongsuForWorkDate, isWeekendWorkDate } from "./XerpWorkReflection";
+import {
+  calcGongsuForWorkDate,
+  getSpecialListLabels,
+  isWeekendWorkDate,
+  shouldShowInEarlyLeaveList,
+  shouldShowInSpecialList,
+} from "./XerpWorkReflection";
 
 const defaultTeamConfig = {
   standardStart: 7 * 60,
@@ -49,5 +55,49 @@ describe("XERP work reflection gongsu rules", () => {
     );
 
     expect(result).toBe(1);
+  });
+});
+
+describe("XERP work reflection special list", () => {
+  const baseRow = {
+    isWaeju: false,
+    isNoRecord: false,
+    isLate: false,
+    needsUpdate: false,
+    isNewEmployee: false,
+  };
+
+  it("excludes rows that only have no XERP record", () => {
+    expect(shouldShowInSpecialList({ ...baseRow, isNoRecord: true })).toBe(false);
+  });
+
+  it("includes non-no-record rows that are late or need adjustment", () => {
+    expect(shouldShowInSpecialList({ ...baseRow, isLate: true })).toBe(true);
+    expect(shouldShowInSpecialList({ ...baseRow, needsUpdate: true })).toBe(true);
+  });
+
+  it("shows a new employee label for new employee rows", () => {
+    expect(getSpecialListLabels({ ...baseRow, isNewEmployee: true })).toContain("신규자");
+  });
+});
+
+describe("XERP work reflection early leave list", () => {
+  const baseRow = {
+    isWaeju: false,
+    effOut: "13:00",
+  };
+
+  it("includes non-outsourced rows whose applied checkout is before 13:00", () => {
+    expect(shouldShowInEarlyLeaveList({ ...baseRow, effOut: "12:59" })).toBe(true);
+  });
+
+  it("excludes rows whose applied checkout is 13:00 or later", () => {
+    expect(shouldShowInEarlyLeaveList({ ...baseRow, effOut: "13:00" })).toBe(false);
+    expect(shouldShowInEarlyLeaveList({ ...baseRow, effOut: "17:00" })).toBe(false);
+  });
+
+  it("excludes outsourced rows and rows without an applied checkout", () => {
+    expect(shouldShowInEarlyLeaveList({ ...baseRow, isWaeju: true, effOut: "12:30" })).toBe(false);
+    expect(shouldShowInEarlyLeaveList({ ...baseRow, effOut: "" })).toBe(false);
   });
 });
