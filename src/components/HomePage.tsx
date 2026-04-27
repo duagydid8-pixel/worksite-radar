@@ -576,99 +576,99 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
   ];
 
   return (
-    <div className="p-5 md:p-7 max-w-[1440px] mx-auto min-h-full bg-slate-100">
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-5 items-start">
+    <div className="p-5 md:p-7 max-w-[1440px] mx-auto min-h-full bg-slate-100 space-y-4">
 
-        {/* ── 메인 컬럼 ── */}
-        <div className="space-y-5">
+      {/* ── 상단: 히어로 + 날씨 ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
 
-          {/* 히어로 카드 */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs font-bold text-slate-500 tracking-wide mb-1">평택 초순수 P4 현장</p>
-                <h1 className="text-2xl font-extrabold text-slate-950 mb-1">현장 관리 시스템</h1>
-                <p className="text-sm text-slate-500 font-medium">{dateLabel}</p>
-                {lastUploadedAt && (
-                  <div className="flex items-center gap-1.5 mt-3">
-                    <div className="flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 border border-slate-200">
-                      <Clock className="h-3 w-3 text-slate-400" />
-                      <span className="text-[11px] font-semibold text-slate-600">최근 업데이트 · {lastUploadedAt}</span>
-                    </div>
-                  </div>
-                )}
+        {/* 히어로 */}
+        <div className="hp-anim-hero rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold text-slate-500 tracking-wide mb-1">평택 초순수 P4 현장</p>
+            <h1 className="text-2xl font-extrabold text-slate-950 mb-1">현장 관리 시스템</h1>
+            <p className="text-sm text-slate-500 font-medium">{dateLabel}</p>
+            {lastUploadedAt && (
+              <div className="flex items-center gap-1.5 mt-3">
+                <div className="flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 border border-slate-200">
+                  <Clock className="h-3 w-3 text-slate-400" />
+                  <span className="text-[11px] font-semibold text-slate-600">최근 업데이트 · {lastUploadedAt}</span>
+                </div>
               </div>
-              <div className="hidden sm:flex flex-col items-end gap-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <span className="text-[11px] font-bold text-slate-400">최근 기술인</span>
-                <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{xerpLoaded ? stats.total : "—"}</span>
+            )}
+          </div>
+          <div className="hidden sm:flex flex-col items-end gap-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <span className="text-[11px] font-bold text-slate-400">최근 기술인</span>
+            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{xerpLoaded ? stats.total : "—"}</span>
+          </div>
+        </div>
+
+        {/* 날씨 */}
+        <div className="hp-anim-w">
+          <WeatherCard />
+        </div>
+      </div>
+
+      {/* ── KPI 4개 ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {KPI.map((k, i) => (
+          <div
+            key={k.label}
+            className={`bg-white rounded-2xl shadow-sm border border-slate-200 p-5 hover:border-slate-300 transition-colors hp-anim-kpi-${i + 1}`}
+          >
+            <div className={`w-10 h-10 rounded-xl ${k.iconBg} flex items-center justify-center mb-4 ${k.color}`}>
+              {k.icon}
+            </div>
+            <p className={`text-3xl font-bold tabular-nums mb-0.5 ${k.color}`}>
+              {xerpLoaded ? (k.showDash ? <span className="text-gray-200">—</span> : k.value) : <span className="text-gray-200">—</span>}
+            </p>
+            <p className="text-sm font-bold text-slate-800">{k.label}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">{k.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── 당일 연차자 (데이터 있을 때만) ── */}
+      {todayLeaveDetails.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50">
+                <CalendarOff className="h-4.5 w-4.5 text-amber-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">당일 연차자</h3>
+                <p className="text-[11px] font-semibold text-slate-400">{selectedDate} 기준</p>
               </div>
             </div>
+            <span className="text-xl font-bold text-amber-500 tabular-nums">
+              {todayLeaveDetails.length}<span className="ml-0.5 text-xs font-semibold text-slate-400">명</span>
+            </span>
           </div>
-
-          {/* KPI 카드 4개 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {KPI.map((k) => (
-              <div key={k.label} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 hover:border-slate-300 transition-colors">
-                <div className={`w-10 h-10 rounded-xl ${k.iconBg} flex items-center justify-center mb-4 ${k.color}`}>
-                  {k.icon}
-                </div>
-                <p className={`text-3xl font-bold tabular-nums mb-0.5 ${k.color}`}>
-                  {xerpLoaded ? (k.showDash ? <span className="text-gray-200">—</span> : k.value) : <span className="text-gray-200">—</span>}
-                </p>
-                <p className="text-sm font-bold text-slate-800">{k.label}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">{k.sub}</p>
+          <div className="flex flex-wrap gap-2">
+            {todayLeaveDetails.map((item, i) => (
+              <div key={i} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5">
+                <span className="text-xs font-bold text-amber-700">{item.name}</span>
+                {item.days !== 1 && <span className="text-[10px] text-amber-500 font-medium">{item.days}일</span>}
+                {item.reason && <span className="text-[10px] font-semibold text-slate-400">({item.reason})</span>}
               </div>
             ))}
           </div>
+        </div>
+      )}
 
-          {/* 당일 연차자 카드 */}
-          {todayLeaveDetails.length > 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50">
-                    <CalendarOff className="h-4.5 w-4.5 text-amber-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-extrabold text-slate-900">당일 연차자</h3>
-                    <p className="text-[11px] font-semibold text-slate-400">{selectedDate} 기준</p>
-                  </div>
-                </div>
-                <span className="text-xl font-bold text-amber-500 tabular-nums">
-                  {todayLeaveDetails.length}<span className="ml-0.5 text-xs font-semibold text-slate-400">명</span>
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {todayLeaveDetails.map((item, i) => (
-                  <div key={i} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5">
-                    <span className="text-xs font-bold text-amber-700">{item.name}</span>
-                    {item.days !== 1 && (
-                      <span className="text-[10px] text-amber-500 font-medium">{item.days}일</span>
-                    )}
-                    {item.reason && (
-                      <span className="text-[10px] font-semibold text-slate-400">({item.reason})</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+      {/* ── 차트 + 사이드바 ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
 
-          {/* 일일 출력인원 그래프 */}
+        {/* 일일 출력인원 그래프 */}
+        <div className="hp-anim-chart">
           {xerpLoaded && Object.keys(xerpDateMap).length > 0 && (
             <DailyAttendanceChart dateMap={xerpDateMap} />
           )}
-
-          {/* 주간 작업 일정 */}
-          <WorkScheduleSection isAdmin={isAdmin} />
         </div>
 
-        {/* ── 우측 사이드바 ── */}
-        <div className="space-y-4">
-          {/* 미니 달력 */}
+        {/* 사이드: 달력 + 데이터현황 */}
+        <div className="hp-anim-side space-y-4">
           <MiniCalendar selectedDate={selectedDate} />
-
-          {/* 업로드 상태 카드 */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2.5 mb-4">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100">
@@ -700,11 +700,14 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
               </div>
             </div>
           </div>
-
-          {/* 날씨 카드 */}
-          <WeatherCard />
         </div>
       </div>
+
+      {/* ── 주간 작업일정 ── */}
+      <div className="hp-anim-sched">
+        <WorkScheduleSection isAdmin={isAdmin} />
+      </div>
+
     </div>
   );
 }
