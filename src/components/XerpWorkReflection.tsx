@@ -287,7 +287,8 @@ export function shouldShowDownloadActions(rowCount: number): boolean {
 }
 
 export function canBuildDownloadWorkbook(hasOriginalBuffer: boolean, rawExcelRowCount: number): boolean {
-  return hasOriginalBuffer || rawExcelRowCount > 0;
+  void rawExcelRowCount;
+  return hasOriginalBuffer;
 }
 
 export interface XerpAdjustmentState {
@@ -380,13 +381,59 @@ interface RawExcelRow {
   cols: string[]; // 0~22 컬럼 전체
 }
 
-const XERP_WORK_DOWNLOAD_HEADERS = [
-  "팀명", "직종", "사번", "성명", "생년월일",
-  "XERP 출근", "XERP 퇴근", "PMIS 출근", "PMIS 퇴근",
-  "조출", "오전", "오후", "연장", "야간", "철야", "점심",
-  "공수합계A", "초과당일", "초과합계", "가산신청", "가산승인",
-  "공수합계AB", "월누계", "작업내용", "비고", "가산사유",
-];
+const ORIGINAL_WORKBOOK_DB = "worksite-radar-xerp-workbooks";
+const ORIGINAL_WORKBOOK_STORE = "workbooks";
+
+function openOriginalWorkbookDb(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(ORIGINAL_WORKBOOK_DB, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(ORIGINAL_WORKBOOK_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveOriginalWorkbookBuffer(date: string, buffer: ArrayBuffer): Promise<void> {
+  const db = await openOriginalWorkbookDb();
+  if (!db) return;
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(ORIGINAL_WORKBOOK_STORE, "readwrite");
+    tx.objectStore(ORIGINAL_WORKBOOK_STORE).put(buffer, date);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function loadOriginalWorkbookBuffer(date: string): Promise<ArrayBuffer | null> {
+  const db = await openOriginalWorkbookDb();
+  if (!db) return null;
+  try {
+    return await new Promise<ArrayBuffer | null>((resolve, reject) => {
+      const tx = db.transaction(ORIGINAL_WORKBOOK_STORE, "readonly");
+      const req = tx.objectStore(ORIGINAL_WORKBOOK_STORE).get(date);
+      req.onsuccess = () => resolve((req.result as ArrayBuffer | undefined) ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function deleteOriginalWorkbookBuffer(date: string): Promise<void> {
+  const db = await openOriginalWorkbookDb();
+  if (!db) return;
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(ORIGINAL_WORKBOOK_STORE, "readwrite");
+    tx.objectStore(ORIGINAL_WORKBOOK_STORE).delete(date);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
 
 // ── 컴포넌트 ─────────────────────────────────────────
 interface Props { isAdmin: boolean }
@@ -539,6 +586,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData, latest));
           setFileName(entry.fileName ?? null);
           setRawExcelRows((entry.rawExcelRows ?? []) as RawExcelRow[]);
+          setOriginalBuffer(await loadOriginalWorkbookBuffer(latest));
           toast.info(`저장된 데이터 불러옴 (${latest} / ${entry.fileName})`);
         }
       } else {
@@ -710,6 +758,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const detectedSite = detectSite(file.name);
       const detectedDate = extractDateFromFilename(file.name);
       const calcWorkDate = detectedDate ?? workDate;
+      saveOriginalWorkbookBuffer(calcWorkDate, buffer).catch((err) => {
+        console.warn("[saveOriginalWorkbookBuffer]", err);
+      });
 
       const processed: ProcessedRow[] = [];
       for (let i = dataStart; i < raw.length; i++) {
@@ -817,6 +868,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     if (!rows.length || !fileName) return;
     setIsSaving(true);
     const ok = await saveXerpWorkDateFS(workDate, fileName, rows, rawExcelRows);
+    if (ok && originalBuffer) {
+      saveOriginalWorkbookBuffer(workDate, originalBuffer).catch((err) => {
+        console.warn("[saveOriginalWorkbookBuffer]", err);
+      });
+    }
     setIsSaving(false);
     if (ok) {
       toast.success(`저장되었습니다. (${workDate})`);
@@ -831,16 +887,17 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setWorkDate(date);
     if (!date) return;
     setIsLoadingDate(true);
-    const [dm, empData] = await Promise.all([
+    const [dm, empData, savedOriginalBuffer] = await Promise.all([
       loadXerpWorkDateMapFS(),
       loadNewEmpForDate(date),
+      loadOriginalWorkbookBuffer(date),
     ]);
     setIsLoadingDate(false);
     if (dm?.[date]) {
       const entry = dm[date];
       setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData, date));
       setFileName(entry.fileName ?? null);
-      setOriginalBuffer(null);
+      setOriginalBuffer(savedOriginalBuffer);
       setWorkbook(null);
       setRawExcelRows((entry.rawExcelRows ?? []) as RawExcelRow[]);
       toast.info(`${date} 데이터 불러옴 (${entry.fileName})`);
@@ -859,6 +916,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     if (!confirm(`${date} 데이터를 삭제하시겠습니까?`)) return;
     const ok = await deleteXerpWorkDateFS(date);
     if (ok) {
+      deleteOriginalWorkbookBuffer(date).catch((err) => {
+        console.warn("[deleteOriginalWorkbookBuffer]", err);
+      });
       toast.success(`${date} 삭제됨`);
       const { dates } = await refreshWorkDates();
       if (dates.length > 0) {
@@ -926,30 +986,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const handleDownload = async () => {
     if (!fileName) return;
     if (!canBuildDownloadWorkbook(Boolean(originalBuffer), rawExcelRows.length)) {
-      toast.error("다운로드할 원본 행 데이터가 없습니다. 엑셀을 다시 업로드해 주세요.");
+      toast.error("원본 엑셀 양식이 없습니다. 같은 날짜에 엑셀을 한 번 다시 업로드한 뒤 저장해 주세요.");
       return;
     }
     try {
       const wb = new ExcelJS.Workbook();
-      let rowNumberByOriginalIndex = new Map<number, number>();
-
-      if (originalBuffer) {
-        // ExcelJS로 읽어야 테두리·셀병합 등 원본 서식이 완전 보존됨
-        // (XLSX 무료판은 cellStyles 쓰기가 불완전하여 XERP 반영 불가)
-        await wb.xlsx.load(originalBuffer);
-      } else {
-        const ws = wb.addWorksheet("공수반영");
-        ws.addRow(XERP_WORK_DOWNLOAD_HEADERS);
-        rawExcelRows
-          .slice()
-          .sort((a, b) => a.rowIndex - b.rowIndex)
-          .forEach((rawRow) => {
-            const rowValues = Array.from({ length: XERP_WORK_DOWNLOAD_HEADERS.length }, (_, idx) => rawRow.cols[idx] ?? "");
-            const added = ws.addRow(rowValues);
-            rowNumberByOriginalIndex.set(rawRow.rowIndex, added.number);
-          });
-        toast.info("저장된 행 데이터로 기본 서식 파일을 생성합니다.");
-      }
+      // ExcelJS로 읽어야 테두리·셀병합 등 원본 서식이 완전 보존됨
+      // (XLSX 무료판은 cellStyles 쓰기가 불완전하여 XERP 반영 불가)
+      await wb.xlsx.load(originalBuffer!);
 
       const ws = wb.worksheets[0];
       if (!ws) { toast.error("시트를 찾을 수 없습니다."); return; }
@@ -974,7 +1018,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           }
         }
 
-        const excelRow = rowNumberByOriginalIndex.get(row.rowIndex) ?? row.rowIndex + 1; // 0-based → 1-based for original files
+        const excelRow = row.rowIndex + 1; // 0-based → 1-based
 
         // T열 (col 20, 0-based 19): 가산공수(B) 신청
         ws.getCell(excelRow, 20).value = effectiveDiff;
@@ -1415,9 +1459,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                   title={
                     originalBuffer
                       ? "원본 서식으로 수정 파일 다운로드"
-                      : canBuildDownloadWorkbook(false, rawExcelRows.length)
-                        ? "저장된 행 데이터로 기본 서식 다운로드"
-                        : "다운로드할 원본 행 데이터가 없습니다"
+                      : "원본 엑셀 양식이 없어 재업로드가 필요합니다"
                   }
                   className={`ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold transition-colors ${
                     canBuildDownloadWorkbook(Boolean(originalBuffer), rawExcelRows.length)

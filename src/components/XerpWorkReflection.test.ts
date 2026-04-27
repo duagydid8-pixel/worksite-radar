@@ -114,9 +114,9 @@ describe("XERP work reflection download actions", () => {
     expect(shouldShowDownloadActions(0)).toBe(false);
   });
 
-  it("can build a download from either the original file buffer or saved raw rows", () => {
+  it("only builds a download when the original workbook buffer is available", () => {
     expect(canBuildDownloadWorkbook(true, 0)).toBe(true);
-    expect(canBuildDownloadWorkbook(false, 1)).toBe(true);
+    expect(canBuildDownloadWorkbook(false, 1)).toBe(false);
     expect(canBuildDownloadWorkbook(false, 0)).toBe(false);
   });
 });
