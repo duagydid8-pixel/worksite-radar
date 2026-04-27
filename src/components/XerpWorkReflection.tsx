@@ -282,6 +282,10 @@ export function shouldShowInEarlyLeaveList(row: XerpEarlyLeaveRow): boolean {
   return !row.isWaeju && outMin !== null && outMin < 13 * 60;
 }
 
+export function shouldShowDownloadActions(rowCount: number): boolean {
+  return rowCount > 0;
+}
+
 // ── 파일명 유틸 ───────────────────────────────────────
 function extractDateFromFilename(filename: string): string | null {
   const name = filename.replace(/\.[^.]+$/, "");
@@ -860,7 +864,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   };
 
   const handleDownload = async () => {
-    if (!originalBuffer || !fileName) return;
+    if (!originalBuffer || !fileName) {
+      toast.error("저장된 데이터만 불러온 상태입니다. 원본 엑셀을 다시 업로드하면 다운로드할 수 있습니다.");
+      return;
+    }
     try {
       // ExcelJS로 읽어야 테두리·셀병합 등 원본 서식이 완전 보존됨
       // (XLSX 무료판은 cellStyles 쓰기가 불완전하여 XERP 반영 불가)
@@ -1322,11 +1329,17 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               {isSaving ? "저장 중..." : `저장 (${workDate})`}
             </button>
 
-            {originalBuffer && (
+            {shouldShowDownloadActions(rows.length) && (
               <>
                 <button
                   onClick={handleDownload}
-                  className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
+                  aria-disabled={!originalBuffer || !fileName}
+                  title={!originalBuffer || !fileName ? "원본 엑셀을 다시 업로드하면 다운로드할 수 있습니다" : "수정 파일 다운로드"}
+                  className={`ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold transition-colors ${
+                    originalBuffer && fileName
+                      ? "text-foreground hover:bg-muted/50"
+                      : "text-muted-foreground bg-muted/30"
+                  }`}
                 >
                   <Download className="h-4 w-4 text-muted-foreground" />
                   수정 파일 다운로드

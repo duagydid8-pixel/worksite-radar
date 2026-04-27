@@ -3,6 +3,7 @@ import {
   calcGongsuForWorkDate,
   getSpecialListLabels,
   isWeekendWorkDate,
+  shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
 } from "./XerpWorkReflection";
@@ -99,5 +100,15 @@ describe("XERP work reflection early leave list", () => {
   it("excludes outsourced rows and rows without an applied checkout", () => {
     expect(shouldShowInEarlyLeaveList({ ...baseRow, isWaeju: true, effOut: "12:30" })).toBe(false);
     expect(shouldShowInEarlyLeaveList({ ...baseRow, effOut: "" })).toBe(false);
+  });
+});
+
+describe("XERP work reflection download actions", () => {
+  it("shows download actions whenever loaded rows exist", () => {
+    expect(shouldShowDownloadActions(1)).toBe(true);
+  });
+
+  it("hides download actions when no rows are loaded", () => {
+    expect(shouldShowDownloadActions(0)).toBe(false);
   });
 });
