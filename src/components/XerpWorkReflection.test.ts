@@ -3,6 +3,7 @@ import {
   calcGongsuForWorkDate,
   getSpecialListLabels,
   isWeekendWorkDate,
+  resolveLoadedAdjustment,
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
@@ -110,5 +111,49 @@ describe("XERP work reflection download actions", () => {
 
   it("hides download actions when no rows are loaded", () => {
     expect(shouldShowDownloadActions(0)).toBe(false);
+  });
+});
+
+describe("XERP work reflection saved adjustment loading", () => {
+  it("keeps a saved manual adjustment instead of replacing it with recalculated values", () => {
+    const result = resolveLoadedAdjustment(
+      { diff: 0.5, 가산사유: "사용자 수정 사유" },
+      { diff: 0.25, needsUpdate: true, 가산사유: "자동 계산 사유" },
+    );
+
+    expect(result).toEqual({
+      diff: 0.5,
+      needsUpdate: true,
+      가산사유: "사용자 수정 사유",
+      manualAdjustment: false,
+    });
+  });
+
+  it("keeps a manually cleared adjustment when the saved row has the manual flag", () => {
+    const result = resolveLoadedAdjustment(
+      { diff: null, 가산사유: "", manualAdjustment: true },
+      { diff: 0.25, needsUpdate: true, 가산사유: "자동 계산 사유" },
+    );
+
+    expect(result).toEqual({
+      diff: null,
+      needsUpdate: false,
+      가산사유: "",
+      manualAdjustment: true,
+    });
+  });
+
+  it("uses recalculated values when the saved row has no adjustment fields", () => {
+    const result = resolveLoadedAdjustment(
+      {},
+      { diff: 0.25, needsUpdate: true, 가산사유: "자동 계산 사유" },
+    );
+
+    expect(result).toEqual({
+      diff: 0.25,
+      needsUpdate: true,
+      가산사유: "자동 계산 사유",
+      manualAdjustment: false,
+    });
   });
 });

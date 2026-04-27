@@ -286,6 +286,40 @@ export function shouldShowDownloadActions(rowCount: number): boolean {
   return rowCount > 0;
 }
 
+export interface XerpAdjustmentState {
+  diff: number | null;
+  needsUpdate: boolean;
+  가산사유: string;
+  manualAdjustment: boolean;
+}
+
+export function resolveLoadedAdjustment(
+  saved: { diff?: number | null; 가산사유?: string; manualAdjustment?: boolean },
+  calculated: { diff: number | null; needsUpdate: boolean; 가산사유: string },
+): XerpAdjustmentState {
+  const savedReason = (saved.가산사유 ?? "").trim();
+  const hasSavedAdjustment =
+    Boolean(saved.manualAdjustment) ||
+    (saved.diff !== undefined && saved.diff !== null) ||
+    savedReason !== "";
+
+  if (!hasSavedAdjustment) {
+    return { ...calculated, manualAdjustment: false };
+  }
+
+  if (saved.manualAdjustment && (saved.diff === null || saved.diff === undefined || saved.diff <= 0)) {
+    return { diff: null, needsUpdate: false, 가산사유: "", manualAdjustment: true };
+  }
+
+  const diff = saved.diff !== undefined ? saved.diff : calculated.diff;
+  return {
+    diff,
+    needsUpdate: diff !== null && diff > 0,
+    가산사유: savedReason || calculated.가산사유,
+    manualAdjustment: Boolean(saved.manualAdjustment),
+  };
+}
+
 // ── 파일명 유틸 ───────────────────────────────────────
 function extractDateFromFilename(filename: string): string | null {
   const name = filename.replace(/\.[^.]+$/, "");
@@ -328,6 +362,7 @@ interface ProcessedRow {
   diff: number | null;
   가산사유: string;
   needsUpdate: boolean;
+  manualAdjustment?: boolean;
   isNoRecord: boolean;
   isLate: boolean;
   standardStart: number;
@@ -454,14 +489,20 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (isNew) {
         const gongsuA = parseFloat(r.xerpGongsuA) || 0;
         const d = 1.0 - gongsuA;
-        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, diff: d > 0 ? d : null, needsUpdate: d > 0 };
+        const adjustment = resolveLoadedAdjustment(r, {
+          diff: d > 0 ? d : null,
+          needsUpdate: d > 0,
+          가산사유: r.가산사유 || "",
+        });
+        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...adjustment };
       }
       const cfg = getTeamConfig(r.팀명);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
       const calcVal = calcGongsuForWorkDate(date, effInMin, r.rawOutMin, r.isJochul, cfg);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const 가산사유 = needsUpdate ? inferGasanReason(r) : "";
-      return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+      const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
+      return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, ...adjustment };
     });
 
   const deleteNewEmp = (name: string) => {
@@ -576,7 +617,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (isNew) {
         const gongsuA = parseFloat(r.xerpGongsuA) || 0;
         const diff = 1.0 - gongsuA;
-        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, diff: diff > 0 ? diff : null, needsUpdate: diff > 0 };
+        const adjustment = resolveLoadedAdjustment(r, {
+          diff: diff > 0 ? diff : null,
+          needsUpdate: diff > 0,
+          가산사유: r.가산사유 || "",
+        });
+        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...adjustment };
       }
       // 신규자 해제 시 원래 값으로 재계산
       if (r.isNewEmployee) {
@@ -584,7 +630,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
         const calcVal  = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg);
         const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-        return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate };
+        const 가산사유 = needsUpdate ? inferGasanReason(r) : "";
+        const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
+        return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, ...adjustment };
       }
       return r;
     }));
@@ -620,10 +668,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setRows((prev) => prev.map((r) => {
       if (r.rowIndex !== rowIndex) return r;
       if (isNaN(num) || num <= 0) {
-        return { ...r, diff: null, 가산사유: "", needsUpdate: false };
+        return { ...r, diff: null, 가산사유: "", needsUpdate: false, manualAdjustment: true };
       }
       const reason = editingReason.trim() || inferGasanReason(r);
-      return { ...r, diff: num, 가산사유: reason, needsUpdate: true };
+      return { ...r, diff: num, 가산사유: reason, needsUpdate: true, manualAdjustment: true };
     }));
     setEditingIdx(null);
   };
