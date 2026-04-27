@@ -63,6 +63,10 @@ export function exportAttendanceExcel(
         cells.push("연차", "");
         return;
       }
+      if (rec?.status === "결근") {
+        cells.push("결근", "");
+        return;
+      }
       if (!rec || (!rec.punchIn && !rec.punchOut)) {
         if (emp.team === "태화_F" && !isWeekend) {
           cells.push("미출근", "");
@@ -91,6 +95,10 @@ export function exportAttendanceExcel(
       if (annualLeaveMap[emp.name]?.[leaveKey]) return;
       const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
       const rec = emp.dailyRecords[key];
+      if (rec?.status === "결근") {
+        absentCount++;
+        return;
+      }
       if (rec?.punchIn && isLate(rec.punchIn)) lateCount++;
     });
     cells.push(lateCount > 0 ? `지각 ${lateCount}` : "이상없음");
@@ -186,6 +194,10 @@ function buildMonthlySheet(
       if (isLeave) { leaveCount++; continue; }
       if (dateObj > today) continue;
 
+      if (rec?.status === "결근") {
+        absentCount++;
+        continue;
+      }
       if (rec?.punchIn) {
         if (isLate(rec.punchIn)) lateCount++;
         if (!isHanseong && !rec.punchOut) uncheckCount++;
@@ -216,6 +228,8 @@ function buildMonthlySheet(
       if (isLeave) {
         dataRow[inCol] = "연차";
         dataRow[inCol + 1] = "연차";
+      } else if (rec?.status === "결근") {
+        dataRow[inCol] = "결근";
       } else if (rec?.punchIn) {
         dataRow[inCol] = rec.punchIn;
         if (!isHanseong) dataRow[inCol + 1] = rec.punchOut || "미타각";

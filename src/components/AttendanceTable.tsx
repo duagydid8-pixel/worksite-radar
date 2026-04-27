@@ -149,6 +149,14 @@ export default function AttendanceTable({
       );
     }
 
+    if (record?.status === "결근") {
+      return (
+        <td key={dayIndex} className={baseTd}>
+          <span className="inline-flex min-w-9 justify-center rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-700">결근</span>
+        </td>
+      );
+    }
+
     if (!record || (!record.punchIn && !record.punchOut)) {
       if (isToday || isWeekend) return <td key={dayIndex} className={baseTd} />;
       return (
@@ -203,6 +211,11 @@ export default function AttendanceTable({
 
       const key = `${wd.getFullYear()}-${wd.getMonth() + 1}-${wd.getDate()}`;
       const rec = emp.dailyRecords[key];
+
+      if (rec?.status === "결근") {
+        absentCount++;
+        return;
+      }
 
       if (!rec || (!rec.punchIn && !rec.punchOut)) {
         const isToday2 = cellDate.getTime() === today2.getTime();

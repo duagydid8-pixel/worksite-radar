@@ -8,7 +8,7 @@ export interface Employee {
   totalDays: number;
   dataYear: number;
   dataMonth: number;
-  dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null }>;
+  dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null; status?: "결근" }>;
 }
 
 export interface AnomalyRecord {
@@ -80,6 +80,10 @@ function excelTimeToString(val: any): string | null {
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   }
   return null;
+}
+
+function isAbsentMarker(val: any): boolean {
+  return typeof val === "string" && val.trim().includes("결근");
 }
 
 function pickLatestSheet(wb: XLSX.WorkBook, keyword: string, exclude?: string): string | null {
@@ -253,7 +257,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       const rank = team === "한성_F" ? (hanseongInfo?.rank || "") : "";
       const totalDays = typeof row[7] === "number" ? row[7] : parseInt(row[7]) || 0;
 
-      const dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null }> = {};
+      const dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null; status?: "결근" }> = {};
 
       // Days 1~21
       for (let d = 1; d <= 21; d++) {
@@ -266,6 +270,10 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
           const leaveKey = `${empYear}|${empMonth}|${d}`;
           if (!annualLeaveMap[name]) annualLeaveMap[name] = {};
           annualLeaveMap[name][leaveKey] = true;
+          continue;
+        }
+        if (isAbsentMarker(rawIn) || isAbsentMarker(rawOut)) {
+          dailyRecords[`${empYear}-${empMonth}-${d}`] = { punchIn: null, punchOut: null, status: "결근" };
           continue;
         }
         const pIn = excelTimeToString(rawIn);
@@ -286,6 +294,10 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
           const leaveKey = `${empYear}|${empMonth}|${d}`;
           if (!annualLeaveMap[name]) annualLeaveMap[name] = {};
           annualLeaveMap[name][leaveKey] = true;
+          continue;
+        }
+        if (isAbsentMarker(rawIn) || isAbsentMarker(rawOut)) {
+          dailyRecords[`${empYear}-${empMonth}-${d}`] = { punchIn: null, punchOut: null, status: "결근" };
           continue;
         }
         const pIn = excelTimeToString(rawIn);
