@@ -46,6 +46,10 @@ function minToStr(min: number): string {
 
 const STANDARD_END       = 17 * 60;  // 17:00
 const STANDARD_WORK_MIN  = 8 * 60;   // 주간 1.0 공수 기준 = 8시간(480분)
+const WEEKEND_START      = 7 * 60;   // 07:00
+const WEEKEND_END        = 14 * 60;  // 14:00
+const WEEKEND_RATE_PER_HOUR = 0.143;
+const WEEKEND_FULL_WORK_MIN = 7 * 60;
 
 // ── 신규자 정보 타입 ──────────────────────────────────
 interface NewEmpInfo { 생년월일: string; 단가: string; }
@@ -200,6 +204,44 @@ function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul:
     : 0;
 
   return jochulBonus + stdGongsu + overtimeGongsu;
+}
+
+export function isWeekendWorkDate(workDate: string): boolean {
+  const m = workDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const date = new Date(y, month, d);
+  if (
+    date.getFullYear() !== y ||
+    date.getMonth() !== month ||
+    date.getDate() !== d
+  ) return false;
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+export function calcWeekendGongsu(effInMin: number | null, effOutMin: number | null): number | null {
+  if (effInMin === null || effOutMin === null) return null;
+
+  const start = Math.max(effInMin, WEEKEND_START);
+  const end = Math.min(effOutMin, WEEKEND_END);
+  const workedMin = Math.max(0, end - start);
+
+  if (workedMin >= WEEKEND_FULL_WORK_MIN) return 1;
+  return (workedMin / 60) * WEEKEND_RATE_PER_HOUR;
+}
+
+export function calcGongsuForWorkDate(
+  workDate: string,
+  effInMin: number | null,
+  effOutMin: number | null,
+  isJochul: boolean,
+  cfg: TeamConfig,
+): number | null {
+  if (isWeekendWorkDate(workDate)) return calcWeekendGongsu(effInMin, effOutMin);
+  return calcGongsu(effInMin, effOutMin, isJochul, cfg);
 }
 
 function calcDiff(calcVal: number | null, xerpGongsuA: string) {
@@ -370,24 +412,21 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   };
 
   // rows에 신규자 데이터 즉시 적용 (타이밍 이슈 방지용)
-  const applyNewEmpToRows = (loadedRows: ProcessedRow[], empData: Map<string, NewEmpInfo>): ProcessedRow[] =>
+  const applyNewEmpToRows = (loadedRows: ProcessedRow[], empData: Map<string, NewEmpInfo>, date: string = workDate): ProcessedRow[] =>
     loadedRows.map((r) => {
       if (r.isWaeju) return r;
       const isNew = empData.has(r.성명);
-      if (isNew && !r.isNewEmployee) {
+      if (isNew) {
         const gongsuA = parseFloat(r.xerpGongsuA) || 0;
         const d = 1.0 - gongsuA;
         return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, diff: d > 0 ? d : null, needsUpdate: d > 0 };
       }
-      if (!isNew && r.isNewEmployee) {
-        const cfg = getTeamConfig(r.팀명);
-        const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
-        const calcVal = calcGongsu(effInMin, r.rawOutMin, r.isJochul, cfg);
-        const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-        const 가산사유 = needsUpdate ? inferGasanReason(r) : "";
-        return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
-      }
-      return r;
+      const cfg = getTeamConfig(r.팀명);
+      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+      const calcVal = calcGongsuForWorkDate(date, effInMin, r.rawOutMin, r.isJochul, cfg);
+      const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      const 가산사유 = needsUpdate ? inferGasanReason(r) : "";
+      return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     });
 
   const deleteNewEmp = (name: string) => {
@@ -409,7 +448,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const empData = await loadNewEmpForDate(latest);
         const entry = dm[latest];
         if (entry?.rows?.length > 0) {
-          setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData));
+          setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData, latest));
           setFileName(entry.fileName ?? null);
           setRawExcelRows((entry.rawExcelRows ?? []) as RawExcelRow[]);
           toast.info(`저장된 데이터 불러옴 (${latest} / ${entry.fileName})`);
@@ -508,7 +547,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isNewEmployee) {
         const cfg = getTeamConfig(r.팀명);
         const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
-        const calcVal  = calcGongsu(effInMin, r.rawOutMin, r.isJochul, cfg);
+        const calcVal  = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg);
         const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
         return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, diff, needsUpdate };
       }
@@ -526,7 +565,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const cfg       = getTeamConfig(r.팀명);
       const effInMin  = resolveEffInMin(r.rawInMin, newJochul, cfg);
       const effIn     = effInMin !== null ? minToStr(effInMin) : "";
-      const calcVal   = calcGongsu(effInMin, r.rawOutMin, newJochul, cfg);
+      const calcVal   = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, newJochul, cfg);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const isLate    = effInMin !== null && effInMin > cfg.standardStart;
       const 가산사유 = needsUpdate ? (r.가산사유 || inferGasanReason(r)) : "";
@@ -572,6 +611,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           ["팀명", "팀", "성명", "이름", "사번"].includes(String(c).trim())
         )) dataStart = i + 1;
       }
+
+      const detectedSite = detectSite(file.name);
+      const detectedDate = extractDateFromFilename(file.name);
+      const calcWorkDate = detectedDate ?? workDate;
 
       const processed: ProcessedRow[] = [];
       for (let i = dataStart; i < raw.length; i++) {
@@ -626,7 +669,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           diff = d > 0 ? d : null;
           needsUpdate = d > 0;
         } else {
-          calcGongsuVal = calcGongsu(effInMin, rawOutMin, isJochul, cfg);
+          calcGongsuVal = calcGongsuForWorkDate(calcWorkDate, effInMin, rawOutMin, isJochul, cfg);
           ({ diff, needsUpdate } = calcDiff(calcGongsuVal, xerpGongsuA));
         }
 
@@ -662,8 +705,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       setFileName(file.name);
 
       // 자동 사이트/날짜 감지
-      const detectedSite = detectSite(file.name);
-      const detectedDate = extractDateFromFilename(file.name);
       setSyncSite(detectedSite);
       if (detectedDate) { setSyncDate(detectedDate); setWorkDate(detectedDate); }
 
@@ -702,7 +743,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setIsLoadingDate(false);
     if (dm?.[date]) {
       const entry = dm[date];
-      setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData));
+      setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData, date));
       setFileName(entry.fileName ?? null);
       setOriginalBuffer(null);
       setWorkbook(null);
