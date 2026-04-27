@@ -5,6 +5,13 @@ export interface SelectOption {
   value: string;
 }
 
+export type MailRequestMenu = "certificate" | "orgChart" | "extraWork";
+
+export interface MailRequestMenuOption {
+  label: string;
+  value: MailRequestMenu;
+}
+
 export interface CertificateRequestRow {
   no: number;
   name: string;
@@ -15,6 +22,12 @@ export interface CertificateRequestRow {
   note: string;
   found: boolean;
 }
+
+export const MAIL_REQUEST_MENU_OPTIONS: MailRequestMenuOption[] = [
+  { label: "증명서", value: "certificate" },
+  { label: "조직도", value: "orgChart" },
+  { label: "가산공수", value: "extraWork" },
+];
 
 export const CERTIFICATE_OPTIONS: SelectOption[] = [
   { label: "재직증명서", value: "재직증명서" },

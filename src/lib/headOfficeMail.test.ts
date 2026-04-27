@@ -6,6 +6,7 @@ import {
   createMailBody,
   createMailSubject,
   getRequestSitePhrase,
+  MAIL_REQUEST_MENU_OPTIONS,
   resolveCertificateName,
   splitNames,
   SITE_OPTIONS,
@@ -27,6 +28,14 @@ const employees = [
 ];
 
 describe("head office mail helpers", () => {
+  it("defines the head office mail sub menus", () => {
+    expect(MAIL_REQUEST_MENU_OPTIONS).toEqual([
+      { label: "증명서", value: "certificate" },
+      { label: "조직도", value: "orgChart" },
+      { label: "가산공수", value: "extraWork" },
+    ]);
+  });
+
   it("creates the requested mail subject format", () => {
     expect(createMailSubject("재직증명서", "2026-04-27")).toBe(
       "평택 P4 초순수 재직증명서요청의 件_2026.04.27",

@@ -9,11 +9,13 @@ import {
   createCertificateTableText,
   createMailBody,
   createMailSubject,
+  MAIL_REQUEST_MENU_OPTIONS,
   resolveCertificateName,
   SITE_OPTIONS,
   splitNames,
   todayISO,
   type CertificateType,
+  type MailRequestMenu,
 } from "@/lib/headOfficeMail";
 
 type EmployeeSite = "PH4" | "PH2";
@@ -27,6 +29,18 @@ function employeeName(employee: unknown): string {
   if (!employee || typeof employee !== "object") return "";
   const value = (employee as Record<string, unknown>)["이름"];
   return value === null || value === undefined ? "" : String(value).trim();
+}
+
+function PreparingPanel({ title }: { title: string }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+      <Mail className="mx-auto h-8 w-8 text-slate-300" />
+      <h3 className="mt-3 text-base font-extrabold text-slate-900">{title}</h3>
+      <p className="mt-1 text-sm font-semibold text-slate-400">
+        메일 양식이 정해지면 이 메뉴에 자동 작성 도구를 추가할 수 있습니다.
+      </p>
+    </section>
+  );
 }
 
 async function copyRichTable(html: string, text: string) {
@@ -52,6 +66,7 @@ export default function HeadOfficeMailRequest() {
   const [siteName, setSiteName] = useState(SITE_OPTIONS[0].value);
   const [requestDate, setRequestDate] = useState(todayISO());
   const [nameInput, setNameInput] = useState("");
+  const [activeMenu, setActiveMenu] = useState<MailRequestMenu>("certificate");
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +116,7 @@ export default function HeadOfficeMailRequest() {
   );
 
   const employeeCount = employees.filter((employee) => employeeName(employee)).length;
+  const activeMenuLabel = MAIL_REQUEST_MENU_OPTIONS.find((option) => option.value === activeMenu)?.label ?? "증명서";
 
   const handleCopySubject = async () => {
     await navigator.clipboard.writeText(mailSubject);
@@ -148,6 +164,25 @@ export default function HeadOfficeMailRequest() {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-3 gap-1">
+          {MAIL_REQUEST_MENU_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => setActiveMenu(option.value)}
+              className={`h-10 rounded-lg text-sm font-extrabold transition-colors ${
+                activeMenu === option.value
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeMenu === "certificate" ? (
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid grid-cols-2 gap-3">
@@ -336,6 +371,9 @@ export default function HeadOfficeMailRequest() {
           </div>
         </section>
       </div>
+      ) : (
+        <PreparingPanel title={activeMenuLabel} />
+      )}
     </div>
   );
 }
