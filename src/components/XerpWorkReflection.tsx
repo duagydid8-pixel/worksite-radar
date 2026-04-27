@@ -286,6 +286,10 @@ export function shouldShowDownloadActions(rowCount: number): boolean {
   return rowCount > 0;
 }
 
+export function canBuildDownloadWorkbook(hasOriginalBuffer: boolean, rawExcelRowCount: number): boolean {
+  return hasOriginalBuffer || rawExcelRowCount > 0;
+}
+
 export interface XerpAdjustmentState {
   diff: number | null;
   needsUpdate: boolean;
@@ -375,6 +379,14 @@ interface RawExcelRow {
   rowIndex: number;
   cols: string[]; // 0~22 컬럼 전체
 }
+
+const XERP_WORK_DOWNLOAD_HEADERS = [
+  "팀명", "직종", "사번", "성명", "생년월일",
+  "XERP 출근", "XERP 퇴근", "PMIS 출근", "PMIS 퇴근",
+  "조출", "오전", "오후", "연장", "야간", "철야", "점심",
+  "공수합계A", "초과당일", "초과합계", "가산신청", "가산승인",
+  "공수합계AB", "월누계", "작업내용", "비고", "가산사유",
+];
 
 // ── 컴포넌트 ─────────────────────────────────────────
 interface Props { isAdmin: boolean }
@@ -912,20 +924,38 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   };
 
   const handleDownload = async () => {
-    if (!originalBuffer || !fileName) {
-      toast.error("저장된 데이터만 불러온 상태입니다. 원본 엑셀을 다시 업로드하면 다운로드할 수 있습니다.");
+    if (!fileName) return;
+    if (!canBuildDownloadWorkbook(Boolean(originalBuffer), rawExcelRows.length)) {
+      toast.error("다운로드할 원본 행 데이터가 없습니다. 엑셀을 다시 업로드해 주세요.");
       return;
     }
     try {
-      // ExcelJS로 읽어야 테두리·셀병합 등 원본 서식이 완전 보존됨
-      // (XLSX 무료판은 cellStyles 쓰기가 불완전하여 XERP 반영 불가)
       const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(originalBuffer);
+      let rowNumberByOriginalIndex = new Map<number, number>();
+
+      if (originalBuffer) {
+        // ExcelJS로 읽어야 테두리·셀병합 등 원본 서식이 완전 보존됨
+        // (XLSX 무료판은 cellStyles 쓰기가 불완전하여 XERP 반영 불가)
+        await wb.xlsx.load(originalBuffer);
+      } else {
+        const ws = wb.addWorksheet("공수반영");
+        ws.addRow(XERP_WORK_DOWNLOAD_HEADERS);
+        rawExcelRows
+          .slice()
+          .sort((a, b) => a.rowIndex - b.rowIndex)
+          .forEach((rawRow) => {
+            const rowValues = Array.from({ length: XERP_WORK_DOWNLOAD_HEADERS.length }, (_, idx) => rawRow.cols[idx] ?? "");
+            const added = ws.addRow(rowValues);
+            rowNumberByOriginalIndex.set(rawRow.rowIndex, added.number);
+          });
+        toast.info("저장된 행 데이터로 기본 서식 파일을 생성합니다.");
+      }
+
       const ws = wb.worksheets[0];
       if (!ws) { toast.error("시트를 찾을 수 없습니다."); return; }
 
       // 헤더 행 Z열에 "가산사유" 삽입
-      const firstDataRowIndex = rows.length > 0 ? Math.min(...rows.map((r) => r.rowIndex)) : -1;
+      const firstDataRowIndex = originalBuffer && rows.length > 0 ? Math.min(...rows.map((r) => r.rowIndex)) : -1;
       if (firstDataRowIndex > 0) {
         ws.getCell(firstDataRowIndex, 26).value = "가산사유";
       }
@@ -944,7 +974,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           }
         }
 
-        const excelRow = row.rowIndex + 1; // 0-based → 1-based
+        const excelRow = rowNumberByOriginalIndex.get(row.rowIndex) ?? row.rowIndex + 1; // 0-based → 1-based for original files
 
         // T열 (col 20, 0-based 19): 가산공수(B) 신청
         ws.getCell(excelRow, 20).value = effectiveDiff;
@@ -1381,10 +1411,16 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               <>
                 <button
                   onClick={handleDownload}
-                  aria-disabled={!originalBuffer || !fileName}
-                  title={!originalBuffer || !fileName ? "원본 엑셀을 다시 업로드하면 다운로드할 수 있습니다" : "수정 파일 다운로드"}
+                  aria-disabled={!canBuildDownloadWorkbook(Boolean(originalBuffer), rawExcelRows.length)}
+                  title={
+                    originalBuffer
+                      ? "원본 서식으로 수정 파일 다운로드"
+                      : canBuildDownloadWorkbook(false, rawExcelRows.length)
+                        ? "저장된 행 데이터로 기본 서식 다운로드"
+                        : "다운로드할 원본 행 데이터가 없습니다"
+                  }
                   className={`ml-auto flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold transition-colors ${
-                    originalBuffer && fileName
+                    canBuildDownloadWorkbook(Boolean(originalBuffer), rawExcelRows.length)
                       ? "text-foreground hover:bg-muted/50"
                       : "text-muted-foreground bg-muted/30"
                   }`}

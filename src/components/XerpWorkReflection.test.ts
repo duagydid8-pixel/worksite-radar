@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calcGongsuForWorkDate,
   getSpecialListLabels,
+  canBuildDownloadWorkbook,
   isWeekendWorkDate,
   resolveLoadedAdjustment,
   shouldShowDownloadActions,
@@ -111,6 +112,12 @@ describe("XERP work reflection download actions", () => {
 
   it("hides download actions when no rows are loaded", () => {
     expect(shouldShowDownloadActions(0)).toBe(false);
+  });
+
+  it("can build a download from either the original file buffer or saved raw rows", () => {
+    expect(canBuildDownloadWorkbook(true, 0)).toBe(true);
+    expect(canBuildDownloadWorkbook(false, 1)).toBe(true);
+    expect(canBuildDownloadWorkbook(false, 0)).toBe(false);
   });
 });
 
