@@ -13,6 +13,29 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+function useCountUp(target: number, delayMs: number = 0): number {
+  const [value, setValue] = useState(0);
+  const done = useRef(false);
+
+  useEffect(() => {
+    if (done.current || target === 0) return;
+    done.current = true;
+    const timer = setTimeout(() => {
+      const steps = 30;
+      const stepMs = 600 / steps;
+      let step = 0;
+      const id = setInterval(() => {
+        step++;
+        setValue(step >= steps ? target : Math.round((target / steps) * step));
+        if (step >= steps) clearInterval(id);
+      }, stepMs);
+    }, delayMs);
+    return () => clearTimeout(timer);
+  }, [target, delayMs]);
+
+  return value;
+}
+
 interface ScheduleData {
   weekStart: string;
   zones: string[];
@@ -540,11 +563,16 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
     );
   }, [leaveDetails, selectedDate]);
 
+  const countTotal   = useCountUp(xerpLoaded ? stats.total   : 0, 330);
+  const countPresent = useCountUp(xerpLoaded ? stats.present : 0, 450);
+  const countAbsent  = useCountUp(xerpLoaded ? stats.absent  : 0, 570);
+  const countDec     = useCountUp(xerpLoaded ? (decreased ?? 0) : 0, 690);
+
   const KPI = [
-    { label:"총 기술인", value: stats.total,   sub:"공수반영 최근 기준",    icon:<HardHat className="h-5 w-5" />,       color:"text-slate-900",   iconBg:"bg-slate-100",   showDash: false },
-    { label:"정상 출근", value: stats.present,  sub:"출근 기록 있음",       icon:<CheckCircle2 className="h-5 w-5" />,  color:"text-emerald-600", iconBg:"bg-emerald-50",  showDash: false },
-    { label:"결근",      value: stats.absent,   sub:"출근 기록 없음",       icon:<XCircle className="h-5 w-5" />,       color:"text-rose-500",    iconBg:"bg-rose-50",     showDash: false },
-    { label:"감소인원",  value: decreased ?? 0, sub:"전일 대비 인원 감소",  icon:<TrendingDown className="h-5 w-5" />,  color:"text-amber-600",   iconBg:"bg-amber-50",    showDash: decreased === null },
+    { label:"총 기술인", value: countTotal,   sub:"공수반영 최근 기준",   icon:<HardHat className="h-5 w-5" />,      color:"text-slate-900",   iconBg:"bg-slate-100",   showDash: false },
+    { label:"정상 출근", value: countPresent,  sub:"출근 기록 있음",      icon:<CheckCircle2 className="h-5 w-5" />, color:"text-emerald-600", iconBg:"bg-emerald-50",  showDash: false },
+    { label:"결근",      value: countAbsent,   sub:"출근 기록 없음",      icon:<XCircle className="h-5 w-5" />,      color:"text-rose-500",    iconBg:"bg-rose-50",     showDash: false },
+    { label:"감소인원",  value: countDec,      sub:"전일 대비 인원 감소", icon:<TrendingDown className="h-5 w-5" />, color:"text-amber-600",   iconBg:"bg-amber-50",    showDash: decreased === null },
   ];
 
   return (
