@@ -9,10 +9,11 @@ import XerpWorkReflection from "@/components/XerpWorkReflection";
 import { WeeklySchedule } from "@/components/WeeklySchedule";
 import PdfSplitter from "@/components/tabs/PdfSplitter";
 import ExpenseReportTab from "@/components/ExpenseReport";
+import HeadOfficeMailRequest from "@/components/HeadOfficeMailRequest";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, CalendarDays, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -68,7 +69,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "홈" | "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서";
+type ActiveTab = "홈" | "신규자명단" | "근태보고" | "연차관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부";
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -100,6 +101,7 @@ const NAV_ADMIN: NavItem[] = [
   { key: "주간일정", label: "주간일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
   { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
+  { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: true },
   { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: true },
   { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: true },
 ];
@@ -685,6 +687,13 @@ const Index = () => {
           {activeTab === "XERP공수반영" && (
             <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
               <XerpWorkReflection isAdmin={isAdmin} />
+            </div>
+          )}
+
+          {/* 본사 메일송부 */}
+          {activeTab === "본사메일송부" && isAdmin && (
+            <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+              <HeadOfficeMailRequest />
             </div>
           )}
 
