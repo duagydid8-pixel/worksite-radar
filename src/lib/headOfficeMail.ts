@@ -75,6 +75,29 @@ export function createMailSubject(certificateName: string, requestDate: string):
   return `평택 P4 초순수 ${name}요청의 件_${formatDateDots(requestDate)}`;
 }
 
+export function getRequestSitePhrase(siteName: string): string {
+  const matched = SITE_OPTIONS.find((option) => option.value === siteName);
+  if (matched) return `평택 ${matched.label} 초순수 현장`;
+
+  const bracketValue = siteName.match(/\[삼성전자\s*(.+)\]/);
+  if (bracketValue?.[1]) return bracketValue[1].trim();
+
+  return siteName.trim();
+}
+
+export function createMailBody(certificateName: string, siteName: string): string {
+  const name = certificateName.trim() || "증명서";
+  const sitePhrase = getRequestSitePhrase(siteName);
+
+  return [
+    "안녕하세요. 사업1본부 초순수파트 염효양 사원입니다.",
+    "",
+    "업무에 노고가 많으십니다.",
+    "",
+    `${sitePhrase} ${name} 요청드립니다.`,
+  ].join("\n");
+}
+
 export function buildCertificateRows(
   names: string[],
   employees: unknown[],

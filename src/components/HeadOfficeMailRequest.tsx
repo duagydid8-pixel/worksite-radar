@@ -7,6 +7,7 @@ import {
   CERTIFICATE_OPTIONS,
   createCertificateTableHtml,
   createCertificateTableText,
+  createMailBody,
   createMailSubject,
   resolveCertificateName,
   SITE_OPTIONS,
@@ -84,6 +85,11 @@ export default function HeadOfficeMailRequest() {
     [certificateName, requestDate],
   );
 
+  const mailBody = useMemo(
+    () => createMailBody(certificateName, siteName),
+    [certificateName, siteName],
+  );
+
   const tableText = useMemo(
     () => createCertificateTableText(certificateName, rows),
     [certificateName, rows],
@@ -99,6 +105,11 @@ export default function HeadOfficeMailRequest() {
   const handleCopySubject = async () => {
     await navigator.clipboard.writeText(mailSubject);
     toast.success("메일 제목을 복사했습니다.");
+  };
+
+  const handleCopyBody = async () => {
+    await navigator.clipboard.writeText(mailBody);
+    toast.success("메일 본문을 복사했습니다.");
   };
 
   const handleCopyTable = async () => {
@@ -214,13 +225,20 @@ export default function HeadOfficeMailRequest() {
             <p className="mt-1 text-xs font-semibold text-slate-400">줄바꿈, 쉼표, 띄어쓰기로 여러 명을 입력할 수 있습니다.</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-1">
+          <div className="grid grid-cols-3 gap-2 pt-1">
             <button
               onClick={handleCopySubject}
               className="flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-800 transition-colors hover:bg-slate-50"
             >
               <Clipboard className="h-4 w-4 text-slate-400" />
               제목 복사
+            </button>
+            <button
+              onClick={handleCopyBody}
+              className="flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-800 transition-colors hover:bg-slate-50"
+            >
+              <Clipboard className="h-4 w-4 text-slate-400" />
+              본문 복사
             </button>
             <button
               onClick={handleCopyTable}
@@ -258,6 +276,13 @@ export default function HeadOfficeMailRequest() {
             <p className="mb-1 text-xs font-bold text-slate-500">메일 제목</p>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-extrabold text-slate-950">
               {mailSubject}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-bold text-slate-500">메일 본문</p>
+            <div className="whitespace-pre-line rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold leading-7 text-slate-900">
+              {mailBody}
             </div>
           </div>
 

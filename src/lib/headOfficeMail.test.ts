@@ -3,7 +3,9 @@ import {
   buildCertificateRows,
   createCertificateTableHtml,
   createCertificateTableText,
+  createMailBody,
   createMailSubject,
+  getRequestSitePhrase,
   resolveCertificateName,
   splitNames,
   SITE_OPTIONS,
@@ -29,6 +31,22 @@ describe("head office mail helpers", () => {
     expect(createMailSubject("재직증명서", "2026-04-27")).toBe(
       "평택 P4 초순수 재직증명서요청의 件_2026.04.27",
     );
+  });
+
+  it("creates the request body using selected site and certificate", () => {
+    expect(createMailBody("재직증명서", SITE_OPTIONS[0].value)).toBe(
+      [
+        "안녕하세요. 사업1본부 초순수파트 염효양 사원입니다.",
+        "",
+        "업무에 노고가 많으십니다.",
+        "",
+        "평택 P4-PH4 초순수 현장 재직증명서 요청드립니다.",
+      ].join("\n"),
+    );
+  });
+
+  it("converts selected site value into body site phrase", () => {
+    expect(getRequestSitePhrase(SITE_OPTIONS[2].value)).toBe("평택 P5-PH1 초순수 현장");
   });
 
   it("uses custom certificate name when 기타 is selected", () => {
