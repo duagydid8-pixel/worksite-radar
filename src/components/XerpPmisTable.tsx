@@ -293,7 +293,7 @@ function detectConsecutiveAbsences(dateMap: DateMap): XerpPmisRow[] {
       const rec = emp.사번
         ? rows?.find((r) => r.사번 === emp.사번)
         : rows?.find((r) => r.성명 === emp.성명);
-      const hasCheckIn = rec && (rec.xerp출근 || rec.pmis출근);
+      const hasCheckIn = hasAttendanceMarker(rec);
 
       if (!hasCheckIn) {
         consecutive++;
@@ -314,6 +314,14 @@ function isLateTime(timeStr: string): boolean {
   if (!m) return false;
   const h = parseInt(m[1]), min = parseInt(m[2]);
   return h > 7 || (h === 7 && min > 10);
+}
+
+function hasAttendanceMarker(row: XerpPmisRow | null | undefined): boolean {
+  if (!row) return false;
+  return [row.xerp출근, row.xerp퇴근, row.pmis출근, row.pmis퇴근].some((value) => {
+    if (value === null || value === undefined) return false;
+    return String(value).trim() !== "";
+  });
 }
 
 // ── 직원별 월별 통계 ──────────────────────────────────
@@ -341,7 +349,7 @@ function calcMonthlyStats(dateMap: DateMap): EmpMonthlyStat[] {
       const stat = empMap.get(key)!;
       if (date < stat.firstDate) stat.firstDate = date;
       const inTime = row.xerp출근 || row.pmis출근;
-      if (inTime) {
+      if (hasAttendanceMarker(row)) {
         stat.출역일수++;
         stat.workedDates.add(date);
         if (isLateTime(inTime)) stat.지각횟수++;

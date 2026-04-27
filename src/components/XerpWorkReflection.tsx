@@ -31,6 +31,13 @@ function parseMin(val: unknown): number | null {
   return null;
 }
 
+function hasClockCellValue(...values: unknown[]): boolean {
+  return values.some((value) => {
+    if (value === null || value === undefined) return false;
+    return String(value).trim() !== "";
+  });
+}
+
 function minToStr(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
@@ -600,7 +607,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const effIn         = effInMin !== null ? minToStr(effInMin) : "";
         const isWaeju       = isWaejuTeam(팀명);
         const isNewEmployee = !isWaeju && newEmpData.has(성명);
-        const isNoRecord    = rawInMin === null || rawOutMin === null;
+        const hasClockValue = hasClockCellValue(xerpInRaw, xerpOutRaw, pmisInRaw, pmisOutRaw, xerpInStr, xerpOutStr, pmisInStr, pmisOutStr);
+        const isNoRecord    = !hasClockValue && rawInMin === null && rawOutMin === null;
         const isLate        = !isWaeju && !isNoRecord && effInMin !== null && effInMin > cfg.standardStart;
 
         let calcGongsuVal: number | null;
