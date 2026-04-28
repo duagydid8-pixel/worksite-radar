@@ -109,8 +109,10 @@ export default function PayrollPage() {
       ]);
 
       const annualLeaveMap = attendanceResult?.data?.annualLeaveMap ?? {};
+      const leaveDetails = attendanceResult?.data?.leaveDetails ?? [];
+      const employees = attendanceResult?.data?.employees ?? [];
 
-      const result = processPayroll(buffer, annualLeaveMap, scheduleData);
+      const result = await processPayroll(buffer, annualLeaveMap, leaveDetails, employees, scheduleData);
 
       setCorrections(result.corrections);
       setOutputBuffer(result.outputBuffer);

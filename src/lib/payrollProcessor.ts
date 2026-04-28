@@ -1,18 +1,17 @@
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import { isKoreanHoliday } from "./koreanHolidays";
 import type { ScheduleData } from "./geminiService";
+import type { LeaveDetail, Employee } from "./parseExcel";
 
-// 월급제 직종 판별
 export function isMonthlyWorker(jobTitle: string): boolean {
   return jobTitle.includes("관리자") || jobTitle === "차량운행";
 }
 
-// YYYY-MM-DD 형식 날짜 문자열 생성
 function toDateStr(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-// 해당 날짜가 현장휴무인지 (ScheduleData의 schedule에서 모든 zone이 "현장휴무"이거나 "현장휴무" 포함)
 function isSiteClosure(dateStr: string, schedule: ScheduleData | null): boolean {
   if (!schedule) return false;
   const daySchedule = schedule.schedule[dateStr];
@@ -22,32 +21,174 @@ function isSiteClosure(dateStr: string, schedule: ScheduleData | null): boolean 
   return zones.every((v) => v === "현장휴무" || v === "");
 }
 
-// 열 인덱스(0-based) → 셀 주소 헬퍼
-function cellAddr(row0: number, col0: number): string {
-  return XLSX.utils.encode_cell({ r: row0, c: col0 });
-}
-
-// 시트에서 특정 행/열의 텍스트 값 읽기
 function getCellText(ws: XLSX.WorkSheet, row0: number, col0: number): string {
-  const cell = ws[cellAddr(row0, col0)];
+  const cell = ws[XLSX.utils.encode_cell({ r: row0, c: col0 })];
   if (!cell) return "";
   return String(cell.v ?? "").trim();
 }
 
-// 시트에서 특정 행/열의 숫자 값 읽기
 function getCellNumber(ws: XLSX.WorkSheet, row0: number, col0: number): number {
-  const cell = ws[cellAddr(row0, col0)];
+  const cell = ws[XLSX.utils.encode_cell({ r: row0, c: col0 })];
   if (!cell) return 0;
   const v = parseFloat(String(cell.v ?? "0").replace(/,/g, ""));
   return isNaN(v) ? 0 : v;
 }
 
-// 시트에서 값 셀(수식 없는 셀)만 수정
-function setValueCell(ws: XLSX.WorkSheet, row0: number, col0: number, value: number): void {
-  const addr = cellAddr(row0, col0);
-  const cell = ws[addr];
-  if (cell?.f) return; // 수식 셀은 건드리지 않음
-  ws[addr] = { t: "n", v: value };
+interface SheetLayout {
+  headerRow: number;
+  dayRow: number;
+  dataStartRow: number;
+  colJobTitle: number;
+  colName: number;
+  colDayStart: number;
+}
+
+function detectLayout(ws: XLSX.WorkSheet): SheetLayout | null {
+  const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+  for (let r = 0; r <= Math.min(range.e.r, 15); r++) {
+    for (let c = 0; c <= Math.min(range.e.c, 20); c++) {
+      if (getCellText(ws, r, c) === "직종") {
+        const colJobTitle = c;
+        const colName = c + 1;
+        for (let dr = 1; dr <= 5; dr++) {
+          const dayRow = r + dr;
+          for (let dc = 0; dc <= range.e.c; dc++) {
+            if (
+              getCellText(ws, dayRow, dc) === "1" &&
+              getCellText(ws, dayRow, dc + 1) === "2" &&
+              getCellText(ws, dayRow, dc + 2) === "3"
+            ) {
+              return { headerRow: r, dayRow, dataStartRow: dayRow + 1, colJobTitle, colName, colDayStart: dc };
+            }
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function detectYearMonth(ws: XLSX.WorkSheet): { year: number; month: number } {
+  const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+  for (let r = 0; r <= Math.min(range.e.r, 10); r++) {
+    for (let c = 0; c <= Math.min(range.e.c, 30); c++) {
+      const text = getCellText(ws, r, c);
+      const m = text.match(/(\d{4})년\s*(\d{1,2})월/);
+      if (m) return { year: parseInt(m[1]), month: parseInt(m[2]) };
+    }
+  }
+  return { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+}
+
+// 연차 조회 맵: 정규화된 이름 → Set<"YYYY|M|D">
+function buildLeaveLookup(
+  annualLeaveMap: Record<string, Record<string, boolean>>,
+  leaveDetails: LeaveDetail[]
+): Record<string, Set<string>> {
+  const lookup: Record<string, Set<string>> = {};
+
+  for (const [name, dates] of Object.entries(annualLeaveMap)) {
+    const key = name.trim();
+    if (!lookup[key]) lookup[key] = new Set();
+    for (const dateKey of Object.keys(dates)) lookup[key].add(dateKey);
+  }
+
+  for (const d of leaveDetails) {
+    const key = d.name.trim();
+    if (!lookup[key]) lookup[key] = new Set();
+    lookup[key].add(`${d.year}|${d.month}|${d.day}`);
+  }
+
+  return lookup;
+}
+
+// 결근 맵: 정규화된 이름 → Set<"YYYY|M|D">
+function buildAbsenceMap(employees: Employee[]): Record<string, Set<string>> {
+  const map: Record<string, Set<string>> = {};
+  for (const emp of employees) {
+    for (const [dateKey, rec] of Object.entries(emp.dailyRecords)) {
+      if (rec.status !== "결근") continue;
+      const norm = emp.name.trim();
+      if (!map[norm]) map[norm] = new Set();
+      // dateKey: "YYYY-M-D" → "YYYY|M|D"
+      const parts = dateKey.split("-");
+      if (parts.length === 3) {
+        map[norm].add(`${parts[0]}|${parseInt(parts[1])}|${parseInt(parts[2])}`);
+      }
+    }
+  }
+  return map;
+}
+
+// ── JSZip 기반 원본 XML 패치 (서식·조건부서식·테두리·셀병합 100% 보존) ──
+
+async function getSheetXmlPaths(zip: JSZip): Promise<Map<string, string>> {
+  const wbXml = (await zip.file("xl/workbook.xml")?.async("string")) ?? "";
+  const relsXml = (await zip.file("xl/_rels/workbook.xml.rels")?.async("string")) ?? "";
+
+  const nameToRid = new Map<string, string>();
+  const ridToPath = new Map<string, string>();
+
+  // sheet name → rId (두 가지 attribute 순서 모두 처리)
+  for (const m of wbXml.matchAll(/<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="([^"]*)"/g)) {
+    nameToRid.set(m[1], m[2]);
+  }
+  for (const m of wbXml.matchAll(/<sheet\b[^>]*\br:id="([^"]*)"[^>]*\bname="([^"]*)"/g)) {
+    nameToRid.set(m[2], m[1]);
+  }
+
+  // rId → 파일 경로
+  for (const m of relsXml.matchAll(/<Relationship\b[^>]*\bId="([^"]*)"[^>]*\bTarget="([^"]*)"/g)) {
+    const target = m[2];
+    let fullPath: string;
+    if (target.startsWith("/")) {
+      fullPath = target.slice(1);
+    } else {
+      fullPath = "xl/" + target;
+    }
+    ridToPath.set(m[1], fullPath);
+  }
+
+  const result = new Map<string, string>();
+  for (const [name, rid] of nameToRid) {
+    const path = ridToPath.get(rid);
+    if (path) result.set(name, path);
+  }
+  return result;
+}
+
+function modifySheetXml(xml: string, cellChanges: Map<string, number>): string {
+  for (const [addr, newValue] of cellChanges) {
+    const attrStr = `r="${addr}"`;
+    const rPos = xml.indexOf(attrStr);
+    if (rPos === -1) continue;
+
+    // <c 태그 시작점 찾기
+    const cOpen = xml.lastIndexOf("<c ", rPos);
+    if (cOpen === -1) continue;
+
+    // </c> 닫힘 찾기
+    const cClose = xml.indexOf("</c>", rPos);
+    if (cClose === -1) continue;
+
+    const cellBlock = xml.substring(cOpen, cClose + 4);
+
+    // 수식 셀은 건드리지 않음
+    if (cellBlock.includes("<f>") || cellBlock.includes("<f ") || cellBlock.includes("<f\n") || cellBlock.includes("<f\t")) {
+      continue;
+    }
+
+    let newBlock: string;
+    if (cellBlock.includes("<v>")) {
+      newBlock = cellBlock.replace(/<v>[^<]*<\/v>/, `<v>${newValue}</v>`);
+    } else {
+      // <v> 없는 경우 (빈 셀) → 삽입
+      newBlock = cellBlock.slice(0, -4) + `<v>${newValue}</v></c>`;
+    }
+
+    xml = xml.substring(0, cOpen) + newBlock + xml.substring(cClose + 4);
+  }
+  return xml;
 }
 
 export interface PayrollCorrection {
@@ -66,81 +207,31 @@ export interface PayrollResult {
   month: number;
 }
 
-// 헤더 행 구조를 동적으로 탐지
-interface SheetLayout {
-  headerRow: number;   // 직종/성명이 있는 행 (0-based)
-  dayRow: number;      // 1~31 날짜 번호가 있는 행 (0-based)
-  dataStartRow: number;
-  colJobTitle: number;
-  colName: number;
-  colDayStart: number; // day 1의 열 (0-based)
-}
-
-function detectLayout(ws: XLSX.WorkSheet): SheetLayout | null {
-  const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
-  // 헤더 행 탐색: "직종"이 있는 행 찾기
-  for (let r = 0; r <= Math.min(range.e.r, 15); r++) {
-    for (let c = 0; c <= Math.min(range.e.c, 20); c++) {
-      if (getCellText(ws, r, c) === "직종") {
-        const colJobTitle = c;
-        const colName = c + 1;
-        // 바로 다음 행에서 "1" 찾기 (날짜 행)
-        for (let dr = 1; dr <= 5; dr++) {
-          const dayRow = r + dr;
-          for (let dc = 0; dc <= range.e.c; dc++) {
-            if (getCellText(ws, dayRow, dc) === "1") {
-              // 연속으로 2, 3 확인
-              if (getCellText(ws, dayRow, dc + 1) === "2" && getCellText(ws, dayRow, dc + 2) === "3") {
-                return {
-                  headerRow: r,
-                  dayRow,
-                  dataStartRow: dayRow + 1,
-                  colJobTitle,
-                  colName,
-                  colDayStart: dc,
-                };
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-// 연/월 탐지 (헤더 셀에서 "2026년 04월" 형태 파싱)
-function detectYearMonth(ws: XLSX.WorkSheet): { year: number; month: number } {
-  const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
-  for (let r = 0; r <= Math.min(range.e.r, 10); r++) {
-    for (let c = 0; c <= Math.min(range.e.c, 30); c++) {
-      const text = getCellText(ws, r, c);
-      const m = text.match(/(\d{4})년\s*(\d{1,2})월/);
-      if (m) return { year: parseInt(m[1]), month: parseInt(m[2]) };
-    }
-  }
-  return { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
-}
-
-export function processPayroll(
+export async function processPayroll(
   buffer: ArrayBuffer,
   annualLeaveMap: Record<string, Record<string, boolean>>,
-  schedule: ScheduleData | null,
-): PayrollResult {
-  const wb = XLSX.read(buffer, { type: "array", cellFormula: true, bookVBA: true });
+  leaveDetails: LeaveDetail[],
+  employees: Employee[],
+  schedule: ScheduleData | null
+): Promise<PayrollResult> {
+  const wb = XLSX.read(buffer, { type: "array", cellFormula: true });
+
+  const leaveLookup = buildLeaveLookup(annualLeaveMap, leaveDetails);
+  const absenceMap = buildAbsenceMap(employees);
 
   const corrections: PayrollCorrection[] = [];
   let year = 0;
   let month = 0;
 
+  // sheetName → (A1주소 → 새 값)
+  const allCellChanges = new Map<string, Map<string, number>>();
+
   for (const sheetName of wb.SheetNames) {
-    // 비교 시트 등 건너뜀
     if (sheetName.startsWith("★") || sheetName.startsWith("비교")) continue;
 
     const ws = wb.Sheets[sheetName];
     if (!ws) continue;
 
-    // 연/월 탐지 (첫 번째 시트에서만)
     if (!year) {
       const ym = detectYearMonth(ws);
       year = ym.year;
@@ -151,128 +242,149 @@ export function processPayroll(
     if (!layout) continue;
 
     const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
-
-    // 해당 달의 일별 요일 정보 (1~31)
     const daysInMonth = new Date(year, month, 0).getDate();
 
-    // 토요일에 다른 직원이 근무했는지 확인하기 위해 먼저 열별 합계 계산
-    // colDayStart + (day-1) = day N의 열
-    const saturdayHasWorkers = new Set<number>(); // 근무 흔적 있는 토요일 day번호
+    // 토요일 근무 여부 (해당 열에 0이 아닌 값이 하나라도 있으면 근무일)
+    const saturdayHasWorkers = new Set<number>();
     for (let day = 1; day <= daysInMonth; day++) {
-      const dow = new Date(year, month - 1, day).getDay();
-      if (dow !== 6) continue;
+      if (new Date(year, month - 1, day).getDay() !== 6) continue;
       const col = layout.colDayStart + (day - 1);
-      let anyWork = false;
       for (let r = layout.dataStartRow; r <= range.e.r; r++) {
-        const v = getCellNumber(ws, r, col);
-        if (v > 0) { anyWork = true; break; }
+        if (getCellNumber(ws, r, col) > 0) { saturdayHasWorkers.add(day); break; }
       }
-      if (anyWork) saturdayHasWorkers.add(day);
     }
 
-    // 각 데이터 행 처리
+    const sheetCellChanges = new Map<string, number>();
+
     for (let r = layout.dataStartRow; r <= range.e.r; r++) {
       const jobTitle = getCellText(ws, r, layout.colJobTitle);
       const name = getCellText(ws, r, layout.colName);
       if (!jobTitle || !name) continue;
       if (!isMonthlyWorker(jobTitle)) continue;
 
-      // 현재 일별 공수 읽기
+      const normName = name.trim();
+
       const dayValues: number[] = [];
       for (let day = 1; day <= 31; day++) {
-        const col = layout.colDayStart + (day - 1);
-        dayValues.push(day <= daysInMonth ? getCellNumber(ws, r, col) : 0);
+        dayValues.push(day <= daysInMonth ? getCellNumber(ws, r, layout.colDayStart + (day - 1)) : 0);
       }
 
       const changes: { day: number; before: number; after: number; reason: string }[] = [];
       const newValues = [...dayValues];
 
-      // === 1단계: 연차 날짜 0 → 1 ===
-      // annualLeaveMap key: "YYYY|M|D"
+      // ── Step 1: 연차 날짜 0 → 1 ──────────────────────────────
       for (let day = 1; day <= daysInMonth; day++) {
         if (newValues[day - 1] !== 0) continue;
+
         const leaveKey = `${year}|${month}|${day}`;
-        if (!annualLeaveMap[name]?.[leaveKey]) continue;
+        if (!leaveLookup[normName]?.has(leaveKey)) continue;
 
         const dow = new Date(year, month - 1, day).getDay();
         const dateStr = toDateStr(year, month, day);
-        if (dow === 0) continue; // 일요일 제외
-        if (isKoreanHoliday(year, month, day)) continue;
-        if (isSiteClosure(dateStr, schedule)) continue;
-        if (dow === 6 && !saturdayHasWorkers.has(day)) continue;
 
-        const maxVal = dow === 6 ? 1 : 1;
-        newValues[day - 1] = maxVal;
-        changes.push({ day, before: 0, after: maxVal, reason: "연차" });
+        if (dow === 0) continue;                                     // 일요일
+        if (isKoreanHoliday(year, month, day)) continue;            // 공휴일
+        if (isSiteClosure(dateStr, schedule)) continue;              // 현장휴무
+        if (dow === 6 && !saturdayHasWorkers.has(day)) continue;    // 근무 흔적 없는 토요일
+        if (absenceMap[normName]?.has(leaveKey)) continue;          // 결근/미타각
+
+        const after = 1;
+        newValues[day - 1] = after;
+        changes.push({ day, before: 0, after, reason: "연차" });
       }
 
-      // === 2단계: 총공수가 25 미만이면 평일/토요일 값 올리기 ===
+      // ── Step 2: 총공수 < 25이면 기존 근무일 값 올리기 ────────
+      // 주의: 0인 날(결근·미타각)은 건드리지 않음 — 값이 있는 날만 올림
       let total = newValues.reduce((s, v) => s + v, 0);
 
       if (total < 25) {
-        // 조정 가능한 날짜 목록 (day, maxVal) — 낮은 현재값 우선 정렬
         const adjustable: { day: number; maxVal: number; cur: number }[] = [];
+
         for (let day = 1; day <= daysInMonth; day++) {
+          const cur = newValues[day - 1];
+          if (cur <= 0) continue; // 0인 날은 건드리지 않음
+
           const dow = new Date(year, month - 1, day).getDay();
           const dateStr = toDateStr(year, month, day);
+
           if (dow === 0) continue;
           if (isKoreanHoliday(year, month, day)) continue;
           if (isSiteClosure(dateStr, schedule)) continue;
+
+          let maxVal: number;
           if (dow === 6) {
             if (!saturdayHasWorkers.has(day)) continue;
-            if (newValues[day - 1] >= 1) continue;
-            adjustable.push({ day, maxVal: 1, cur: newValues[day - 1] });
+            maxVal = 1;
           } else {
-            if (newValues[day - 1] >= 2) continue;
-            adjustable.push({ day, maxVal: 2, cur: newValues[day - 1] });
+            maxVal = 2;
           }
+
+          if (cur >= maxVal) continue;
+          adjustable.push({ day, maxVal, cur });
         }
 
-        // 낮은 값부터 올리기
+        // 현재 값이 낮은 날부터 올림
         adjustable.sort((a, b) => a.cur - b.cur);
 
         for (const { day, maxVal, cur } of adjustable) {
           if (total >= 25) break;
-          const needed = Math.min(25 - total, maxVal - cur);
-          if (needed <= 0) continue;
-          const before = newValues[day - 1];
-          // 0.5 단위 올림 (1, 1.5, 2)
-          const steps = [0.5, 1, 1.5, 2];
-          let after = before;
+          const needed = 25 - total;
+
+          // 0.5 단위 증분 중 필요량 이내에서 최대로 올림
+          const steps = [0.5, 1, 1.5, 2].filter((s) => s > cur && s <= maxVal);
+          let after = cur;
           for (const s of steps) {
-            if (s > before && s <= maxVal && s - before <= needed + 0.01) {
-              after = s;
-            }
+            if (s - cur <= needed + 0.001) after = s;
+            else break;
           }
-          if (after === before) {
-            after = Math.min(before + needed, maxVal);
-          }
-          const diff = after - before;
-          if (diff <= 0) continue;
+          if (after <= cur) continue;
+
           newValues[day - 1] = after;
-          total += diff;
-          changes.push({ day, before, after, reason: "총공수 보정" });
+          total += after - cur;
+          changes.push({ day, before: cur, after, reason: "총공수 보정" });
         }
       }
 
-      // 실제 셀 수정
+      // 변경된 셀 기록
       for (const { day, after } of changes) {
-        setValueCell(ws, r, layout.colDayStart + (day - 1), after);
+        const addr = XLSX.utils.encode_cell({ r, c: layout.colDayStart + (day - 1) });
+        sheetCellChanges.set(addr, after);
       }
 
       if (changes.length > 0) {
-        const totalBefore = dayValues.reduce((s, v) => s + v, 0);
-        const totalAfter = newValues.reduce((s, v) => s + v, 0);
-        corrections.push({ name, jobTitle, sheetName, changes, totalBefore, totalAfter });
+        corrections.push({
+          name,
+          jobTitle,
+          sheetName,
+          changes,
+          totalBefore: dayValues.reduce((s, v) => s + v, 0),
+          totalAfter: newValues.reduce((s, v) => s + v, 0),
+        });
       }
     }
+
+    if (sheetCellChanges.size > 0) allCellChanges.set(sheetName, sheetCellChanges);
   }
 
-  const outputBuffer = XLSX.write(wb, {
-    type: "array",
-    bookType: "xlsx",
-    cellFormula: true,
-  }) as ArrayBuffer;
+  // ── JSZip으로 원본 XML 직접 패치 ────────────────────────────
+  const zip = await JSZip.loadAsync(buffer);
+  const sheetPaths = await getSheetXmlPaths(zip);
+
+  for (const [sheetName, cellChanges] of allCellChanges) {
+    const xmlPath = sheetPaths.get(sheetName);
+    if (!xmlPath) continue;
+
+    const xmlContent = await zip.file(xmlPath)?.async("string");
+    if (!xmlContent) continue;
+
+    zip.file(xmlPath, modifySheetXml(xmlContent, cellChanges));
+  }
+
+  const outputBuffer = await zip.generateAsync({
+    type: "arraybuffer",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
 
   return { corrections, outputBuffer, year, month };
 }
