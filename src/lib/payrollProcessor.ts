@@ -159,11 +159,63 @@ async function getSheetXmlPaths(zip: JSZip): Promise<Map<string, string>> {
   return result;
 }
 
+function makeNumericCellXml(addr: string, newValue: number, rowBlock: string): string {
+  const target = XLSX.utils.decode_cell(addr);
+  let nearestStyle = "";
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const m of rowBlock.matchAll(/<c\b[^>]*\br="([A-Z]+\d+)"[^>]*>/g)) {
+    const cellAddr = m[1];
+    const cell = XLSX.utils.decode_cell(cellAddr);
+    const distance = Math.abs(cell.c - target.c);
+    if (distance >= nearestDistance) continue;
+    const style = m[0].match(/\bs="([^"]*)"/)?.[1];
+    if (!style) continue;
+    nearestStyle = ` s="${style}"`;
+    nearestDistance = distance;
+  }
+
+  return `<c r="${addr}"${nearestStyle}><v>${newValue}</v></c>`;
+}
+
+function insertMissingCell(xml: string, addr: string, newValue: number): string {
+  const rowNum = addr.match(/\d+$/)?.[0];
+  if (!rowNum) return xml;
+
+  const rowOpenRe = new RegExp(`<row\\b[^>]*\\br="${rowNum}"[^>]*>`);
+  const rowMatch = rowOpenRe.exec(xml);
+  if (!rowMatch) return xml;
+
+  const rowStart = rowMatch.index;
+  const rowOpenEnd = rowStart + rowMatch[0].length;
+  const rowClose = xml.indexOf("</row>", rowOpenEnd);
+  if (rowClose === -1) return xml;
+
+  const rowBlock = xml.substring(rowStart, rowClose + 6);
+  const targetCol = XLSX.utils.decode_cell(addr).c;
+  let insertAt = rowBlock.indexOf("</row>");
+
+  for (const m of rowBlock.matchAll(/<c\b[^>]*\br="([A-Z]+\d+)"[^>]*(?:\/>|>)/g)) {
+    const cell = XLSX.utils.decode_cell(m[1]);
+    if (cell.c > targetCol) {
+      insertAt = m.index ?? insertAt;
+      break;
+    }
+  }
+
+  const newCell = makeNumericCellXml(addr, newValue, rowBlock);
+  const newRowBlock = rowBlock.slice(0, insertAt) + newCell + rowBlock.slice(insertAt);
+  return xml.substring(0, rowStart) + newRowBlock + xml.substring(rowClose + 6);
+}
+
 function modifySheetXml(xml: string, cellChanges: Map<string, number>): string {
   for (const [addr, newValue] of cellChanges) {
     const attrStr = `r="${addr}"`;
     const rPos = xml.indexOf(attrStr);
-    if (rPos === -1) continue;
+    if (rPos === -1) {
+      xml = insertMissingCell(xml, addr, newValue);
+      continue;
+    }
 
     // <c 태그 시작점 찾기
     const cOpen = xml.lastIndexOf("<c ", rPos);
@@ -171,7 +223,17 @@ function modifySheetXml(xml: string, cellChanges: Map<string, number>): string {
 
     // </c> 닫힘 찾기
     const cClose = xml.indexOf("</c>", rPos);
-    if (cClose === -1) continue;
+    if (cClose === -1) {
+      const selfClose = xml.indexOf("/>", rPos);
+      if (selfClose === -1) continue;
+      const cellBlock = xml.substring(cOpen, selfClose + 2);
+      if (cellBlock.includes("<f>") || cellBlock.includes("<f ") || cellBlock.includes("<f\n") || cellBlock.includes("<f\t")) {
+        continue;
+      }
+      const newBlock = cellBlock.replace(/\s*\/>$/, `><v>${newValue}</v></c>`);
+      xml = xml.substring(0, cOpen) + newBlock + xml.substring(selfClose + 2);
+      continue;
+    }
 
     const cellBlock = xml.substring(cOpen, cClose + 4);
 

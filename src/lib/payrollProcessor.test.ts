@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest";
+import * as XLSX from "xlsx";
+import { processPayroll } from "./payrollProcessor";
+import type { Employee, LeaveDetail } from "./parseExcel";
+
+function makePayrollWorkbookBuffer(): ArrayBuffer {
+  const ws: XLSX.WorkSheet = {};
+
+  ws["A1"] = { t: "s", v: "2026년 4월" };
+  ws["H5"] = { t: "s", v: "직종" };
+  ws["I5"] = { t: "s", v: "성명" };
+
+  // Q6=1 is intentionally absent, matching the real template shape.
+  ws["R6"] = { t: "n", v: 2 };
+  ws["S6"] = { t: "n", v: 3 };
+  ws["T6"] = { t: "n", v: 4 };
+
+  ws["H7"] = { t: "s", v: "관리자" };
+  ws["I7"] = { t: "s", v: "홍길동" };
+  for (let day = 2; day <= 25; day++) {
+    ws[XLSX.utils.encode_cell({ r: 6, c: 16 + (day - 1) })] = { t: "n", v: 1 };
+  }
+
+  ws["!ref"] = "A1:AU7";
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "P4 초순수_P4-PJT Ph4(216명)_Field");
+  return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+}
+
+describe("processPayroll XML patching", () => {
+  it("creates a missing attendance cell when a leave day changes from blank to 1", async () => {
+    const leaveDetails: LeaveDetail[] = [
+      { year: 2026, month: 4, day: 1, name: "홍길동", days: 1, reason: "연차" },
+    ];
+    const employees: Employee[] = [
+      {
+        team: "한성_F",
+        name: "홍길동",
+        jobTitle: "관리자",
+        rank: "",
+        totalDays: 0,
+        dataYear: 2026,
+        dataMonth: 4,
+        dailyRecords: {},
+      },
+    ];
+
+    const result = await processPayroll(makePayrollWorkbookBuffer(), {}, leaveDetails, employees, null);
+    const outputWb = XLSX.read(result.outputBuffer, { type: "array" });
+    const outputWs = outputWb.Sheets["P4 초순수_P4-PJT Ph4(216명)_Field"];
+
+    expect(result.corrections[0].changes).toContainEqual({
+      day: 1,
+      before: 0,
+      after: 1,
+      reason: "연차",
+    });
+    expect(outputWs["Q7"]?.v).toBe(1);
+  });
+});
