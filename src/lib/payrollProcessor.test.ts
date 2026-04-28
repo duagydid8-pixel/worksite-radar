@@ -162,7 +162,7 @@ describe("processPayroll XML patching", () => {
       reason: "결근(수동입력)",
     });
     expect(result.corrections[0].totalBefore).toBe(25);
-    expect(result.corrections[0].totalAfter).toBe(24);
+    expect(result.corrections[0].totalAfter).toBe(24.25);
     expect(outputWs["S7"]?.v).toBe(0);
   });
 
@@ -191,7 +191,7 @@ describe("processPayroll XML patching", () => {
     }).reduce((sum, value) => sum + value, 0);
 
     expect(result.corrections[0].totalBefore).toBe(25);
-    expect(result.corrections[0].totalAfter).toBe(24);
+    expect(result.corrections[0].totalAfter).toBe(24.25);
     expect(result.corrections[0].changes).toContainEqual({
       day: 3,
       before: 0,
@@ -203,17 +203,17 @@ describe("processPayroll XML patching", () => {
         expect.objectContaining({ reason: "결근 총공수 감산" }),
       ])
     );
-    expect(total).toBe(24);
+    expect(total).toBe(24.25);
   });
 
-  it("deducts manual absence ranges by workdays only", async () => {
+  it("calculates manual absence ranges from monthly period pay into 0.125-step work units", async () => {
     const dayValues = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [i + 1, 1]));
     const employees: Employee[] = [];
     const manualAbsences = Array.from({ length: 16 }, (_, i) => {
       const day = i + 15;
       return {
         id: `abs-${day}`,
-        date: `2026-05-${String(day).padStart(2, "0")}`,
+        date: `2026-04-${String(day).padStart(2, "0")}`,
         name: "홍길동",
         memo: "",
         createdAt: "2026-04-28T00:00:00.000Z",
@@ -221,7 +221,7 @@ describe("processPayroll XML patching", () => {
     });
 
     const result = await processPayroll(
-      makePayrollWorkbookBuffer(dayValues, { year: 2026, month: 5 }),
+      makePayrollWorkbookBuffer(dayValues, { year: 2026, month: 4 }),
       {},
       [],
       employees,
@@ -235,7 +235,7 @@ describe("processPayroll XML patching", () => {
       return Number(outputWs[XLSX.utils.encode_cell({ r: 6, c: 16 + (day - 1) })]?.v ?? 0);
     }).reduce((sum, value) => sum + value, 0);
 
-    expect(result.corrections[0].totalAfter).toBe(14);
-    expect(total).toBe(14);
+    expect(result.corrections[0].totalAfter).toBe(11.75);
+    expect(total).toBe(11.75);
   });
 });

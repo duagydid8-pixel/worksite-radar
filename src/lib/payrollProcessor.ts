@@ -174,6 +174,10 @@ function roundPayrollValue(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
+function ceilToWorkUnit(value: number): number {
+  return Math.ceil((value - 0.000001) / 0.125) * 0.125;
+}
+
 // ── JSZip 기반 원본 XML 패치 (서식·조건부서식·테두리·셀병합 100% 보존) ──
 
 async function getSheetXmlPaths(zip: JSZip): Promise<Map<string, string>> {
@@ -392,12 +396,13 @@ export async function processPayroll(
       const newValues = [...dayValues];
       const employee = employeeLookup.get(normName);
       const unpaidDays = new Set<number>();
+      const manualAbsenceCalendarDays = new Set<number>();
       const manualAbsenceDays = new Set<number>();
 
       for (let day = 1; day <= daysInMonth; day++) {
         const absenceKey = `${year}|${month}|${day}`;
         if (!manualAbsenceMap[normName]?.has(absenceKey)) continue;
-        if (!isPayrollWorkday(year, month, day, schedule)) continue;
+        manualAbsenceCalendarDays.add(day);
         manualAbsenceDays.add(day);
         unpaidDays.add(day);
       }
@@ -459,7 +464,11 @@ export async function processPayroll(
       // ── Step 2: 총공수 < 25이면 기존 근무일 값 올리기 ────────
       // 주의: 0인 날(결근·미타각)은 건드리지 않음 — 값이 있는 날만 올림
       let total = newValues.reduce((s, v) => s + v, 0);
-      const targetTotal = Math.max(0, 25 - unpaidDays.size);
+      const manualAbsenceTarget = manualAbsenceCalendarDays.size > 0
+        ? ceilToWorkUnit(25 * (daysInMonth - manualAbsenceCalendarDays.size) / daysInMonth)
+        : null;
+      const nonManualUnpaidCount = Array.from(unpaidDays).filter((day) => !manualAbsenceCalendarDays.has(day)).length;
+      const targetTotal = Math.max(0, (manualAbsenceTarget ?? 25) - nonManualUnpaidCount);
 
       if (total < targetTotal) {
         const adjustable: { day: number; maxVal: number; cur: number }[] = [];
@@ -494,10 +503,8 @@ export async function processPayroll(
           if (total >= targetTotal) break;
           const needed = targetTotal - total;
 
-          // 0.5 단위 증분 중 필요량 이내에서 최대로 올림
-          const steps = [0.5, 1, 1.5, 2].filter((s) => s > cur && s <= maxVal);
           let after = cur;
-          for (const s of steps) {
+          for (let s = ceilToWorkUnit(cur + 0.125); s <= maxVal + 0.001; s = roundPayrollValue(s + 0.125)) {
             if (s - cur <= needed + 0.001) after = s;
             else break;
           }
