@@ -23,6 +23,7 @@ interface NewEmployee {
   은행명: string;
   계좌번호: string;
   주소: string;
+  메모: string;
 }
 
 function calcAge(jumin: string): string {
@@ -102,11 +103,12 @@ const HEADER_MAP: Record<string, keyof NewEmployee> = {
   퇴사일: "퇴사일",
   계좌번호: "계좌번호", 계좌: "계좌번호",
   주소: "주소",
+  메모: "메모", 비고: "메모", 코멘트: "메모", comment: "메모",
 };
 
 const DATE_FIELDS = new Set<keyof NewEmployee>(["입사일", "퇴사일"]);
 
-function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
+export function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
   if (raw.length < 2) return [];
@@ -157,7 +159,7 @@ function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
   return results;
 }
 
-function emptyRow(): NewEmployee {
+export function emptyRow(): NewEmployee {
   return {
     id: crypto.randomUUID(),
     현장구분: "",
@@ -173,16 +175,27 @@ function emptyRow(): NewEmployee {
     은행명: "",
     계좌번호: "",
     주소: "",
+    메모: "",
   };
 }
 
-const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소"];
+function normalizeEmployee(row: Partial<NewEmployee>): NewEmployee {
+  return { ...emptyRow(), ...row, id: row.id || crypto.randomUUID(), 메모: row.메모 ?? "" };
+}
+
+const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "메모"];
 
 const DEFAULT_COL_WIDTHS: Record<string, number> = {
   주민번호: 150, 연락처: 120, 연령: 55, "남/여": 50,
   입사일: 100, 퇴사일: 100, 근속일수: 70, 근속개월: 70, 근속현황: 70,
-  신청공종: 90, 단가: 70, 단가변동: 70, 은행명: 70, 계좌번호: 140, 주소: 200,
+  신청공종: 90, 단가: 70, 단가변동: 70, 은행명: 70, 계좌번호: 140, 주소: 200, 메모: 180,
 };
+
+export const EMPLOYEE_EXPORT_HEADERS = [
+  "No", "현장구분", "이름", "주민번호", "연락처", "연령", "남/여",
+  "입사일", "퇴사일", "근속일수", "근속개월", "근속현황",
+  "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "메모",
+];
 
 // ── 공통 탭 컨텐츠 컴포넌트 ─────────────────────────
 interface EmployeeTabContentProps {
@@ -236,7 +249,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   useEffect(() => {
     loadFn().then((fsRows) => {
       if (Array.isArray(fsRows) && fsRows.length > 0) {
-        setRows(fsRows as NewEmployee[]);
+        setRows((fsRows as Partial<NewEmployee>[]).map(normalizeEmployee));
       }
       setLoading(false);
     });
@@ -251,7 +264,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   }, [saveFn]);
 
   const openEdit = useCallback((row: NewEmployee) => {
-    setDraft({ ...row });
+    setDraft(normalizeEmployee(row));
   }, []);
 
   const closeEdit = useCallback(() => setDraft(null), []);
@@ -386,26 +399,21 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   };
 
   const exportToExcel = () => {
-    const headers = [
-      "No", "현장구분", "이름", "주민번호", "연락처", "연령", "남/여",
-      "입사일", "퇴사일", "근속일수", "근속개월", "근속현황",
-      "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소",
-    ];
     const dataRows = rows.map((r, i) => {
       const { days, months, status } = calcTenure(r.입사일, r.퇴사일);
       return [
         i + 1, r.현장구분, r.이름, r.주민번호, r.연락처,
         calcAge(r.주민번호), r.남여, r.입사일, r.퇴사일,
         days, months, status,
-        r.신청공종, r.단가, r.단가변동, r.은행명, r.계좌번호, r.주소,
+        r.신청공종, r.단가, r.단가변동, r.은행명, r.계좌번호, r.주소, r.메모,
       ];
     });
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+    const ws = XLSX.utils.aoa_to_sheet([EMPLOYEE_EXPORT_HEADERS, ...dataRows]);
     ws["!cols"] = [
       { wch: 4 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 14 },
       { wch: 5 }, { wch: 5 }, { wch: 11 }, { wch: 11 },
       { wch: 8 }, { wch: 8 }, { wch: 8 },
-      { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 32 },
+      { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 32 }, { wch: 28 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "기술인및관리자명단");
@@ -554,6 +562,15 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                       value={draft.주소}
                       onChange={(e) => updateDraft("주소", e.target.value)}
                       className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">메모</label>
+                    <textarea
+                      value={draft.메모}
+                      onChange={(e) => updateDraft("메모", e.target.value)}
+                      rows={3}
+                      className="w-full resize-none px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                     />
                   </div>
                 </div>
@@ -730,7 +747,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
             {[
               "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
               "근속일수", "근속개월", "근속현황",
-              "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소",
+              "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "메모",
             ].map((col) => (
               <col key={col} style={{ width: getColW(col) }} />
             ))}
@@ -744,7 +761,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
               {[
                 "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
                 "근속일수", "근속개월", "근속현황",
-                "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소",
+                "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "메모",
               ].map((col) => (
                 <th
                   key={col}
@@ -768,7 +785,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={19} className="py-16 text-center text-muted-foreground text-sm">
+                <td colSpan={20} className="py-16 text-center text-muted-foreground text-sm">
                   {search || statusFilter !== "전체"
                     ? `조건에 해당하는 직원이 없습니다`
                     : "데이터가 없습니다. 행 추가 버튼을 눌러 입력하세요."}
@@ -835,6 +852,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                         : raw;
                       return (
                         <td key={field}
+                          title={field === "메모" ? raw : undefined}
                           className={`overflow-hidden text-ellipsis whitespace-nowrap px-3 py-2.5 text-xs font-medium text-slate-600${isMoney ? " tabular-nums text-right" : ""}`}>
                           {display || <span className="text-slate-300">—</span>}
                         </td>
