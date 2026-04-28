@@ -15,6 +15,11 @@ interface CorrectionCardProps {
 function CorrectionCard({ correction }: CorrectionCardProps) {
   const [open, setOpen] = useState(false);
   const diff = correction.totalAfter - correction.totalBefore;
+  const diffLabel = diff > 0 ? `+${diff.toFixed(2)}` : diff.toFixed(2);
+  const diffClass = diff < 0
+    ? "bg-red-50 text-red-700 border-red-200"
+    : "bg-green-50 text-green-700 border-green-200";
+  const afterClass = diff < 0 ? "text-red-600" : "text-green-600";
 
   return (
     <div className="border border-border rounded-xl overflow-hidden bg-white shadow-sm">
@@ -30,9 +35,9 @@ function CorrectionCard({ correction }: CorrectionCardProps) {
           <div className="flex items-center gap-1 text-xs">
             <span className="text-red-500 font-mono">{correction.totalBefore.toFixed(3)}</span>
             <span className="text-muted-foreground">→</span>
-            <span className="text-green-600 font-bold font-mono">{correction.totalAfter.toFixed(3)}</span>
-            <span className="ml-1 bg-green-50 text-green-700 border border-green-200 rounded-full px-2 py-0.5 text-[10px] font-bold">
-              +{diff.toFixed(2)}
+            <span className={`${afterClass} font-bold font-mono`}>{correction.totalAfter.toFixed(3)}</span>
+            <span className={`ml-1 border rounded-full px-2 py-0.5 text-[10px] font-bold ${diffClass}`}>
+              {diffLabel}
             </span>
           </div>
         </div>
@@ -63,17 +68,17 @@ function CorrectionCard({ correction }: CorrectionCardProps) {
             </div>
             {/* 수정 후 */}
             <div>
-              <div className="text-[11px] font-bold text-green-600 mb-2">수정 후</div>
+              <div className={`text-[11px] font-bold mb-2 ${diff < 0 ? "text-red-600" : "text-green-600"}`}>수정 후</div>
               <div className="space-y-1">
                 {correction.changes.map((c) => (
-                  <div key={c.day} className="flex items-center justify-between text-xs bg-green-50 rounded-lg px-3 py-1.5">
+                  <div key={c.day} className={`flex items-center justify-between text-xs rounded-lg px-3 py-1.5 ${c.after < c.before ? "bg-red-50" : "bg-green-50"}`}>
                     <span className="text-slate-600">{c.day}일 <span className="text-[10px] text-muted-foreground">({c.reason})</span></span>
-                    <span className="font-mono text-green-700 font-bold">{c.after.toFixed(1)} ✓</span>
+                    <span className={`font-mono font-bold ${c.after < c.before ? "text-red-700" : "text-green-700"}`}>{c.after.toFixed(1)} ✓</span>
                   </div>
                 ))}
-                <div className="flex items-center justify-between text-xs bg-green-100 rounded-lg px-3 py-1.5 font-bold">
+                <div className={`flex items-center justify-between text-xs rounded-lg px-3 py-1.5 font-bold ${diff < 0 ? "bg-red-100" : "bg-green-100"}`}>
                   <span>총공수</span>
-                  <span className="font-mono text-green-700">{correction.totalAfter.toFixed(3)}</span>
+                  <span className={`font-mono ${diff < 0 ? "text-red-700" : "text-green-700"}`}>{correction.totalAfter.toFixed(3)}</span>
                 </div>
               </div>
             </div>

@@ -114,4 +114,21 @@ describe("processPayroll XML patching", () => {
     expect(result.corrections[0].totalAfter).toBe(24);
     expect(outputWs["Q7"]?.v).toBe(0);
   });
+
+  it("does not treat missing attendance records from a different month as unpaid leave", async () => {
+    const dayValues = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [i + 1, 1]));
+    const employee = makeEmployee({});
+    employee.dataMonth = 3;
+
+    const result = await processPayroll(makePayrollWorkbookBuffer(dayValues), {}, [], [employee], null);
+    const outputWb = XLSX.read(result.outputBuffer, { type: "array" });
+    const outputWs = outputWb.Sheets["P4 초순수_P4-PJT Ph4(216명)_Field"];
+    const total = Array.from({ length: 25 }, (_, i) => {
+      const day = i + 1;
+      return Number(outputWs[XLSX.utils.encode_cell({ r: 6, c: 16 + (day - 1) })]?.v ?? 0);
+    }).reduce((sum, value) => sum + value, 0);
+
+    expect(result.corrections).toHaveLength(0);
+    expect(total).toBe(25);
+  });
 });

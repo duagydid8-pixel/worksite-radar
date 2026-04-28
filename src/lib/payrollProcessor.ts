@@ -371,7 +371,7 @@ export async function processPayroll(
       const employee = employeeLookup.get(normName);
       const unpaidDays = new Set<number>();
 
-      if (employee) {
+      if (employee?.dataYear === year && employee.dataMonth === month) {
         for (let day = 1; day <= daysInMonth; day++) {
           if (dayValues[day - 1] <= 0) continue;
           if (!isPayrollWorkday(year, month, day, schedule)) continue;
