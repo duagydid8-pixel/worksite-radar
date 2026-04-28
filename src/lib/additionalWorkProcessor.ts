@@ -6,6 +6,7 @@ export interface AdditionalWorkEntry {
   trade: string;
   units: number;
   sourceLine?: string;
+  payrollRowKey?: string;
 }
 
 export interface AppliedAdditionalWork {
@@ -38,11 +39,14 @@ export interface AdditionalWorkPayrollResult {
 export interface PayrollEmployeeOption {
   name: string;
   jobTitle: string;
+  residentNo: string;
+  rowKey: string;
 }
 
 interface PayrollLayout {
   nameCol: number;
   jobTitleCol: number;
+  residentNoCol: number;
   unitPriceCol: number;
   expense2Col: number;
   salaryCol: number;
@@ -69,6 +73,7 @@ function detectPayrollLayout(ws: XLSX.WorkSheet): PayrollLayout | null {
   let nameCol = -1;
   let nameRow = -1;
   let jobTitleCol = -1;
+  let residentNoCol = -1;
   let unitPriceCol = -1;
   let expense2Col = -1;
   let salaryCol = -1;
@@ -81,6 +86,8 @@ function detectPayrollLayout(ws: XLSX.WorkSheet): PayrollLayout | null {
         nameRow = r;
       } else if (text === "직종") {
         jobTitleCol = c;
+      } else if (text === "주민번호" || text === "주민등록번호") {
+        residentNoCol = c;
       } else if (text === "단가") {
         unitPriceCol = c;
       } else if (text === "경비(2)" || text === "추가공수x단가") {
@@ -95,6 +102,7 @@ function detectPayrollLayout(ws: XLSX.WorkSheet): PayrollLayout | null {
   return {
     nameCol,
     jobTitleCol: jobTitleCol >= 0 ? jobTitleCol : Math.max(0, nameCol - 2),
+    residentNoCol,
     unitPriceCol,
     expense2Col,
     salaryCol,
@@ -111,13 +119,15 @@ function aggregateEntries(entries: AdditionalWorkEntry[]): AdditionalWorkEntry[]
   for (const entry of entries) {
     const name = normalizeName(entry.name);
     if (!name || !Number.isFinite(entry.units) || entry.units <= 0) continue;
-    const existing = byName.get(name);
+    const key = `${name}|${entry.payrollRowKey ?? ""}`;
+    const existing = byName.get(key);
     if (!existing) {
-      byName.set(name, {
+      byName.set(key, {
         name: entry.name.trim(),
         trade: entry.trade.trim(),
         units: entry.units,
         sourceLine: entry.sourceLine,
+        payrollRowKey: entry.payrollRowKey,
       });
       continue;
     }
@@ -235,7 +245,6 @@ export function parseAdditionalWorkText(text: string): AdditionalWorkEntry[] {
 export function readPayrollEmployeeOptions(buffer: ArrayBuffer): PayrollEmployeeOption[] {
   const wb = XLSX.read(buffer, { type: "array" });
   const rows: PayrollEmployeeOption[] = [];
-  const seen = new Set<string>();
 
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
@@ -246,12 +255,12 @@ export function readPayrollEmployeeOptions(buffer: ArrayBuffer): PayrollEmployee
     const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
     for (let r = layout.dataStartRow; r <= range.e.r; r++) {
       const name = getCellText(ws, r, layout.nameCol);
-      const key = normalizeName(name);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
+      if (!normalizeName(name)) continue;
       rows.push({
         name,
         jobTitle: getCellText(ws, r, layout.jobTitleCol),
+        residentNo: layout.residentNoCol >= 0 ? getCellText(ws, r, layout.residentNoCol) : "",
+        rowKey: `${sheetName}!${r + 1}`,
       });
     }
   }
@@ -414,18 +423,26 @@ export async function applyAdditionalWorkToPayroll(
   for (const entry of aggregated) {
     const key = normalizeName(entry.name);
     const matches = rowsByName.get(key) ?? [];
+    const selectedMatch = entry.payrollRowKey
+      ? matches.find((match) => `${match.sheetName}!${match.row + 1}` === entry.payrollRowKey)
+      : null;
 
     if (matches.length === 0) {
       unmatched.push({ name: entry.name, trade: entry.trade, units: entry.units, reason: "급여대장에서 이름을 찾지 못했습니다." });
       continue;
     }
 
-    if (matches.length > 1) {
+    if (entry.payrollRowKey && !selectedMatch) {
+      unmatched.push({ name: entry.name, trade: entry.trade, units: entry.units, reason: "선택한 급여대장 행을 찾지 못했습니다." });
+      continue;
+    }
+
+    if (matches.length > 1 && !selectedMatch) {
       unmatched.push({ name: entry.name, trade: entry.trade, units: entry.units, reason: "급여대장에 같은 이름이 2명 이상 있습니다." });
       continue;
     }
 
-    const match = matches[0];
+    const match = selectedMatch ?? matches[0];
     const ws = wb.Sheets[match.sheetName];
     const unitPrice = getCellNumber(ws, match.row, match.layout.unitPriceCol);
     if (unitPrice <= 0) {

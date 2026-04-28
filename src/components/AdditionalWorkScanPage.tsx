@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle, Download, FileSpreadsheet, Loader2, ScanText, Upload, Wand2, X } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import { toast } from "sonner";
@@ -10,6 +10,8 @@ import {
   type AdditionalWorkPayrollResult,
   type PayrollEmployeeOption,
 } from "@/lib/additionalWorkProcessor";
+import { loadEmployeesPH2FS, loadEmployeesPH4FS } from "@/lib/firestoreService";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -17,6 +19,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 ).toString();
 
 type Step = "idle" | "extracting" | "ready" | "applying" | "done";
+
+interface TechnicalIdentity {
+  name: string;
+  residentNo: string;
+  birthDate: string;
+  trade: string;
+  site: string;
+}
 
 function formatMoney(value: number): string {
   return value.toLocaleString("ko-KR");
@@ -28,6 +38,47 @@ function makeDownloadName(fileName: string): string {
 
 function formatRowsForText(rows: AdditionalWorkEntry[]): string {
   return rows.map((row) => `${row.name}\t${row.trade}\t${row.units.toFixed(2)}`).join("\n");
+}
+
+function normalizeName(name: string): string {
+  return name.replace(/\s+/g, "").trim();
+}
+
+function readField(row: unknown, field: string): string {
+  if (!row || typeof row !== "object") return "";
+  const value = (row as Record<string, unknown>)[field];
+  return String(value ?? "").trim();
+}
+
+function birthFromResidentNo(residentNo: string): string {
+  const raw = residentNo.replace(/[^0-9]/g, "");
+  if (raw.length < 7) return "";
+  const yy = Number(raw.slice(0, 2));
+  const mm = raw.slice(2, 4);
+  const dd = raw.slice(4, 6);
+  const gender = raw[6];
+  const century = gender === "1" || gender === "2" || gender === "5" || gender === "6" ? 1900 : 2000;
+  return `${century + yy}-${mm}-${dd}`;
+}
+
+function maskResidentNo(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "주민번호 없음";
+  const raw = trimmed.replace(/[^0-9]/g, "");
+  if (raw.length >= 7) return `${raw.slice(0, 6)}-${raw.slice(6, 7)}******`;
+  return trimmed;
+}
+
+function candidateLabel(candidate: PayrollEmployeeOption, identities: TechnicalIdentity[]): string {
+  const matchingIdentity = identities.find((identity) => {
+    if (identity.residentNo && candidate.residentNo) {
+      return identity.residentNo.replace(/[^0-9]/g, "").slice(0, 7) === candidate.residentNo.replace(/[^0-9]/g, "").slice(0, 7);
+    }
+    return normalizeName(identity.name) === normalizeName(candidate.name);
+  });
+  const birth = matchingIdentity?.birthDate || birthFromResidentNo(candidate.residentNo);
+  const trade = matchingIdentity?.trade || candidate.jobTitle;
+  return `${candidate.name} / ${trade || "직종 없음"} / ${birth || maskResidentNo(candidate.residentNo)} / ${candidate.rowKey}`;
 }
 
 function preprocessCanvasForOcr(source: HTMLCanvasElement): HTMLCanvasElement {
@@ -111,11 +162,42 @@ export default function AdditionalWorkScanPage() {
   const [rawText, setRawText] = useState("");
   const [draftRows, setDraftRows] = useState<AdditionalWorkEntry[]>([]);
   const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployeeOption[]>([]);
+  const [technicalIdentities, setTechnicalIdentities] = useState<TechnicalIdentity[]>([]);
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [ocrMessage, setOcrMessage] = useState("");
   const [outputBuffer, setOutputBuffer] = useState<ArrayBuffer | null>(null);
   const [result, setResult] = useState<AdditionalWorkPayrollResult | null>(null);
 
   const totalUnits = useMemo(() => draftRows.reduce((sum, row) => sum + row.units, 0), [draftRows]);
+  const duplicateRows = useMemo(() => draftRows
+    .map((row, index) => ({
+      row,
+      index,
+      candidates: payrollEmployees.filter((employee) => normalizeName(employee.name) === normalizeName(row.name)),
+    }))
+    .filter((item) => item.candidates.length > 1 && !item.row.payrollRowKey),
+  [draftRows, payrollEmployees]);
+
+  useEffect(() => {
+    Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS()]).then(([ph4Rows, ph2Rows]) => {
+      const next: TechnicalIdentity[] = [];
+      for (const [site, rows] of [["PH4", ph4Rows], ["PH2", ph2Rows]] as const) {
+        for (const row of rows ?? []) {
+          const residentNo = readField(row, "주민번호");
+          const name = readField(row, "이름") || readField(row, "성명");
+          if (!name) continue;
+          next.push({
+            name,
+            residentNo,
+            birthDate: birthFromResidentNo(residentNo),
+            trade: readField(row, "신청공종"),
+            site,
+          });
+        }
+      }
+      setTechnicalIdentities(next);
+    });
+  }, []);
 
   const recognizeImage = useCallback(async (image: File | HTMLCanvasElement): Promise<string> => {
     const { createWorker, PSM } = await import("tesseract.js");
@@ -182,7 +264,7 @@ export default function AdditionalWorkScanPage() {
       setRawText(formatRowsForText(rows));
       setStep("ready");
       const count = rows.length;
-      if (count === 0) toast.warning("자동으로 읽은 행이 없습니다. 텍스트를 직접 수정해서 다시 확인해 주세요.");
+      if (count === 0) toast.warning("자동 추출이 실패했습니다. 필요한 3개 항목만 직접 입력해 주세요.");
       else toast.success(`${count}건의 추가공수 행을 읽었습니다.`);
     } catch (err: any) {
       toast.error(err?.message || "스캔본 텍스트 추출 중 오류가 발생했습니다.");
@@ -223,6 +305,11 @@ export default function AdditionalWorkScanPage() {
     }
     if (draftRows.length === 0) {
       toast.error("반영할 추가공수 행이 없습니다.");
+      return;
+    }
+    if (duplicateRows.length > 0) {
+      setDuplicateDialogOpen(true);
+      toast.warning("동명이인이 있습니다. 적용할 대상을 먼저 선택해 주세요.");
       return;
     }
 
@@ -290,6 +377,69 @@ export default function AdditionalWorkScanPage() {
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-4 p-4 md:p-6">
+      <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>동명이인 선택 필요</DialogTitle>
+            <DialogDescription>
+              기술인 및 관리자 명단의 생년월일/주민번호 정보를 참고해서 급여대장에서 반영할 사람을 선택해 주세요.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-[11px] font-extrabold text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">추출 이름</th>
+                  <th className="px-3 py-2 text-left">공종</th>
+                  <th className="px-3 py-2 text-right">공수</th>
+                  <th className="px-3 py-2 text-left">선택</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {duplicateRows.map(({ row, index, candidates }) => (
+                  <tr key={`${row.name}-${index}`}>
+                    <td className="px-3 py-2 font-bold text-slate-900">{row.name}</td>
+                    <td className="px-3 py-2 text-slate-600">{row.trade}</td>
+                    <td className="px-3 py-2 text-right font-mono">{row.units.toFixed(2)}</td>
+                    <td className="px-3 py-2">
+                      <select
+                        value={row.payrollRowKey ?? ""}
+                        onChange={(event) => updateDraftRow(index, { payrollRowKey: event.target.value || undefined })}
+                        className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-slate-400"
+                      >
+                        <option value="">선택 필요</option>
+                        {candidates.map((candidate) => (
+                          <option key={candidate.rowKey} value={candidate.rowKey}>
+                            {candidateLabel(candidate, technicalIdentities)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDuplicateDialogOpen(false)}
+              className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
+            >
+              닫기
+            </button>
+            <button
+              type="button"
+              onClick={() => setDuplicateDialogOpen(false)}
+              disabled={duplicateRows.some((item) => !draftRows[item.index]?.payrollRowKey)}
+              className="h-10 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white hover:bg-slate-700 disabled:opacity-40"
+            >
+              선택 완료
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-900 text-white">
@@ -423,9 +573,12 @@ export default function AdditionalWorkScanPage() {
                           <input
                             value={row.name}
                             list="payroll-employee-options"
-                            onChange={(event) => updateDraftRow(index, { name: event.target.value })}
+                            onChange={(event) => updateDraftRow(index, { name: event.target.value, payrollRowKey: undefined })}
                             className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-sm font-bold text-slate-900 outline-none focus:border-slate-400"
                           />
+                          {payrollEmployees.filter((employee) => normalizeName(employee.name) === normalizeName(row.name)).length > 1 && (
+                            <div className="mt-1 text-[11px] font-bold text-amber-700">동명이인 있음</div>
+                          )}
                         </td>
                         <td className="px-2 py-2">
                           <input
