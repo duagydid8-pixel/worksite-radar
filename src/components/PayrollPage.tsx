@@ -5,7 +5,7 @@ import { processPayroll, type PayrollCorrection } from "@/lib/payrollProcessor";
 import { fetchAttendanceFS } from "@/lib/firestoreAttendance";
 import { loadManualAbsencesFS, loadScheduleFS, saveManualAbsencesFS } from "@/lib/firestoreService";
 import type { ScheduleData } from "@/lib/geminiService";
-import type { ManualAbsence } from "@/lib/manualAbsences";
+import { expandDateRange, type ManualAbsence } from "@/lib/manualAbsences";
 import {
   Dialog,
   DialogContent,
@@ -123,7 +123,8 @@ export default function PayrollPage() {
   const [dragging, setDragging] = useState(false);
   const [absenceDialogOpen, setAbsenceDialogOpen] = useState(false);
   const [manualAbsences, setManualAbsences] = useState<ManualAbsence[]>([]);
-  const [absenceDate, setAbsenceDate] = useState(todayInputValue);
+  const [absenceStartDate, setAbsenceStartDate] = useState(todayInputValue);
+  const [absenceEndDate, setAbsenceEndDate] = useState("");
   const [absenceName, setAbsenceName] = useState("");
   const [absenceMemo, setAbsenceMemo] = useState("");
   const [savingAbsence, setSavingAbsence] = useState(false);
@@ -143,34 +144,43 @@ export default function PayrollPage() {
 
   const handleAbsenceSubmit = useCallback(async (e: FormEvent) => {
     e.preventDefault();
-    const date = absenceDate.trim();
+    const startDate = absenceStartDate.trim();
+    const endDate = absenceEndDate.trim();
     const name = absenceName.trim();
     const memo = absenceMemo.trim();
 
-    if (!date || !name) {
-      toast.error("날짜와 이름을 입력해주세요.");
+    if (!startDate || !name) {
+      toast.error("시작일과 이름을 입력해주세요.");
       return;
     }
 
-    const duplicate = manualAbsences.some((row) => row.date === date && row.name.trim() === name);
-    if (duplicate) {
-      toast.info("이미 입력된 결근입니다.");
+    const dates = expandDateRange(startDate, endDate);
+    if (dates.length === 0) {
+      toast.error("종료일은 시작일보다 빠를 수 없습니다.");
+      return;
+    }
+
+    const existingKeys = new Set(manualAbsences.map((row) => `${row.date}|${row.name.trim()}`));
+    const createdAt = new Date().toISOString();
+    const additions = dates
+      .filter((date) => !existingKeys.has(`${date}|${name}`))
+      .map((date) => ({ id: makeAbsenceId(), date, name, memo, createdAt }));
+
+    if (additions.length === 0) {
+      toast.info("선택한 기간은 이미 모두 입력되어 있습니다.");
       return;
     }
 
     setSavingAbsence(true);
-    const next = [
-      ...manualAbsences,
-      { id: makeAbsenceId(), date, name, memo, createdAt: new Date().toISOString() },
-    ];
+    const next = [...manualAbsences, ...additions];
     const ok = await persistManualAbsences(next);
     setSavingAbsence(false);
     if (!ok) return;
 
     setAbsenceName("");
     setAbsenceMemo("");
-    toast.success("결근이 저장되었습니다.");
-  }, [absenceDate, absenceMemo, absenceName, manualAbsences, persistManualAbsences]);
+    toast.success(`${additions.length}건의 결근이 저장되었습니다.`);
+  }, [absenceEndDate, absenceMemo, absenceName, absenceStartDate, manualAbsences, persistManualAbsences]);
 
   const handleDeleteAbsence = useCallback(async (id: string) => {
     const next = manualAbsences.filter((row) => row.id !== id);
@@ -278,23 +288,42 @@ export default function PayrollPage() {
           <DialogHeader>
             <DialogTitle>결근 직접 입력</DialogTitle>
             <DialogDescription>
-              입력한 날짜와 이름이 급여대장에 있으면 해당 일 공수를 0으로 처리합니다.
+              하루만 입력하거나 기간을 선택하면 해당 날짜 공수를 0으로 처리합니다.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleAbsenceSubmit} className="grid gap-3 md:grid-cols-[150px_1fr_1fr_auto]">
-            <input
-              type="date"
-              value={absenceDate}
-              onChange={(e) => setAbsenceDate(e.target.value)}
-              className="h-10 rounded-lg border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-            />
-            <input
-              value={absenceName}
-              onChange={(e) => setAbsenceName(e.target.value)}
-              placeholder="이름"
-              className="h-10 rounded-lg border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-            />
+          <form onSubmit={handleAbsenceSubmit} className="grid gap-3">
+            <div className="grid gap-3 md:grid-cols-[150px_150px_1fr]">
+              <label className="grid gap-1">
+                <span className="text-[11px] font-bold text-muted-foreground">시작일</span>
+                <input
+                  type="date"
+                  value={absenceStartDate}
+                  onChange={(e) => setAbsenceStartDate(e.target.value)}
+                  className="h-10 rounded-lg border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-[11px] font-bold text-muted-foreground">종료일</span>
+                <input
+                  type="date"
+                  value={absenceEndDate}
+                  onChange={(e) => setAbsenceEndDate(e.target.value)}
+                  min={absenceStartDate}
+                  className="h-10 rounded-lg border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-[11px] font-bold text-muted-foreground">이름</span>
+                <input
+                  value={absenceName}
+                  onChange={(e) => setAbsenceName(e.target.value)}
+                  placeholder="이름"
+                  className="h-10 rounded-lg border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </label>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
             <input
               value={absenceMemo}
               onChange={(e) => setAbsenceMemo(e.target.value)}
@@ -309,6 +338,7 @@ export default function PayrollPage() {
               {savingAbsence ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               추가
             </button>
+            </div>
           </form>
 
           <div className="max-h-80 overflow-auto rounded-xl border border-border">
