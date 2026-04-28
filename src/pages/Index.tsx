@@ -14,12 +14,13 @@ import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOffic
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import HomePage from "@/components/HomePage";
 import PayrollPage from "@/components/PayrollPage";
+import AdditionalWorkScanPage from "@/components/AdditionalWorkScanPage";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
 
@@ -73,8 +74,13 @@ function formatWeekRange(monday: Date): string {
 type TeamFilter = "전체" | "한성" | "태화";
 type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
 type AttendanceSubTab = "근태현황" | "연차현황";
+type PayrollSubTab = "급여대장보정" | "추가공수스캔";
 
 const ATTENDANCE_SUB_TABS: AttendanceSubTab[] = ["근태현황", "연차현황"];
+const PAYROLL_SUB_TABS: { value: PayrollSubTab; label: string; icon: React.ReactNode }[] = [
+  { value: "급여대장보정", label: "경비 업로드", icon: <BookText className="h-3.5 w-3.5" /> },
+  { value: "추가공수스캔", label: "추가공수 스캔추출", icon: <ScanText className="h-3.5 w-3.5" /> },
+];
 
 function isLate(timeStr: string): boolean {
   const [h, m] = timeStr.split(":").map(Number);
@@ -134,6 +140,7 @@ const Index = () => {
   const [pendingBuffer, setPendingBuffer] = useState<ArrayBuffer | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("홈");
   const [attendanceSubTab, setAttendanceSubTab] = useState<AttendanceSubTab>("근태현황");
+  const [payrollSubTab, setPayrollSubTab] = useState<PayrollSubTab>("급여대장보정");
   const [mailSubTab, setMailSubTab] = useState<MailRequestMenu>("certificate");
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
@@ -503,6 +510,24 @@ const Index = () => {
                       ))}
                     </div>
                   )}
+                  {key === "급여대장" && isActive && !locked && (
+                    <div className="ml-9 mt-1 space-y-1 border-l border-slate-200 pl-3">
+                      {PAYROLL_SUB_TABS.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => setPayrollSubTab(option.value)}
+                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-extrabold transition-colors ${
+                            payrollSubTab === option.value
+                              ? "bg-slate-100 text-slate-950"
+                              : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                          }`}
+                        >
+                          {option.icon}
+                          <span>{option.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -785,7 +810,29 @@ const Index = () => {
 
           {/* 급여대장 */}
           {activeTab === "급여대장" && isAdmin && (
-            <PayrollPage />
+            <div>
+              <div className="p-4 pb-0 md:hidden">
+                <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+                  <div className="grid grid-cols-2 gap-1">
+                    {PAYROLL_SUB_TABS.map((option) => (
+                      <button
+                        key={option.value}
+                        onClick={() => setPayrollSubTab(option.value)}
+                        className={`flex h-10 items-center justify-center gap-1.5 rounded-lg text-sm font-extrabold transition-colors ${
+                          payrollSubTab === option.value
+                            ? "bg-slate-900 text-white shadow-sm"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        {option.icon}
+                        <span>{option.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {payrollSubTab === "급여대장보정" ? <PayrollPage /> : <AdditionalWorkScanPage />}
+            </div>
           )}
 
         </main>
