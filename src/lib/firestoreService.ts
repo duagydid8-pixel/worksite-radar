@@ -19,6 +19,7 @@ import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "./firebase";
 import type { ScheduleData } from "./geminiService";
+import type { ManualAbsence } from "./manualAbsences";
 
 const COL = "worksite_data";
 
@@ -74,6 +75,15 @@ export async function loadEmployeesPH2FS() {
 }
 export async function saveEmployeesPH2FS(rows: unknown[]) {
   return fsSet("new_employees_ph2", { rows });
+}
+
+// ── 급여대장 수동 결근 입력 ───────────────────────────
+export async function loadManualAbsencesFS(): Promise<ManualAbsence[]> {
+  const data = await fsGet<{ rows: ManualAbsence[] }>("payroll_manual_absences");
+  return data?.rows ?? [];
+}
+export async function saveManualAbsencesFS(rows: ManualAbsence[]): Promise<boolean> {
+  return fsSet("payroll_manual_absences", { rows });
 }
 
 // ── XERP & PMIS ──────────────────────────────────────

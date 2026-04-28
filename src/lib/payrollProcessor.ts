@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { isKoreanHoliday } from "./koreanHolidays";
 import type { ScheduleData } from "./geminiService";
 import type { LeaveDetail, Employee } from "./parseExcel";
+import type { ManualAbsence } from "./manualAbsences";
 
 export function isMonthlyWorker(jobTitle: string): boolean {
   return jobTitle.includes("관리자") || jobTitle === "차량운행";
@@ -118,6 +119,21 @@ function buildAbsenceMap(employees: Employee[]): Record<string, Set<string>> {
         map[norm].add(`${parts[0]}|${parseInt(parts[1])}|${parseInt(parts[2])}`);
       }
     }
+  }
+  return map;
+}
+
+function buildManualAbsenceMap(absences: ManualAbsence[]): Record<string, Set<string>> {
+  const map: Record<string, Set<string>> = {};
+  for (const absence of absences) {
+    const name = absence.name.trim();
+    if (!name) continue;
+
+    const m = absence.date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) continue;
+
+    if (!map[name]) map[name] = new Set();
+    map[name].add(`${parseInt(m[1])}|${parseInt(m[2])}|${parseInt(m[3])}`);
   }
   return map;
 }
@@ -308,12 +324,14 @@ export async function processPayroll(
   annualLeaveMap: Record<string, Record<string, boolean>>,
   leaveDetails: LeaveDetail[],
   employees: Employee[],
-  schedule: ScheduleData | null
+  schedule: ScheduleData | null,
+  manualAbsences: ManualAbsence[] = []
 ): Promise<PayrollResult> {
   const wb = XLSX.read(buffer, { type: "array", cellFormula: true });
 
   const leaveLookup = buildLeaveLookup(annualLeaveMap, leaveDetails);
   const absenceMap = buildAbsenceMap(employees);
+  const manualAbsenceMap = buildManualAbsenceMap(manualAbsences);
   const employeeLookup = buildEmployeeLookup(employees);
 
   const corrections: PayrollCorrection[] = [];
@@ -370,6 +388,15 @@ export async function processPayroll(
       const newValues = [...dayValues];
       const employee = employeeLookup.get(normName);
       const unpaidDays = new Set<number>();
+      const manualAbsenceDays = new Set<number>();
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        if (dayValues[day - 1] <= 0) continue;
+        const absenceKey = `${year}|${month}|${day}`;
+        if (!manualAbsenceMap[normName]?.has(absenceKey)) continue;
+        manualAbsenceDays.add(day);
+        unpaidDays.add(day);
+      }
 
       if (employee?.dataYear === year && employee.dataMonth === month) {
         for (let day = 1; day <= daysInMonth; day++) {
@@ -384,13 +411,18 @@ export async function processPayroll(
         }
       }
 
-      // ── Step 0: 근태현황 미타각/결근은 무급연차로 공수 차감 ─────
+      // ── Step 0: 수동 결근 및 근태현황 미타각/결근은 공수 차감 ───
       for (const day of unpaidDays) {
         const before = newValues[day - 1];
         if (before <= 0) continue;
 
         newValues[day - 1] = 0;
-        changes.push({ day, before, after: 0, reason: "무급연차(미타각)" });
+        changes.push({
+          day,
+          before,
+          after: 0,
+          reason: manualAbsenceDays.has(day) ? "결근(수동입력)" : "무급연차(미타각)",
+        });
       }
 
       // ── Step 1: 연차 날짜 0 → 1 ──────────────────────────────

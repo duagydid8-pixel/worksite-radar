@@ -131,4 +131,33 @@ describe("processPayroll XML patching", () => {
     expect(result.corrections).toHaveLength(0);
     expect(total).toBe(25);
   });
+
+  it("deducts manually entered absences for the matching payroll date and name", async () => {
+    const dayValues = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [i + 1, 1]));
+    const employees: Employee[] = [makeEmployee(makePresentRecords(Array.from({ length: 25 }, (_, i) => i + 1)))];
+    const manualAbsences = [
+      { id: "abs-1", date: "2026-04-03", name: "홍길동", memo: "", createdAt: "2026-04-28T00:00:00.000Z" },
+    ];
+
+    const result = await processPayroll(
+      makePayrollWorkbookBuffer(dayValues),
+      {},
+      [],
+      employees,
+      null,
+      manualAbsences
+    );
+    const outputWb = XLSX.read(result.outputBuffer, { type: "array" });
+    const outputWs = outputWb.Sheets["P4 초순수_P4-PJT Ph4(216명)_Field"];
+
+    expect(result.corrections[0].changes).toContainEqual({
+      day: 3,
+      before: 1,
+      after: 0,
+      reason: "결근(수동입력)",
+    });
+    expect(result.corrections[0].totalBefore).toBe(25);
+    expect(result.corrections[0].totalAfter).toBe(24);
+    expect(outputWs["S7"]?.v).toBe(0);
+  });
 });

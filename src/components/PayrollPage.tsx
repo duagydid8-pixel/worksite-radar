@@ -1,15 +1,40 @@
-import { useCallback, useRef, useState } from "react";
-import { Upload, Download, CheckCircle, Loader2, ChevronDown, ChevronUp, FileSpreadsheet } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Upload, Download, CheckCircle, Loader2, ChevronDown, ChevronUp, FileSpreadsheet, CalendarX, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { processPayroll, type PayrollCorrection } from "@/lib/payrollProcessor";
 import { fetchAttendanceFS } from "@/lib/firestoreAttendance";
-import { loadScheduleFS } from "@/lib/firestoreService";
+import { loadManualAbsencesFS, loadScheduleFS, saveManualAbsencesFS } from "@/lib/firestoreService";
 import type { ScheduleData } from "@/lib/geminiService";
+import type { ManualAbsence } from "@/lib/manualAbsences";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type Step = "idle" | "processing" | "done";
 
 interface CorrectionCardProps {
   correction: PayrollCorrection;
+}
+
+function todayInputValue(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function makeAbsenceId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function sortAbsences(rows: ManualAbsence[]): ManualAbsence[] {
+  return [...rows].sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
 }
 
 function CorrectionCard({ correction }: CorrectionCardProps) {
@@ -96,7 +121,62 @@ export default function PayrollPage() {
   const [originalFileName, setOriginalFileName] = useState("");
   const [yearMonth, setYearMonth] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [absenceDialogOpen, setAbsenceDialogOpen] = useState(false);
+  const [manualAbsences, setManualAbsences] = useState<ManualAbsence[]>([]);
+  const [absenceDate, setAbsenceDate] = useState(todayInputValue);
+  const [absenceName, setAbsenceName] = useState("");
+  const [absenceMemo, setAbsenceMemo] = useState("");
+  const [savingAbsence, setSavingAbsence] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    loadManualAbsencesFS().then((rows) => setManualAbsences(sortAbsences(rows)));
+  }, []);
+
+  const persistManualAbsences = useCallback(async (next: ManualAbsence[]) => {
+    const sorted = sortAbsences(next);
+    setManualAbsences(sorted);
+    const ok = await saveManualAbsencesFS(sorted);
+    if (!ok) toast.error("결근 목록 저장에 실패했습니다.");
+    return ok;
+  }, []);
+
+  const handleAbsenceSubmit = useCallback(async (e: FormEvent) => {
+    e.preventDefault();
+    const date = absenceDate.trim();
+    const name = absenceName.trim();
+    const memo = absenceMemo.trim();
+
+    if (!date || !name) {
+      toast.error("날짜와 이름을 입력해주세요.");
+      return;
+    }
+
+    const duplicate = manualAbsences.some((row) => row.date === date && row.name.trim() === name);
+    if (duplicate) {
+      toast.info("이미 입력된 결근입니다.");
+      return;
+    }
+
+    setSavingAbsence(true);
+    const next = [
+      ...manualAbsences,
+      { id: makeAbsenceId(), date, name, memo, createdAt: new Date().toISOString() },
+    ];
+    const ok = await persistManualAbsences(next);
+    setSavingAbsence(false);
+    if (!ok) return;
+
+    setAbsenceName("");
+    setAbsenceMemo("");
+    toast.success("결근이 저장되었습니다.");
+  }, [absenceDate, absenceMemo, absenceName, manualAbsences, persistManualAbsences]);
+
+  const handleDeleteAbsence = useCallback(async (id: string) => {
+    const next = manualAbsences.filter((row) => row.id !== id);
+    const ok = await persistManualAbsences(next);
+    if (ok) toast.success("결근이 삭제되었습니다.");
+  }, [manualAbsences, persistManualAbsences]);
 
   const processFile = useCallback(async (file: File) => {
     setStep("processing");
@@ -108,16 +188,18 @@ export default function PayrollPage() {
       const buffer = await file.arrayBuffer();
 
       // Firestore에서 연차 데이터 및 주간일정 가져오기
-      const [attendanceResult, scheduleData] = await Promise.all([
+      const [attendanceResult, scheduleData, savedManualAbsences] = await Promise.all([
         fetchAttendanceFS(),
         loadScheduleFS().catch(() => null) as Promise<ScheduleData | null>,
+        loadManualAbsencesFS(),
       ]);
 
       const annualLeaveMap = attendanceResult?.data?.annualLeaveMap ?? {};
       const leaveDetails = attendanceResult?.data?.leaveDetails ?? [];
       const employees = attendanceResult?.data?.employees ?? [];
+      setManualAbsences(sortAbsences(savedManualAbsences));
 
-      const result = await processPayroll(buffer, annualLeaveMap, leaveDetails, employees, scheduleData);
+      const result = await processPayroll(buffer, annualLeaveMap, leaveDetails, employees, scheduleData, savedManualAbsences);
 
       setCorrections(result.corrections);
       setOutputBuffer(result.outputBuffer);
@@ -172,13 +254,90 @@ export default function PayrollPage() {
     <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <FileSpreadsheet className="h-6 w-6 text-primary" />
-        <div>
+        <div className="flex-1">
           <h2 className="text-lg font-extrabold text-foreground">급여대장</h2>
           <p className="text-xs text-muted-foreground">
             월급제 직원의 연차·공휴일·휴무일을 반영해 총공수 25를 자동 보정합니다
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setAbsenceDialogOpen(true)}
+          className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 transition-colors hover:bg-rose-100"
+        >
+          <CalendarX className="h-4 w-4" />
+          결근 입력
+          {manualAbsences.length > 0 && (
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-rose-700">{manualAbsences.length}</span>
+          )}
+        </button>
       </div>
+
+      <Dialog open={absenceDialogOpen} onOpenChange={setAbsenceDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>결근 직접 입력</DialogTitle>
+            <DialogDescription>
+              입력한 날짜와 이름이 급여대장에 있으면 해당 일 공수를 0으로 처리합니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleAbsenceSubmit} className="grid gap-3 md:grid-cols-[150px_1fr_1fr_auto]">
+            <input
+              type="date"
+              value={absenceDate}
+              onChange={(e) => setAbsenceDate(e.target.value)}
+              className="h-10 rounded-lg border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <input
+              value={absenceName}
+              onChange={(e) => setAbsenceName(e.target.value)}
+              placeholder="이름"
+              className="h-10 rounded-lg border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <input
+              value={absenceMemo}
+              onChange={(e) => setAbsenceMemo(e.target.value)}
+              placeholder="메모"
+              className="h-10 rounded-lg border border-border bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <button
+              type="submit"
+              disabled={savingAbsence}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 text-sm font-bold text-white transition-colors hover:bg-rose-700 disabled:opacity-60"
+            >
+              {savingAbsence ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              추가
+            </button>
+          </form>
+
+          <div className="max-h-80 overflow-auto rounded-xl border border-border">
+            {manualAbsences.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">입력된 결근이 없습니다.</div>
+            ) : (
+              <div className="divide-y divide-border">
+                {manualAbsences.map((row) => (
+                  <div key={row.id} className="grid grid-cols-[120px_1fr_auto] items-center gap-3 px-4 py-3 text-sm">
+                    <span className="font-mono text-slate-600">{row.date}</span>
+                    <div className="min-w-0">
+                      <div className="font-bold text-foreground">{row.name}</div>
+                      {row.memo && <div className="truncate text-xs text-muted-foreground">{row.memo}</div>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteAbsence(row.id)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-rose-50 hover:text-rose-700"
+                      aria-label={`${row.name} ${row.date} 결근 삭제`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 업로드 영역 */}
       {step === "idle" && (
