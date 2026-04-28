@@ -195,7 +195,7 @@ describe("processPayroll XML patching", () => {
     });
     expect(result.corrections[0].changes).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ reason: "총공수 25 초과 감산" }),
+        expect.objectContaining({ reason: "결근 총공수 감산" }),
       ])
     );
     expect(total).toBe(24);

@@ -531,7 +531,12 @@ export async function processPayroll(
 
           newValues[day - 1] = after;
           total = roundPayrollValue(total - reduction);
-          changes.push({ day, before: cur, after, reason: "총공수 25 초과 감산" });
+          const reason = manualAbsenceDays.size > 0
+            ? "결근 총공수 감산"
+            : unpaidDays.size > 0
+              ? "무급연차 총공수 감산"
+              : "총공수 25 초과 감산";
+          changes.push({ day, before: cur, after, reason });
         }
       }
 
