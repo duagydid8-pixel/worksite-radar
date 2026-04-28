@@ -14,11 +14,12 @@ import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOffic
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import HomePage from "@/components/HomePage";
+import PayrollPage from "@/components/PayrollPage";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
 
@@ -70,7 +71,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부";
+type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
 type AttendanceSubTab = "근태현황" | "연차현황";
 
 const ATTENDANCE_SUB_TABS: AttendanceSubTab[] = ["근태현황", "연차현황"];
@@ -107,6 +108,7 @@ const NAV_ADMIN: NavItem[] = [
   { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: true },
   { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: true },
   { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: true },
+  { key: "급여대장", label: "급여대장", icon: <BookText className="h-4 w-4" />, adminOnly: true },
 ];
 
 const NAV_SEMI_PUBLIC: NavItem[] = [
@@ -779,6 +781,11 @@ const Index = () => {
           {/* 지출결의서 */}
           {activeTab === "지출결의서" && isAdmin && (
             <ExpenseReportTab isAdmin={isAdmin} />
+          )}
+
+          {/* 급여대장 */}
+          {activeTab === "급여대장" && isAdmin && (
+            <PayrollPage />
           )}
 
         </main>
