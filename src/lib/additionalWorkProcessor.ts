@@ -35,6 +35,11 @@ export interface AdditionalWorkPayrollResult {
   unmatched: UnmatchedAdditionalWork[];
 }
 
+export interface PayrollEmployeeOption {
+  name: string;
+  jobTitle: string;
+}
+
 interface PayrollLayout {
   nameCol: number;
   jobTitleCol: number;
@@ -125,14 +130,84 @@ function aggregateEntries(entries: AdditionalWorkEntry[]): AdditionalWorkEntry[]
   return Array.from(byName.values());
 }
 
-export function parseAdditionalWorkText(text: string): AdditionalWorkEntry[] {
-  const rows: AdditionalWorkEntry[] = [];
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.replace(/[|:;]/g, " ").replace(/\s+/g, " ").trim())
+function cleanOcrCell(value: string): string {
+  return value
+    .replace(/[\[\]{}()]/g, " ")
+    .replace(/[ㆍ_~」=.]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseOcrUnit(text: string): number | null {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[,\]]/g, ".")
+    .replace(/\s+/g, " ");
+
+  if (/(^|[^0-9])2(?:\.00)?([^0-9]|$)/.test(normalized) || /200/.test(normalized)) return 2;
+  if (
+    /(^|[^0-9])1(?:\.00)?([^0-9]|$)/.test(normalized) ||
+    /100/.test(normalized) ||
+    /\b(?:roo|too|oof|roof|oo)\b/.test(normalized)
+  ) {
+    return 1;
+  }
+
+  return null;
+}
+
+function parseTableOcrLine(line: string): AdditionalWorkEntry | null {
+  if (!/[|ㅣ]/.test(line)) return null;
+
+  const parts = line
+    .split(/[|ㅣ]/)
+    .map(cleanOcrCell)
     .filter(Boolean);
 
-  for (const line of lines) {
+  let rowIndex = parts.findIndex((part) => /^\d{1,3}$/.test(part));
+  let name: string | undefined;
+  let trade: string | undefined;
+  let rest = "";
+
+  if (rowIndex >= 0) {
+    name = parts[rowIndex + 1];
+    trade = parts[rowIndex + 2];
+    rest = parts.slice(rowIndex + 3).join(" ");
+  } else {
+    const first = parts[0]?.match(/^(\d{1,3})\s+(.+)$/);
+    if (!first) return null;
+    rowIndex = 0;
+    name = first[2]?.trim();
+    trade = parts[1];
+    rest = parts.slice(2).join(" ");
+  }
+
+  if (!name || !trade) return null;
+  if (/^(이름|성명|공종|추가|no)$/i.test(name.replace(/\s+/g, ""))) return null;
+
+  const units = parseOcrUnit(rest || line);
+  if (!units) return null;
+
+  return {
+    name,
+    trade,
+    units,
+    sourceLine: line.trim(),
+  };
+}
+
+export function parseAdditionalWorkText(text: string): AdditionalWorkEntry[] {
+  const rows: AdditionalWorkEntry[] = [];
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
+  for (const rawLine of lines) {
+    const tableRow = parseTableOcrLine(rawLine);
+    if (tableRow) {
+      rows.push(tableRow);
+      continue;
+    }
+
+    const line = rawLine.replace(/[|:;]/g, " ").replace(/\s+/g, " ").trim();
     const compact = line.replace(/\s+/g, "");
     if (/^(이름|성명|공종|추가|NO|No|no)/.test(compact)) continue;
 
@@ -152,6 +227,33 @@ export function parseAdditionalWorkText(text: string): AdditionalWorkEntry[] {
     if (!trade) continue;
 
     rows.push({ name, trade, units, sourceLine: line });
+  }
+
+  return rows;
+}
+
+export function readPayrollEmployeeOptions(buffer: ArrayBuffer): PayrollEmployeeOption[] {
+  const wb = XLSX.read(buffer, { type: "array" });
+  const rows: PayrollEmployeeOption[] = [];
+  const seen = new Set<string>();
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    if (!ws) continue;
+    const layout = detectPayrollLayout(ws);
+    if (!layout) continue;
+
+    const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+    for (let r = layout.dataStartRow; r <= range.e.r; r++) {
+      const name = getCellText(ws, r, layout.nameCol);
+      const key = normalizeName(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      rows.push({
+        name,
+        jobTitle: getCellText(ws, r, layout.jobTitleCol),
+      });
+    }
   }
 
   return rows;

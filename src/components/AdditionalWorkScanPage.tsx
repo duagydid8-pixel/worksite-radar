@@ -5,8 +5,10 @@ import { toast } from "sonner";
 import {
   applyAdditionalWorkToPayroll,
   parseAdditionalWorkText,
+  readPayrollEmployeeOptions,
   type AdditionalWorkEntry,
   type AdditionalWorkPayrollResult,
+  type PayrollEmployeeOption,
 } from "@/lib/additionalWorkProcessor";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -22,6 +24,47 @@ function formatMoney(value: number): string {
 
 function makeDownloadName(fileName: string): string {
   return fileName.replace(/\.xlsx?$/i, "") + "_추가공수반영.xlsx";
+}
+
+function formatRowsForText(rows: AdditionalWorkEntry[]): string {
+  return rows.map((row) => `${row.name}\t${row.trade}\t${row.units.toFixed(2)}`).join("\n");
+}
+
+function preprocessCanvasForOcr(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = source.width;
+  canvas.height = source.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(source, 0, 0);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i < image.data.length; i += 4) {
+    const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+    const value = gray > 175 ? 255 : 0;
+    image.data[i] = value;
+    image.data[i + 1] = value;
+    image.data[i + 2] = value;
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+async function imageFileToCanvas(file: File): Promise<HTMLCanvasElement> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const scale = image.width < 2200 ? 2 : 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width * scale;
+    canvas.height = image.height * scale;
+    canvas.getContext("2d")!.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
@@ -47,12 +90,12 @@ async function renderPdfPages(buffer: ArrayBuffer): Promise<HTMLCanvasElement[]>
 
   for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
     const page = await pdf.getPage(pageNo);
-    const viewport = page.getViewport({ scale: 2.5 });
+    const viewport = page.getViewport({ scale: 4 });
     const canvas = document.createElement("canvas");
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
-    canvases.push(canvas);
+    canvases.push(preprocessCanvasForOcr(canvas));
   }
 
   return canvases;
@@ -66,16 +109,17 @@ export default function AdditionalWorkScanPage() {
   const [payrollFileName, setPayrollFileName] = useState("");
   const [payrollBuffer, setPayrollBuffer] = useState<ArrayBuffer | null>(null);
   const [rawText, setRawText] = useState("");
+  const [draftRows, setDraftRows] = useState<AdditionalWorkEntry[]>([]);
+  const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployeeOption[]>([]);
   const [ocrMessage, setOcrMessage] = useState("");
   const [outputBuffer, setOutputBuffer] = useState<ArrayBuffer | null>(null);
   const [result, setResult] = useState<AdditionalWorkPayrollResult | null>(null);
 
-  const parsedRows = useMemo(() => parseAdditionalWorkText(rawText), [rawText]);
-  const totalUnits = useMemo(() => parsedRows.reduce((sum, row) => sum + row.units, 0), [parsedRows]);
+  const totalUnits = useMemo(() => draftRows.reduce((sum, row) => sum + row.units, 0), [draftRows]);
 
   const recognizeImage = useCallback(async (image: File | HTMLCanvasElement): Promise<string> => {
-    const { recognize } = await import("tesseract.js");
-    const recognized = await recognize(image as any, "kor+eng", {
+    const { createWorker, PSM } = await import("tesseract.js");
+    const worker = await createWorker("kor+eng", 1, {
       logger: (message: any) => {
         if (message?.status) {
           const pct = Number.isFinite(message.progress) ? ` ${Math.round(message.progress * 100)}%` : "";
@@ -83,13 +127,24 @@ export default function AdditionalWorkScanPage() {
         }
       },
     } as any);
-    return recognized.data.text;
+    try {
+      await worker.setParameters({
+        tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+        preserve_interword_spaces: "1",
+        user_defined_dpi: "300",
+      } as any);
+      const recognized = await worker.recognize(image as any);
+      return recognized.data.text;
+    } finally {
+      await worker.terminate();
+    }
   }, []);
 
   const extractScanFile = useCallback(async (file: File) => {
     setStep("extracting");
     setScanFileName(file.name);
     setRawText("");
+    setDraftRows([]);
     setResult(null);
     setOutputBuffer(null);
     setOcrMessage("파일 읽는 중");
@@ -114,16 +169,19 @@ export default function AdditionalWorkScanPage() {
         }
       } else if (file.type.startsWith("image/")) {
         setOcrMessage("OCR 준비 중");
-        text = await recognizeImage(file);
+        const canvas = preprocessCanvasForOcr(await imageFileToCanvas(file));
+        text = await recognizeImage(canvas);
       } else {
         toast.error("PDF 또는 이미지 파일만 업로드할 수 있습니다.");
         setStep(rawText ? "ready" : "idle");
         return;
       }
 
-      setRawText(text.trim());
+      const rows = parseAdditionalWorkText(text);
+      setDraftRows(rows);
+      setRawText(formatRowsForText(rows));
       setStep("ready");
-      const count = parseAdditionalWorkText(text).length;
+      const count = rows.length;
       if (count === 0) toast.warning("자동으로 읽은 행이 없습니다. 텍스트를 직접 수정해서 다시 확인해 주세요.");
       else toast.success(`${count}건의 추가공수 행을 읽었습니다.`);
     } catch (err: any) {
@@ -149,8 +207,10 @@ export default function AdditionalWorkScanPage() {
       return;
     }
 
+    const buffer = await file.arrayBuffer();
     setPayrollFileName(file.name);
-    setPayrollBuffer(await file.arrayBuffer());
+    setPayrollBuffer(buffer);
+    setPayrollEmployees(readPayrollEmployeeOptions(buffer));
     setResult(null);
     setOutputBuffer(null);
     toast.success("급여대장을 불러왔습니다.");
@@ -161,14 +221,14 @@ export default function AdditionalWorkScanPage() {
       toast.error("급여대장 엑셀을 먼저 업로드해 주세요.");
       return;
     }
-    if (parsedRows.length === 0) {
+    if (draftRows.length === 0) {
       toast.error("반영할 추가공수 행이 없습니다.");
       return;
     }
 
     setStep("applying");
     try {
-      const nextResult = await applyAdditionalWorkToPayroll(payrollBuffer, parsedRows);
+      const nextResult = await applyAdditionalWorkToPayroll(payrollBuffer, draftRows);
       setResult(nextResult);
       setOutputBuffer(nextResult.outputBuffer);
       setStep("done");
@@ -177,7 +237,7 @@ export default function AdditionalWorkScanPage() {
       toast.error(err?.message || "급여대장 반영 중 오류가 발생했습니다.");
       setStep("ready");
     }
-  }, [parsedRows, payrollBuffer, payrollFileName]);
+  }, [draftRows, payrollBuffer, payrollFileName]);
 
   const handleDownload = useCallback(() => {
     if (!outputBuffer || !payrollFileName) return;
@@ -194,9 +254,38 @@ export default function AdditionalWorkScanPage() {
 
   const handleClearText = useCallback(() => {
     setRawText("");
+    setDraftRows([]);
     setResult(null);
     setOutputBuffer(null);
     setStep("idle");
+  }, []);
+
+  const handleNeededTextChange = useCallback((value: string) => {
+    setRawText(value);
+    setDraftRows(parseAdditionalWorkText(value));
+    setResult(null);
+    setOutputBuffer(null);
+    if (value.trim()) setStep("ready");
+  }, []);
+
+  const updateDraftRow = useCallback((index: number, patch: Partial<AdditionalWorkEntry>) => {
+    setDraftRows((rows) => {
+      const next = rows.map((row, i) => i === index ? { ...row, ...patch } : row);
+      setRawText(formatRowsForText(next));
+      return next;
+    });
+    setResult(null);
+    setOutputBuffer(null);
+  }, []);
+
+  const deleteDraftRow = useCallback((index: number) => {
+    setDraftRows((rows) => {
+      const next = rows.filter((_, i) => i !== index);
+      setRawText(formatRowsForText(next));
+      return next;
+    });
+    setResult(null);
+    setOutputBuffer(null);
   }, []);
 
   return (
@@ -239,8 +328,8 @@ export default function AdditionalWorkScanPage() {
         <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
             <div>
-              <h3 className="text-sm font-extrabold text-slate-950">추출 텍스트</h3>
-              <p className="text-xs font-semibold text-slate-500">{scanFileName || "스캔본을 업로드하면 여기에 텍스트가 표시됩니다."}</p>
+              <h3 className="text-sm font-extrabold text-slate-950">필요 항목만 추출</h3>
+              <p className="text-xs font-semibold text-slate-500">{scanFileName || "이름, 공종, 추가요청공수만 표시됩니다."}</p>
             </div>
             {rawText && (
               <button
@@ -263,12 +352,7 @@ export default function AdditionalWorkScanPage() {
             ) : (
               <textarea
                 value={rawText}
-                onChange={(event) => {
-                  setRawText(event.target.value);
-                  setResult(null);
-                  setOutputBuffer(null);
-                  if (event.target.value.trim()) setStep("ready");
-                }}
+                onChange={(event) => handleNeededTextChange(event.target.value)}
                 placeholder={"예)\n송승석 공구장 1.00\n정회옥 유도원 1.00\n유진환 신호수 2.00"}
                 className="h-[420px] w-full resize-none rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-sm leading-6 text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-300 focus:bg-white"
               />
@@ -286,7 +370,7 @@ export default function AdditionalWorkScanPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg bg-slate-50 p-3">
                   <div className="text-[11px] font-extrabold text-slate-400">추출 행</div>
-                  <div className="mt-1 text-xl font-extrabold text-slate-950">{parsedRows.length}건</div>
+                  <div className="mt-1 text-xl font-extrabold text-slate-950">{draftRows.length}건</div>
                 </div>
                 <div className="rounded-lg bg-slate-50 p-3">
                   <div className="text-[11px] font-extrabold text-slate-400">총 추가공수</div>
@@ -296,7 +380,7 @@ export default function AdditionalWorkScanPage() {
               <button
                 type="button"
                 onClick={handleApply}
-                disabled={!payrollBuffer || parsedRows.length === 0 || step === "extracting" || step === "applying"}
+                disabled={!payrollBuffer || draftRows.length === 0 || step === "extracting" || step === "applying"}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white transition-colors hover:bg-slate-700 disabled:opacity-45"
               >
                 {step === "applying" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
@@ -320,7 +404,7 @@ export default function AdditionalWorkScanPage() {
               <h3 className="text-sm font-extrabold text-slate-950">추출 행 미리보기</h3>
             </div>
             <div className="max-h-[320px] overflow-auto">
-              {parsedRows.length === 0 ? (
+              {draftRows.length === 0 ? (
                 <div className="p-6 text-center text-xs font-semibold text-slate-400">읽은 행이 없습니다.</div>
               ) : (
                 <table className="w-full text-sm">
@@ -329,19 +413,59 @@ export default function AdditionalWorkScanPage() {
                       <th className="px-3 py-2 text-left">이름</th>
                       <th className="px-3 py-2 text-left">공종</th>
                       <th className="px-3 py-2 text-right">공수</th>
+                      <th className="w-10 px-2 py-2"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {parsedRows.map((row: AdditionalWorkEntry, index) => (
+                    {draftRows.map((row: AdditionalWorkEntry, index) => (
                       <tr key={`${row.name}-${row.trade}-${index}`}>
-                        <td className="px-3 py-2 font-bold text-slate-900">{row.name}</td>
-                        <td className="px-3 py-2 text-slate-600">{row.trade}</td>
-                        <td className="px-3 py-2 text-right font-mono text-slate-900">{row.units.toFixed(2)}</td>
+                        <td className="px-2 py-2">
+                          <input
+                            value={row.name}
+                            list="payroll-employee-options"
+                            onChange={(event) => updateDraftRow(index, { name: event.target.value })}
+                            className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-sm font-bold text-slate-900 outline-none focus:border-slate-400"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            value={row.trade}
+                            onChange={(event) => updateDraftRow(index, { trade: event.target.value })}
+                            className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.125"
+                            value={row.units}
+                            onChange={(event) => updateDraftRow(index, { units: Number(event.target.value) || 0 })}
+                            className="h-8 w-20 rounded-md border border-slate-200 bg-white px-2 text-right font-mono text-sm text-slate-900 outline-none focus:border-slate-400"
+                          />
+                        </td>
+                        <td className="px-2 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => deleteDraftRow(index)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-700"
+                            aria-label={`${row.name} 삭제`}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
+              <datalist id="payroll-employee-options">
+                {payrollEmployees.map((employee) => (
+                  <option key={`${employee.name}-${employee.jobTitle}`} value={employee.name}>
+                    {employee.jobTitle}
+                  </option>
+                ))}
+              </datalist>
             </div>
           </section>
         </aside>

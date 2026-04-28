@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import { applyAdditionalWorkToPayroll, parseAdditionalWorkText } from "./additionalWorkProcessor";
+import { applyAdditionalWorkToPayroll, parseAdditionalWorkText, readPayrollEmployeeOptions } from "./additionalWorkProcessor";
 
 function makePayrollBuffer(options: { expense2?: number; salary?: number } = {}): ArrayBuffer {
   const ws: XLSX.WorkSheet = {};
@@ -38,6 +38,20 @@ describe("additional work processor", () => {
     expect(rows).toEqual([
       { name: "송승석", trade: "공구장", units: 1, sourceLine: "송승석 공구장 1.00" },
       { name: "정회옥", trade: "유도원", units: 0.5, sourceLine: "정회옥 유도원 0.50" },
+    ]);
+  });
+
+  it("parses noisy OCR table rows even when the unit is not the last token", () => {
+    const rows = parseAdditionalWorkText(`
+      | 2 | mas | 유도원 | 2026.03-30 ㅣ 100] 26년4월 | @masstzs _ | = |
+      | 6 | 이상민 | 신호수 | 202603-30 ㅣ roo] ded ㅣ 3윙 만근 추가 공수 및 공정관리보조 _ㅎ | 무 |
+      | 5 | sue | 신호수 | 202603-30 ㅣ 200] 26년4월 | 3웹 만근 추가 공수 및 공정관리보조 _ㅎ | 무 |
+    `);
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "mas", trade: "유도원", units: 1 }),
+      expect.objectContaining({ name: "이상민", trade: "신호수", units: 1 }),
+      expect.objectContaining({ name: "sue", trade: "신호수", units: 2 }),
     ]);
   });
 
@@ -81,6 +95,13 @@ describe("additional work processor", () => {
     expect(result.applied).toHaveLength(0);
     expect(result.unmatched).toEqual([
       { name: "없는사람", trade: "배관", units: 1, reason: "급여대장에서 이름을 찾지 못했습니다." },
+    ]);
+  });
+
+  it("reads payroll employee names for manual OCR correction", () => {
+    expect(readPayrollEmployeeOptions(makePayrollBuffer())).toEqual([
+      { name: "송승석", jobTitle: "배관공" },
+      { name: "정회옥", jobTitle: "화기/유도원" },
     ]);
   });
 });
