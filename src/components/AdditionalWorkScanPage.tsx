@@ -169,6 +169,7 @@ export default function AdditionalWorkScanPage() {
   const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployeeOption[]>([]);
   const [technicalIdentities, setTechnicalIdentities] = useState<TechnicalIdentity[]>([]);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [customGeminiKey, setCustomGeminiKey] = useState(() => localStorage.getItem("additional_work_gemini_key") ?? "");
   const [ocrMessage, setOcrMessage] = useState("");
   const [outputBuffer, setOutputBuffer] = useState<ArrayBuffer | null>(null);
   const [result, setResult] = useState<AdditionalWorkPayrollResult | null>(null);
@@ -227,16 +228,18 @@ export default function AdditionalWorkScanPage() {
     }
   }, []);
 
+  const hasVisionKey = hasGeminiKey() || customGeminiKey.trim().length > 0;
+
   const extractWithVision = useCallback(async (canvas: HTMLCanvasElement): Promise<AdditionalWorkEntry[]> => {
-    if (!hasGeminiKey()) return [];
-    const rows = await analyzeAdditionalWorkImage(canvasToBase64(canvas), "image/png");
+    if (!hasVisionKey) return [];
+    const rows = await analyzeAdditionalWorkImage(canvasToBase64(canvas), "image/png", customGeminiKey);
     return rows.map((row) => ({
       name: row.name,
       trade: row.trade,
       units: row.units,
       sourceLine: `${row.name} ${row.trade} ${row.units}`,
     }));
-  }, []);
+  }, [customGeminiKey, hasVisionKey]);
 
   const extractScanFile = useCallback(async (file: File) => {
     setStep("extracting");
@@ -260,7 +263,7 @@ export default function AdditionalWorkScanPage() {
           const canvases = await renderPdfPages(buffer);
           const visionRows: AdditionalWorkEntry[] = [];
 
-          if (hasGeminiKey()) {
+          if (hasVisionKey) {
             try {
               for (let i = 0; i < canvases.length; i++) {
                 setOcrMessage(`AI 추출 ${i + 1}/${canvases.length}`);
@@ -289,7 +292,7 @@ export default function AdditionalWorkScanPage() {
         }
       } else if (file.type.startsWith("image/")) {
         const canvas = preprocessCanvasForOcr(await imageFileToCanvas(file));
-        if (hasGeminiKey()) {
+        if (hasVisionKey) {
           try {
             setOcrMessage("AI 추출 중");
             const rows = await extractWithVision(canvas);
@@ -326,7 +329,7 @@ export default function AdditionalWorkScanPage() {
     } finally {
       setOcrMessage("");
     }
-  }, [rawText, recognizeImage, extractWithVision]);
+  }, [rawText, recognizeImage, extractWithVision, hasVisionKey]);
 
   const handleScanChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -399,6 +402,12 @@ export default function AdditionalWorkScanPage() {
     setResult(null);
     setOutputBuffer(null);
     setStep("idle");
+  }, []);
+
+  const handleGeminiKeyChange = useCallback((value: string) => {
+    setCustomGeminiKey(value);
+    if (value.trim()) localStorage.setItem("additional_work_gemini_key", value.trim());
+    else localStorage.removeItem("additional_work_gemini_key");
   }, []);
 
   const handleNeededTextChange = useCallback((value: string) => {
@@ -503,6 +512,16 @@ export default function AdditionalWorkScanPage() {
             <h2 className="text-base font-extrabold text-slate-950">추가공수 스캔본 추출</h2>
             <p className="text-xs font-semibold text-slate-500">스캔본의 이름, 공종, 추가요청공수를 읽어서 급여대장 경비(2)에 반영</p>
           </div>
+        </div>
+        <div className="w-full md:w-[360px]">
+          <label className="block text-[11px] font-extrabold text-slate-400">AI 추출용 Gemini API 키</label>
+          <input
+            type="password"
+            value={customGeminiKey}
+            onChange={(event) => handleGeminiKeyChange(event.target.value)}
+            placeholder="기본 키 한도 초과 시 새 키 입력"
+            className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
+          />
         </div>
         <div className="flex flex-wrap gap-2">
           <button

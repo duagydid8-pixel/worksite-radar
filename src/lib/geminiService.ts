@@ -13,8 +13,8 @@ export interface GeminiAdditionalWorkEntry {
 
 const MODEL = "gemini-2.0-flash-lite";
 
-function getApiKey(): string {
-  const key = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
+function getApiKey(overrideKey?: string): string {
+  const key = overrideKey?.trim() || import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
   if (!key) throw new Error("VITE_GEMINI_API_KEY 환경변수가 설정되지 않았습니다.");
   return key;
 }
@@ -112,9 +112,10 @@ export function parseAdditionalWorkGeminiJson(rawText: string): GeminiAdditional
 
 export async function analyzeAdditionalWorkImage(
   base64Data: string,
-  mimeType: string
+  mimeType: string,
+  apiKeyOverride?: string
 ): Promise<GeminiAdditionalWorkEntry[]> {
-  const key = getApiKey();
+  const key = getApiKey(apiKeyOverride);
   const url = `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${key}`;
 
   const prompt = `이 이미지는 건설현장 추가공수 요청 및 확인서 스캔본입니다.
