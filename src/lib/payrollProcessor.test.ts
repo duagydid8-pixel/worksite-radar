@@ -160,4 +160,44 @@ describe("processPayroll XML patching", () => {
     expect(result.corrections[0].totalAfter).toBe(24);
     expect(outputWs["S7"]?.v).toBe(0);
   });
+
+  it("deducts manual absence from the total even when the absence date cell is already blank", async () => {
+    const dayValues = Object.fromEntries(
+      Array.from({ length: 26 }, (_, i) => [i + 1, 1]).filter(([day]) => day !== 3)
+    );
+    const employees: Employee[] = [makeEmployee(makePresentRecords(Array.from({ length: 26 }, (_, i) => i + 1)))];
+    const manualAbsences = [
+      { id: "abs-1", date: "2026-04-03", name: "홍 길동", memo: "", createdAt: "2026-04-28T00:00:00.000Z" },
+    ];
+
+    const result = await processPayroll(
+      makePayrollWorkbookBuffer(dayValues),
+      {},
+      [],
+      employees,
+      null,
+      manualAbsences
+    );
+    const outputWb = XLSX.read(result.outputBuffer, { type: "array" });
+    const outputWs = outputWb.Sheets["P4 초순수_P4-PJT Ph4(216명)_Field"];
+    const total = Array.from({ length: 26 }, (_, i) => {
+      const day = i + 1;
+      return Number(outputWs[XLSX.utils.encode_cell({ r: 6, c: 16 + (day - 1) })]?.v ?? 0);
+    }).reduce((sum, value) => sum + value, 0);
+
+    expect(result.corrections[0].totalBefore).toBe(25);
+    expect(result.corrections[0].totalAfter).toBe(24);
+    expect(result.corrections[0].changes).toContainEqual({
+      day: 3,
+      before: 0,
+      after: 0,
+      reason: "결근(수동입력)",
+    });
+    expect(result.corrections[0].changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reason: "총공수 25 초과 감산" }),
+      ])
+    );
+    expect(total).toBe(24);
+  });
 });

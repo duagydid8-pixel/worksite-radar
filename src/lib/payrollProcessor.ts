@@ -13,6 +13,10 @@ function toDateStr(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function normalizeName(name: string): string {
+  return name.replace(/\s+/g, "").trim();
+}
+
 function isSiteClosure(dateStr: string, schedule: ScheduleData | null): boolean {
   if (!schedule) return false;
   const daySchedule = schedule.schedule[dateStr];
@@ -91,13 +95,13 @@ function buildLeaveLookup(
   const lookup: Record<string, Set<string>> = {};
 
   for (const [name, dates] of Object.entries(annualLeaveMap)) {
-    const key = name.trim();
+    const key = normalizeName(name);
     if (!lookup[key]) lookup[key] = new Set();
     for (const dateKey of Object.keys(dates)) lookup[key].add(dateKey);
   }
 
   for (const d of leaveDetails) {
-    const key = d.name.trim();
+    const key = normalizeName(d.name);
     if (!lookup[key]) lookup[key] = new Set();
     lookup[key].add(`${d.year}|${d.month}|${d.day}`);
   }
@@ -111,7 +115,7 @@ function buildAbsenceMap(employees: Employee[]): Record<string, Set<string>> {
   for (const emp of employees) {
     for (const [dateKey, rec] of Object.entries(emp.dailyRecords)) {
       if (rec.status !== "결근") continue;
-      const norm = emp.name.trim();
+      const norm = normalizeName(emp.name);
       if (!map[norm]) map[norm] = new Set();
       // dateKey: "YYYY-M-D" → "YYYY|M|D"
       const parts = dateKey.split("-");
@@ -126,7 +130,7 @@ function buildAbsenceMap(employees: Employee[]): Record<string, Set<string>> {
 function buildManualAbsenceMap(absences: ManualAbsence[]): Record<string, Set<string>> {
   const map: Record<string, Set<string>> = {};
   for (const absence of absences) {
-    const name = absence.name.trim();
+    const name = normalizeName(absence.name);
     if (!name) continue;
 
     const m = absence.date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -141,7 +145,7 @@ function buildManualAbsenceMap(absences: ManualAbsence[]): Record<string, Set<st
 function buildEmployeeLookup(employees: Employee[]): Map<string, Employee> {
   const map = new Map<string, Employee>();
   for (const emp of employees) {
-    const name = emp.name.trim();
+    const name = normalizeName(emp.name);
     if (!name || map.has(name)) continue;
     map.set(name, emp);
   }
@@ -377,7 +381,7 @@ export async function processPayroll(
       if (!jobTitle || !name) continue;
       if (!isMonthlyWorker(jobTitle)) continue;
 
-      const normName = name.trim();
+      const normName = normalizeName(name);
 
       const dayValues: number[] = [];
       for (let day = 1; day <= 31; day++) {
@@ -391,7 +395,6 @@ export async function processPayroll(
       const manualAbsenceDays = new Set<number>();
 
       for (let day = 1; day <= daysInMonth; day++) {
-        if (dayValues[day - 1] <= 0) continue;
         const absenceKey = `${year}|${month}|${day}`;
         if (!manualAbsenceMap[normName]?.has(absenceKey)) continue;
         manualAbsenceDays.add(day);
@@ -414,7 +417,12 @@ export async function processPayroll(
       // ── Step 0: 수동 결근 및 근태현황 미타각/결근은 공수 차감 ───
       for (const day of unpaidDays) {
         const before = newValues[day - 1];
-        if (before <= 0) continue;
+        if (before <= 0) {
+          if (manualAbsenceDays.has(day)) {
+            changes.push({ day, before, after: 0, reason: "결근(수동입력)" });
+          }
+          continue;
+        }
 
         newValues[day - 1] = 0;
         changes.push({
