@@ -52,14 +52,16 @@ function detectLayout(ws: XLSX.WorkSheet): SheetLayout | null {
         const colName = c + 1;
         for (let dr = 1; dr <= 5; dr++) {
           const dayRow = r + dr;
-          for (let dc = 0; dc <= range.e.c; dc++) {
-            if (
-              getCellText(ws, dayRow, dc) === "1" &&
-              getCellText(ws, dayRow, dc + 1) === "2" &&
-              getCellText(ws, dayRow, dc + 2) === "3"
-            ) {
-              return { headerRow: r, dayRow, dataStartRow: dayRow + 1, colJobTitle, colName, colDayStart: dc };
-            }
+          for (let dc = 0; dc <= range.e.c - 2; dc++) {
+            const v0 = parseInt(getCellText(ws, dayRow, dc));
+            const v1 = parseInt(getCellText(ws, dayRow, dc + 1));
+            const v2 = parseInt(getCellText(ws, dayRow, dc + 2));
+            if (isNaN(v0) || isNaN(v1) || isNaN(v2)) continue;
+            if (v1 !== v0 + 1 || v2 !== v0 + 2) continue;
+            if (v0 < 1 || v0 > 29) continue; // must be plausible day numbers
+            const colDayStart = dc - (v0 - 1); // extrapolate column for day 1
+            if (colDayStart <= colName) continue; // day cols must be after name col
+            return { headerRow: r, dayRow, dataStartRow: dayRow + 1, colJobTitle, colName, colDayStart };
           }
         }
       }
@@ -378,6 +380,18 @@ export async function processPayroll(
     if (!xmlContent) continue;
 
     zip.file(xmlPath, modifySheetXml(xmlContent, cellChanges));
+  }
+
+  // calcChain 제거 → Excel이 열릴 때 수식 전체 재계산
+  zip.remove("xl/calcChain.xml");
+
+  // workbook.xml에 fullCalcOnLoad 설정
+  const wbXmlContent = await zip.file("xl/workbook.xml")?.async("string");
+  if (wbXmlContent) {
+    const patched = wbXmlContent.replace(/<calcPr([^/]*)\/>/,
+      (_, attrs) => `<calcPr${attrs} fullCalcOnLoad="1"/>`
+    ).replace(/<calcPr([^/]*[^/])>/, (_, attrs) => `<calcPr${attrs} fullCalcOnLoad="1">`);
+    zip.file("xl/workbook.xml", patched);
   }
 
   const outputBuffer = await zip.generateAsync({
