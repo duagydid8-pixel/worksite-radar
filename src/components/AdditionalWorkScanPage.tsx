@@ -11,6 +11,7 @@ import {
   type PayrollEmployeeOption,
 } from "@/lib/additionalWorkProcessor";
 import { loadEmployeesPH2FS, loadEmployeesPH4FS } from "@/lib/firestoreService";
+import { analyzeAdditionalWorkImage, hasGeminiKey } from "@/lib/geminiService";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -38,6 +39,10 @@ function makeDownloadName(fileName: string): string {
 
 function formatRowsForText(rows: AdditionalWorkEntry[]): string {
   return rows.map((row) => `${row.name}\t${row.trade}\t${row.units.toFixed(2)}`).join("\n");
+}
+
+function canvasToBase64(canvas: HTMLCanvasElement, mimeType = "image/png"): string {
+  return canvas.toDataURL(mimeType).split(",")[1] ?? "";
 }
 
 function normalizeName(name: string): string {
@@ -222,6 +227,17 @@ export default function AdditionalWorkScanPage() {
     }
   }, []);
 
+  const extractWithVision = useCallback(async (canvas: HTMLCanvasElement): Promise<AdditionalWorkEntry[]> => {
+    if (!hasGeminiKey()) return [];
+    const rows = await analyzeAdditionalWorkImage(canvasToBase64(canvas), "image/png");
+    return rows.map((row) => ({
+      name: row.name,
+      trade: row.trade,
+      units: row.units,
+      sourceLine: `${row.name} ${row.trade} ${row.units}`,
+    }));
+  }, []);
+
   const extractScanFile = useCallback(async (file: File) => {
     setStep("extracting");
     setScanFileName(file.name);
@@ -242,16 +258,54 @@ export default function AdditionalWorkScanPage() {
           text = embeddedText;
         } else {
           const canvases = await renderPdfPages(buffer);
+          const visionRows: AdditionalWorkEntry[] = [];
+
+          if (hasGeminiKey()) {
+            try {
+              for (let i = 0; i < canvases.length; i++) {
+                setOcrMessage(`AI 추출 ${i + 1}/${canvases.length}`);
+                visionRows.push(...await extractWithVision(canvases[i]));
+              }
+            } catch (visionError: any) {
+              toast.warning(visionError?.message || "AI 추출에 실패해서 OCR로 다시 시도합니다.");
+            }
+          }
+
+          if (visionRows.length > 0) {
+            const rows = visionRows;
+            setDraftRows(rows);
+            setRawText(formatRowsForText(rows));
+            setStep("ready");
+            toast.success(`${rows.length}건의 추가공수 행을 AI로 추출했습니다.`);
+            return;
+          }
+
           const ocrTexts: string[] = [];
           for (let i = 0; i < canvases.length; i++) {
-            setOcrMessage(`OCR ${i + 1}/${canvases.length}`);
+            setOcrMessage(`OCR 예비 추출 ${i + 1}/${canvases.length}`);
             ocrTexts.push(await recognizeImage(canvases[i]));
           }
           text = ocrTexts.join("\n");
         }
       } else if (file.type.startsWith("image/")) {
-        setOcrMessage("OCR 준비 중");
         const canvas = preprocessCanvasForOcr(await imageFileToCanvas(file));
+        if (hasGeminiKey()) {
+          try {
+            setOcrMessage("AI 추출 중");
+            const rows = await extractWithVision(canvas);
+            if (rows.length > 0) {
+              setDraftRows(rows);
+              setRawText(formatRowsForText(rows));
+              setStep("ready");
+              toast.success(`${rows.length}건의 추가공수 행을 AI로 추출했습니다.`);
+              return;
+            }
+          } catch (visionError: any) {
+            toast.warning(visionError?.message || "AI 추출에 실패해서 OCR로 다시 시도합니다.");
+          }
+        }
+
+        setOcrMessage("OCR 예비 추출 중");
         text = await recognizeImage(canvas);
       } else {
         toast.error("PDF 또는 이미지 파일만 업로드할 수 있습니다.");
@@ -272,7 +326,7 @@ export default function AdditionalWorkScanPage() {
     } finally {
       setOcrMessage("");
     }
-  }, [rawText, recognizeImage]);
+  }, [rawText, recognizeImage, extractWithVision]);
 
   const handleScanChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];

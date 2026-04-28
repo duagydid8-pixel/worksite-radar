@@ -5,6 +5,12 @@ export interface ScheduleData {
   uploadedAt: string;
 }
 
+export interface GeminiAdditionalWorkEntry {
+  name: string;
+  trade: string;
+  units: number;
+}
+
 const MODEL = "gemini-2.0-flash-lite";
 
 function getApiKey(): string {
@@ -80,6 +86,84 @@ export async function analyzeScheduleImage(base64Data: string, mimeType: string)
     schedule: parsed.schedule,
     uploadedAt: new Date().toISOString(),
   };
+}
+
+export function parseAdditionalWorkGeminiJson(rawText: string): GeminiAdditionalWorkEntry[] {
+  let jsonStr = rawText.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "");
+  const match = jsonStr.match(/\{[\s\S]*\}/);
+  if (match) jsonStr = match[0];
+
+  const parsed = JSON.parse(jsonStr) as { rows?: unknown[] };
+  if (!Array.isArray(parsed.rows)) throw new Error("추가공수 추출 결과 형식이 올바르지 않습니다.");
+
+  return parsed.rows
+    .map((row) => {
+      const item = row as Record<string, unknown>;
+      const name = String(item.name ?? item.이름 ?? "").trim();
+      const trade = String(item.trade ?? item.공종 ?? "").trim();
+      const unitsRaw = item.units ?? item.추가요청공수 ?? item.공수;
+      const units = typeof unitsRaw === "number"
+        ? unitsRaw
+        : Number(String(unitsRaw ?? "").replace(",", ".").replace(/[^0-9.]/g, ""));
+      return { name, trade, units };
+    })
+    .filter((row) => row.name && row.trade && Number.isFinite(row.units) && row.units > 0);
+}
+
+export async function analyzeAdditionalWorkImage(
+  base64Data: string,
+  mimeType: string
+): Promise<GeminiAdditionalWorkEntry[]> {
+  const key = getApiKey();
+  const url = `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent?key=${key}`;
+
+  const prompt = `이 이미지는 건설현장 추가공수 요청 및 확인서 스캔본입니다.
+표에서 필요한 항목만 추출하세요.
+
+추출할 항목:
+- 이름
+- 공종
+- 추가요청공수
+
+반드시 아래 JSON 형식으로만 응답하세요. 설명, 원문 전체, 제목, 작성자, 날짜, 사유, 비고, 특이사항은 절대 포함하지 마세요.
+{
+  "rows": [
+    { "name": "송승석", "trade": "공구장", "units": 1.0 }
+  ]
+}
+
+규칙:
+- 표 본문 행만 추출합니다.
+- 추가요청공수는 숫자로 반환합니다. 100 또는 1.00은 1.0, 200 또는 2.00은 2.0입니다.
+- 이름이 희미해도 성명/이름 칸의 한글 이름을 최대한 읽습니다.
+- 공종 예시는 공구장, 유도원, 신호수, 도비, 배관, 조공, 용접, PE, 배관-PP 등입니다.
+- 같은 사람이 여러 줄이면 rows에 각각 넣지 말고 이름별로 공수를 합산해서 1줄로 반환합니다.
+- 표 밖의 특이사항 문장은 무시합니다.`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ inlineData: { mimeType, data: base64Data } }, { text: prompt }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 4096 },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    const msg = (() => { try { return JSON.parse(errText)?.error?.message ?? errText; } catch { return errText; } })();
+    throw new Error(`Gemini 추가공수 추출 오류 (${res.status}): ${msg.slice(0, 300)}`);
+  }
+
+  const result = await res.json();
+  const rawText: string = result.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  if (!rawText) throw new Error("Gemini 응답이 비어있습니다. 스캔본을 확인하거나 다시 시도해 주세요.");
+
+  try {
+    return parseAdditionalWorkGeminiJson(rawText);
+  } catch {
+    throw new Error("Gemini 추가공수 추출 결과를 파싱할 수 없습니다.");
+  }
 }
 
 export function fileToBase64(file: File): Promise<string> {
