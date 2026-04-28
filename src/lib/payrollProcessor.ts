@@ -122,6 +122,38 @@ function buildAbsenceMap(employees: Employee[]): Record<string, Set<string>> {
   return map;
 }
 
+function buildEmployeeLookup(employees: Employee[]): Map<string, Employee> {
+  const map = new Map<string, Employee>();
+  for (const emp of employees) {
+    const name = emp.name.trim();
+    if (!name || map.has(name)) continue;
+    map.set(name, emp);
+  }
+  return map;
+}
+
+function isPayrollWorkday(year: number, month: number, day: number, schedule: ScheduleData | null): boolean {
+  const dow = new Date(year, month - 1, day).getDay();
+  if (dow === 0 || dow === 6) return false;
+  if (isKoreanHoliday(year, month, day)) return false;
+  if (isSiteClosure(toDateStr(year, month, day), schedule)) return false;
+  return true;
+}
+
+function isAttendanceNoCheck(emp: Employee, year: number, month: number, day: number): boolean {
+  const rec = emp.dailyRecords[`${year}-${month}-${day}`];
+  if (rec?.status === "결근") return true;
+  if (!rec) return true;
+  if (!rec.punchIn && !rec.punchOut) return true;
+  if (!rec.punchIn) return true;
+  if (!rec.punchOut && emp.team !== "한성_F") return true;
+  return false;
+}
+
+function roundPayrollValue(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
 // ── JSZip 기반 원본 XML 패치 (서식·조건부서식·테두리·셀병합 100% 보존) ──
 
 async function getSheetXmlPaths(zip: JSZip): Promise<Map<string, string>> {
@@ -282,6 +314,7 @@ export async function processPayroll(
 
   const leaveLookup = buildLeaveLookup(annualLeaveMap, leaveDetails);
   const absenceMap = buildAbsenceMap(employees);
+  const employeeLookup = buildEmployeeLookup(employees);
 
   const corrections: PayrollCorrection[] = [];
   let year = 0;
@@ -335,10 +368,35 @@ export async function processPayroll(
 
       const changes: { day: number; before: number; after: number; reason: string }[] = [];
       const newValues = [...dayValues];
+      const employee = employeeLookup.get(normName);
+      const unpaidDays = new Set<number>();
+
+      if (employee) {
+        for (let day = 1; day <= daysInMonth; day++) {
+          if (dayValues[day - 1] <= 0) continue;
+          if (!isPayrollWorkday(year, month, day, schedule)) continue;
+
+          const leaveKey = `${year}|${month}|${day}`;
+          if (leaveLookup[normName]?.has(leaveKey)) continue;
+          if (!isAttendanceNoCheck(employee, year, month, day)) continue;
+
+          unpaidDays.add(day);
+        }
+      }
+
+      // ── Step 0: 근태현황 미타각/결근은 무급연차로 공수 차감 ─────
+      for (const day of unpaidDays) {
+        const before = newValues[day - 1];
+        if (before <= 0) continue;
+
+        newValues[day - 1] = 0;
+        changes.push({ day, before, after: 0, reason: "무급연차(미타각)" });
+      }
 
       // ── Step 1: 연차 날짜 0 → 1 ──────────────────────────────
       for (let day = 1; day <= daysInMonth; day++) {
         if (newValues[day - 1] !== 0) continue;
+        if (unpaidDays.has(day)) continue;
 
         const leaveKey = `${year}|${month}|${day}`;
         if (!leaveLookup[normName]?.has(leaveKey)) continue;
@@ -360,8 +418,9 @@ export async function processPayroll(
       // ── Step 2: 총공수 < 25이면 기존 근무일 값 올리기 ────────
       // 주의: 0인 날(결근·미타각)은 건드리지 않음 — 값이 있는 날만 올림
       let total = newValues.reduce((s, v) => s + v, 0);
+      const targetTotal = Math.max(0, 25 - unpaidDays.size);
 
-      if (total < 25) {
+      if (total < targetTotal) {
         const adjustable: { day: number; maxVal: number; cur: number }[] = [];
 
         for (let day = 1; day <= daysInMonth; day++) {
@@ -391,8 +450,8 @@ export async function processPayroll(
         adjustable.sort((a, b) => a.cur - b.cur);
 
         for (const { day, maxVal, cur } of adjustable) {
-          if (total >= 25) break;
-          const needed = 25 - total;
+          if (total >= targetTotal) break;
+          const needed = targetTotal - total;
 
           // 0.5 단위 증분 중 필요량 이내에서 최대로 올림
           const steps = [0.5, 1, 1.5, 2].filter((s) => s > cur && s <= maxVal);
@@ -406,6 +465,33 @@ export async function processPayroll(
           newValues[day - 1] = after;
           total += after - cur;
           changes.push({ day, before: cur, after, reason: "총공수 보정" });
+        }
+      }
+
+      // ── Step 3: 총공수 > 목표치이면 기존 공수에서 차감 ─────────
+      if (total > targetTotal) {
+        const reducible: { day: number; cur: number }[] = [];
+
+        for (let day = 1; day <= daysInMonth; day++) {
+          const cur = newValues[day - 1];
+          if (cur <= 0) continue;
+          if (unpaidDays.has(day)) continue;
+
+          reducible.push({ day, cur });
+        }
+
+        reducible.sort((a, b) => b.cur - a.cur || b.day - a.day);
+
+        for (const { day, cur } of reducible) {
+          if (total <= targetTotal) break;
+
+          const reduction = Math.min(cur, total - targetTotal);
+          const after = roundPayrollValue(cur - reduction);
+          if (after === cur) continue;
+
+          newValues[day - 1] = after;
+          total = roundPayrollValue(total - reduction);
+          changes.push({ day, before: cur, after, reason: "총공수 25 초과 감산" });
         }
       }
 
