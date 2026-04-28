@@ -397,6 +397,7 @@ export async function processPayroll(
       for (let day = 1; day <= daysInMonth; day++) {
         const absenceKey = `${year}|${month}|${day}`;
         if (!manualAbsenceMap[normName]?.has(absenceKey)) continue;
+        if (!isPayrollWorkday(year, month, day, schedule)) continue;
         manualAbsenceDays.add(day);
         unpaidDays.add(day);
       }

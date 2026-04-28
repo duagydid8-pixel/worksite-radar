@@ -3,10 +3,15 @@ import * as XLSX from "xlsx";
 import { processPayroll } from "./payrollProcessor";
 import type { Employee, LeaveDetail } from "./parseExcel";
 
-function makePayrollWorkbookBuffer(dayValues: Record<number, number> = {}): ArrayBuffer {
+function makePayrollWorkbookBuffer(
+  dayValues: Record<number, number> = {},
+  options: { year?: number; month?: number } = {}
+): ArrayBuffer {
   const ws: XLSX.WorkSheet = {};
+  const year = options.year ?? 2026;
+  const month = options.month ?? 4;
 
-  ws["A1"] = { t: "s", v: "2026년 4월" };
+  ws["A1"] = { t: "s", v: `${year}년 ${month}월` };
   ws["H5"] = { t: "s", v: "직종" };
   ws["I5"] = { t: "s", v: "성명" };
 
@@ -199,5 +204,38 @@ describe("processPayroll XML patching", () => {
       ])
     );
     expect(total).toBe(24);
+  });
+
+  it("deducts manual absence ranges by workdays only", async () => {
+    const dayValues = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [i + 1, 1]));
+    const employees: Employee[] = [];
+    const manualAbsences = Array.from({ length: 16 }, (_, i) => {
+      const day = i + 15;
+      return {
+        id: `abs-${day}`,
+        date: `2026-05-${String(day).padStart(2, "0")}`,
+        name: "홍길동",
+        memo: "",
+        createdAt: "2026-04-28T00:00:00.000Z",
+      };
+    });
+
+    const result = await processPayroll(
+      makePayrollWorkbookBuffer(dayValues, { year: 2026, month: 5 }),
+      {},
+      [],
+      employees,
+      null,
+      manualAbsences
+    );
+    const outputWb = XLSX.read(result.outputBuffer, { type: "array" });
+    const outputWs = outputWb.Sheets["P4 초순수_P4-PJT Ph4(216명)_Field"];
+    const total = Array.from({ length: 31 }, (_, i) => {
+      const day = i + 1;
+      return Number(outputWs[XLSX.utils.encode_cell({ r: 6, c: 16 + (day - 1) })]?.v ?? 0);
+    }).reduce((sum, value) => sum + value, 0);
+
+    expect(result.corrections[0].totalAfter).toBe(14);
+    expect(total).toBe(14);
   });
 });
