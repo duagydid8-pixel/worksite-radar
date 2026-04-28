@@ -118,6 +118,7 @@ export default function PayrollPage() {
   const [step, setStep] = useState<Step>("idle");
   const [corrections, setCorrections] = useState<PayrollCorrection[]>([]);
   const [outputBuffer, setOutputBuffer] = useState<ArrayBuffer | null>(null);
+  const [sourceBuffer, setSourceBuffer] = useState<ArrayBuffer | null>(null);
   const [originalFileName, setOriginalFileName] = useState("");
   const [yearMonth, setYearMonth] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -134,12 +135,58 @@ export default function PayrollPage() {
     loadManualAbsencesFS().then((rows) => setManualAbsences(sortAbsences(rows)));
   }, []);
 
-  const persistManualAbsences = useCallback(async (next: ManualAbsence[]) => {
+  const processBuffer = useCallback(async (
+    buffer: ArrayBuffer,
+    fileName: string,
+    manualAbsenceOverride?: ManualAbsence[]
+  ) => {
+    setStep("processing");
+    setCorrections([]);
+    setOutputBuffer(null);
+    setSourceBuffer(buffer);
+    setOriginalFileName(fileName);
+
+    const [attendanceResult, scheduleData, savedManualAbsences] = await Promise.all([
+      fetchAttendanceFS(),
+      loadScheduleFS().catch(() => null) as Promise<ScheduleData | null>,
+      manualAbsenceOverride ? Promise.resolve(manualAbsenceOverride) : loadManualAbsencesFS(),
+    ]);
+
+    const annualLeaveMap = attendanceResult?.data?.annualLeaveMap ?? {};
+    const leaveDetails = attendanceResult?.data?.leaveDetails ?? [];
+    const employees = attendanceResult?.data?.employees ?? [];
+    setManualAbsences(sortAbsences(savedManualAbsences));
+
+    const result = await processPayroll(buffer, annualLeaveMap, leaveDetails, employees, scheduleData, savedManualAbsences);
+
+    setCorrections(result.corrections);
+    setOutputBuffer(result.outputBuffer);
+    setYearMonth(`${result.year}년 ${result.month}월`);
+    setStep("done");
+
+    if (result.corrections.length === 0) {
+      toast.info("보정이 필요한 월급제 직원이 없습니다.");
+    } else {
+      toast.success(`${result.corrections.length}명의 근태실적이 보정되었습니다.`);
+    }
+  }, []);
+
+  const reprocessCurrentFile = useCallback(async (nextAbsences: ManualAbsence[]) => {
+    if (!sourceBuffer || !originalFileName) return;
+    try {
+      await processBuffer(sourceBuffer, originalFileName, nextAbsences);
+      toast.success("결근 변경사항을 급여대장에 다시 반영했습니다.");
+    } catch (err: any) {
+      toast.error(err.message || "결근 변경사항 재반영 중 오류가 발생했습니다.");
+    }
+  }, [originalFileName, processBuffer, sourceBuffer]);
+
+  const persistManualAbsences = useCallback(async (next: ManualAbsence[]): Promise<ManualAbsence[] | null> => {
     const sorted = sortAbsences(next);
     setManualAbsences(sorted);
     const ok = await saveManualAbsencesFS(sorted);
     if (!ok) toast.error("결근 목록 저장에 실패했습니다.");
-    return ok;
+    return ok ? sorted : null;
   }, []);
 
   const handleAbsenceSubmit = useCallback(async (e: FormEvent) => {
@@ -173,59 +220,34 @@ export default function PayrollPage() {
 
     setSavingAbsence(true);
     const next = [...manualAbsences, ...additions];
-    const ok = await persistManualAbsences(next);
+    const saved = await persistManualAbsences(next);
     setSavingAbsence(false);
-    if (!ok) return;
+    if (!saved) return;
 
     setAbsenceName("");
     setAbsenceMemo("");
     toast.success(`${additions.length}건의 결근이 저장되었습니다.`);
-  }, [absenceEndDate, absenceMemo, absenceName, absenceStartDate, manualAbsences, persistManualAbsences]);
+    await reprocessCurrentFile(saved);
+  }, [absenceEndDate, absenceMemo, absenceName, absenceStartDate, manualAbsences, persistManualAbsences, reprocessCurrentFile]);
 
   const handleDeleteAbsence = useCallback(async (id: string) => {
     const next = manualAbsences.filter((row) => row.id !== id);
-    const ok = await persistManualAbsences(next);
-    if (ok) toast.success("결근이 삭제되었습니다.");
-  }, [manualAbsences, persistManualAbsences]);
+    const saved = await persistManualAbsences(next);
+    if (saved) {
+      toast.success("결근이 삭제되었습니다.");
+      await reprocessCurrentFile(saved);
+    }
+  }, [manualAbsences, persistManualAbsences, reprocessCurrentFile]);
 
   const processFile = useCallback(async (file: File) => {
-    setStep("processing");
-    setCorrections([]);
-    setOutputBuffer(null);
-    setOriginalFileName(file.name);
-
     try {
       const buffer = await file.arrayBuffer();
-
-      // Firestore에서 연차 데이터 및 주간일정 가져오기
-      const [attendanceResult, scheduleData, savedManualAbsences] = await Promise.all([
-        fetchAttendanceFS(),
-        loadScheduleFS().catch(() => null) as Promise<ScheduleData | null>,
-        loadManualAbsencesFS(),
-      ]);
-
-      const annualLeaveMap = attendanceResult?.data?.annualLeaveMap ?? {};
-      const leaveDetails = attendanceResult?.data?.leaveDetails ?? [];
-      const employees = attendanceResult?.data?.employees ?? [];
-      setManualAbsences(sortAbsences(savedManualAbsences));
-
-      const result = await processPayroll(buffer, annualLeaveMap, leaveDetails, employees, scheduleData, savedManualAbsences);
-
-      setCorrections(result.corrections);
-      setOutputBuffer(result.outputBuffer);
-      setYearMonth(`${result.year}년 ${result.month}월`);
-      setStep("done");
-
-      if (result.corrections.length === 0) {
-        toast.info("보정이 필요한 월급제 직원이 없습니다.");
-      } else {
-        toast.success(`${result.corrections.length}명의 근태실적이 보정되었습니다.`);
-      }
+      await processBuffer(buffer, file.name);
     } catch (err: any) {
       toast.error(err.message || "파일 처리 중 오류가 발생했습니다.");
       setStep("idle");
     }
-  }, []);
+  }, [processBuffer]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -258,6 +280,7 @@ export default function PayrollPage() {
     setStep("idle");
     setCorrections([]);
     setOutputBuffer(null);
+    setSourceBuffer(null);
   };
 
   return (
