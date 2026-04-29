@@ -72,7 +72,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
+type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔";
 
@@ -108,6 +108,7 @@ const NAV_PUBLIC: NavItem[] = [
 ];
 
 const NAV_ADMIN: NavItem[] = [
+  { key: "오늘할일관리", label: "오늘 할 일 관리", icon: <ListChecks className="h-4 w-4" />, adminOnly: true },
   { key: "주간일정", label: "주간일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
   { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
@@ -444,7 +445,7 @@ const Index = () => {
     },
     {
       title: "추가공수 스캔 추출",
-      description: "스캔본/PDF 요청서에서 이름, 직종, 날짜, 공수를 추출해 급여대장에 반영하세요.",
+      description: "스캔본/PDF 요청서에서 이름과 공수를 추출해 급여대장에 반영하세요.",
       badge: "스캔",
       tone: "warn",
       icon: <ScanText className="h-4 w-4" />,
@@ -618,14 +619,14 @@ const Index = () => {
 
           <div className="admin-todo-greeting">
             <strong>한성크린텍 P4 현장관리</strong>
-            <p>관리자님, 날짜별 할 일을 적고 완료 상태를 체크하세요.</p>
+            <p>관리자님, 등록된 업무를 확인하고 완료 상태를 체크하세요.</p>
           </div>
 
           <div className="admin-task-calendar">
             <div className="admin-task-calendar-head">
               <div>
-                <strong>할 일 작성</strong>
-                <span>선택한 날짜 기준으로 이 브라우저에 저장됩니다.</span>
+                <strong>업무 확인</strong>
+                <span>할 일 작성은 관리자 메뉴의 오늘 할 일 관리에서 처리합니다.</span>
               </div>
               <input
                 type="date"
@@ -633,18 +634,6 @@ const Index = () => {
                 onChange={(event) => setAdminTodoDate(event.target.value || adminTodoTodayKey)}
               />
             </div>
-
-            <form onSubmit={handleAddAdminDailyTask} className="admin-task-entry">
-              <input
-                value={adminTodoDraft}
-                onChange={(event) => setAdminTodoDraft(event.target.value)}
-                placeholder="오늘 처리할 업무를 입력하세요"
-              />
-              <button type="submit">
-                <Plus className="h-4 w-4" />
-                추가
-              </button>
-            </form>
 
             <div className="admin-task-list">
               {adminDailyTasks.length > 0 ? (
@@ -658,13 +647,6 @@ const Index = () => {
                       />
                       <span>{task.text}</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteAdminDailyTask(task.id)}
-                      aria-label="할 일 삭제"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
                   </div>
                 ))
               ) : (
@@ -710,6 +692,13 @@ const Index = () => {
               />
               <span>오늘 보지 않기</span>
             </label>
+            <button
+              type="button"
+              onClick={() => handleAdminTodoMove("오늘할일관리")}
+              className="admin-todo-close"
+            >
+              관리 메뉴
+            </button>
             <button
               type="button"
               onClick={() => handleAdminTodoDialogChange(false)}
@@ -1214,6 +1203,76 @@ const Index = () => {
         {activeTab === "주간일정" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <WeeklySchedule />
+          </div>
+        )}
+
+        {/* 오늘 할 일 관리 */}
+        {activeTab === "오늘할일관리" && isAdmin && (
+          <div className="mx-auto max-w-[980px] space-y-4 p-4 md:p-6">
+            <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-950">오늘 할 일 관리</h2>
+                  <p className="mt-1 text-xs font-semibold text-slate-500">날짜별 업무를 작성하고 완료 상태를 관리합니다.</p>
+                </div>
+                <input
+                  type="date"
+                  value={adminTodoDate}
+                  onChange={(event) => setAdminTodoDate(event.target.value || adminTodoTodayKey)}
+                  className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none focus:border-slate-300 focus:bg-white"
+                />
+              </div>
+
+              <div className="space-y-4 p-4">
+                <form onSubmit={handleAddAdminDailyTask} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_112px]">
+                  <input
+                    value={adminTodoDraft}
+                    onChange={(event) => setAdminTodoDraft(event.target.value)}
+                    placeholder="처리할 업무를 입력하세요"
+                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
+                  />
+                  <button
+                    type="submit"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white transition-colors hover:bg-slate-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                    추가
+                  </button>
+                </form>
+
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  {adminDailyTasks.length > 0 ? (
+                    <div className="divide-y divide-slate-100">
+                      {adminDailyTasks.map((task) => (
+                        <div key={task.id} className={`grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_44px] ${task.done ? "bg-slate-50" : "bg-white"}`}>
+                          <label className="flex min-w-0 items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={task.done}
+                              onChange={() => handleToggleAdminDailyTask(task.id)}
+                              className="h-4 w-4 accent-slate-900"
+                            />
+                            <span className={`min-w-0 text-sm font-bold ${task.done ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                              {task.text}
+                            </span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAdminDailyTask(task.id)}
+                            aria-label="할 일 삭제"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-10 text-center text-sm font-semibold text-slate-400">선택한 날짜에 등록된 할 일이 없습니다.</div>
+                  )}
+                </div>
+              </div>
+            </section>
           </div>
         )}
 
