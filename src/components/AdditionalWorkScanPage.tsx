@@ -38,7 +38,7 @@ function makeDownloadName(fileName: string): string {
 }
 
 function formatRowsForText(rows: AdditionalWorkEntry[]): string {
-  return rows.map((row) => `${row.name}\t${row.trade}\t${row.units.toFixed(2)}`).join("\n");
+  return rows.map((row) => `${row.name}\t${row.units.toFixed(2)}`).join("\n");
 }
 
 function publicAssetPath(path: string): string {
@@ -159,7 +159,7 @@ function cropCanvas(
 function makeOcrRegions(source: HTMLCanvasElement): Array<{ canvas: HTMLCanvasElement; label: string }> {
   return [
     { canvas: cropCanvas(source, 0.05, 0.42, 0.16, 0.72), label: "표 왼쪽" },
-    { canvas: cropCanvas(source, 0.10, 0.24, 0.16, 0.72, 2.4), label: "이름/공종" },
+    { canvas: cropCanvas(source, 0.10, 0.24, 0.16, 0.72, 2.4), label: "이름" },
   ];
 }
 
@@ -328,7 +328,7 @@ export default function AdditionalWorkScanPage() {
     const regions = makeOcrRegions(canvas);
     const variants = [
       { canvas: enhanceCanvasForOcr(regions[0].canvas), psm: "6", name: "표 왼쪽" },
-      { canvas: enhanceCanvasForOcr(regions[1].canvas), psm: "6", name: "이름/공종" },
+      { canvas: enhanceCanvasForOcr(regions[1].canvas), psm: "6", name: "이름" },
     ];
     const texts: string[] = [];
 
@@ -563,7 +563,6 @@ export default function AdditionalWorkScanPage() {
               <thead className="bg-slate-50 text-[11px] font-extrabold text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left">추출 이름</th>
-                  <th className="px-3 py-2 text-left">공종</th>
                   <th className="px-3 py-2 text-right">공수</th>
                   <th className="px-3 py-2 text-left">선택</th>
                 </tr>
@@ -572,7 +571,6 @@ export default function AdditionalWorkScanPage() {
                 {duplicateRows.map(({ row, index, candidates }) => (
                   <tr key={`${row.name}-${index}`}>
                     <td className="px-3 py-2 font-bold text-slate-900">{row.name}</td>
-                    <td className="px-3 py-2 text-slate-600">{row.trade}</td>
                     <td className="px-3 py-2 text-right font-mono">{row.units.toFixed(2)}</td>
                     <td className="px-3 py-2">
                       <select
@@ -620,7 +618,7 @@ export default function AdditionalWorkScanPage() {
           </div>
           <div className="min-w-0">
             <h2 className="text-base font-extrabold text-slate-950">추가공수 스캔본 추출</h2>
-            <p className="text-xs font-semibold text-slate-500">스캔본의 이름, 공종, 추가요청공수를 읽어서 급여대장 경비(2)에 반영</p>
+            <p className="text-xs font-semibold text-slate-500">스캔본의 이름과 추가요청공수만 읽어서 급여대장 경비(2)에 반영</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -652,7 +650,7 @@ export default function AdditionalWorkScanPage() {
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
             <div>
               <h3 className="text-sm font-extrabold text-slate-950">필요 항목만 추출</h3>
-              <p className="text-xs font-semibold text-slate-500">{scanFileName || "이름, 공종, 추가요청공수만 표시됩니다."}</p>
+              <p className="text-xs font-semibold text-slate-500">{scanFileName || "이름, 추가요청공수만 표시됩니다."}</p>
             </div>
             {rawText && (
               <button
@@ -676,7 +674,7 @@ export default function AdditionalWorkScanPage() {
               <textarea
                 value={rawText}
                 onChange={(event) => handleNeededTextChange(event.target.value)}
-                placeholder={"예)\n송승석 공구장 1.00\n정회옥 유도원 1.00\n유진환 신호수 2.00"}
+                placeholder={"예)\n송승석 1.00\n정회옥 1.00\n유진환 2.00"}
                 className="h-[420px] w-full resize-none rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-sm leading-6 text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-slate-300 focus:bg-white"
               />
             )}
@@ -734,14 +732,13 @@ export default function AdditionalWorkScanPage() {
                   <thead className="sticky top-0 bg-slate-50 text-[11px] font-extrabold text-slate-500">
                     <tr>
                       <th className="px-3 py-2 text-left">이름</th>
-                      <th className="px-3 py-2 text-left">공종</th>
                       <th className="px-3 py-2 text-right">공수</th>
                       <th className="w-10 px-2 py-2"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {draftRows.map((row: AdditionalWorkEntry, index) => (
-                      <tr key={`${row.name}-${row.trade}-${index}`}>
+                      <tr key={`${row.name}-${index}`}>
                         <td className="px-2 py-2">
                           <input
                             value={row.name}
@@ -752,13 +749,6 @@ export default function AdditionalWorkScanPage() {
                           {payrollEmployees.filter((employee) => normalizeName(employee.name) === normalizeName(row.name)).length > 1 && (
                             <div className="mt-1 text-[11px] font-bold text-amber-700">동명이인 있음</div>
                           )}
-                        </td>
-                        <td className="px-2 py-2">
-                          <input
-                            value={row.trade}
-                            onChange={(event) => updateDraftRow(index, { trade: event.target.value })}
-                            className="h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-slate-400"
-                          />
                         </td>
                         <td className="px-2 py-2">
                           <input
@@ -822,7 +812,6 @@ export default function AdditionalWorkScanPage() {
               <thead className="bg-slate-50 text-[11px] font-extrabold text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left">이름</th>
-                  <th className="px-3 py-2 text-left">공종</th>
                   <th className="px-3 py-2 text-right">공수</th>
                   <th className="px-3 py-2 text-right">단가</th>
                   <th className="px-3 py-2 text-right">경비(2)</th>
@@ -834,7 +823,6 @@ export default function AdditionalWorkScanPage() {
                 {result.applied.map((row) => (
                   <tr key={`${row.sheetName}-${row.rowNumber}-${row.name}`}>
                     <td className="px-3 py-2 font-bold text-slate-900">{row.name}</td>
-                    <td className="px-3 py-2 text-slate-600">{row.trade}</td>
                     <td className="px-3 py-2 text-right font-mono">{row.units.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right font-mono">{formatMoney(row.unitPrice)}</td>
                     <td className="px-3 py-2 text-right font-mono">{formatMoney(row.expense2Before)} → {formatMoney(row.expense2After)}</td>
@@ -843,9 +831,8 @@ export default function AdditionalWorkScanPage() {
                   </tr>
                 ))}
                 {result.unmatched.map((row) => (
-                  <tr key={`unmatched-${row.name}-${row.trade}`} className="bg-amber-50/60">
+                  <tr key={`unmatched-${row.name}`} className="bg-amber-50/60">
                     <td className="px-3 py-2 font-bold text-amber-900">{row.name}</td>
-                    <td className="px-3 py-2 text-amber-800">{row.trade}</td>
                     <td className="px-3 py-2 text-right font-mono text-amber-900">{row.units.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right text-amber-700" colSpan={4}>{row.reason}</td>
                   </tr>

@@ -2,7 +2,6 @@ import type { AdditionalWorkEntry } from "./additionalWorkProcessor";
 
 export interface VisionRow {
   name?: unknown;
-  trade?: unknown;
   date?: unknown;
   units?: unknown;
 }
@@ -22,10 +21,6 @@ function cleanText(value: unknown): string {
 }
 
 function compactName(value: unknown): string {
-  return cleanText(value).replace(/\s+/g, "");
-}
-
-function compactTrade(value: unknown): string {
   return cleanText(value).replace(/\s+/g, "");
 }
 
@@ -59,12 +54,11 @@ export function normalizeVisionRows(rows: unknown): AdditionalWorkEntry[] {
     if (!row || typeof row !== "object") return [];
     const record = row as VisionRow;
     const name = compactName(record.name);
-    const trade = compactTrade(record.trade);
     const units = normalizeUnits(record.units);
     const date = normalizeDate(record.date);
 
-    if (!name || !trade || units === null) return [];
-    return [{ name, trade, units, sourceLine: date }];
+    if (!name || units === null) return [];
+    return [{ name, trade: "", units, sourceLine: date }];
   });
 }
 
@@ -90,10 +84,9 @@ export function buildAdditionalWorkVisionPrompt(knownNames: string[] = []): stri
 
   return [
     "You are extracting rows from a Korean construction additional work request form.",
-    "Return only JSON matching this shape: {\"rows\":[{\"name\":\"\",\"trade\":\"\",\"date\":\"YYYY-MM-DD\",\"units\":1.0}]}",
+    "Return only JSON matching this shape: {\"rows\":[{\"name\":\"\",\"date\":\"YYYY-MM-DD\",\"units\":1.0}]}",
     "Extract only real worker rows. Ignore headers, totals, signatures, attachment text, and reasons.",
-    "Required fields per row are name, trade, date, and units. Use numeric units like 1, 1.5, or 2.",
-    "Common trades include 공구장, 유도원, 신호수, 조공, 배관, 용접, PE, 배관-PP, 도비.",
+    "Required fields per row are name, date, and units. Do not extract trade/job type. Use numeric units like 1, 1.5, or 2.",
     "If a name is split with spaces, join the syllables. If a row has no readable name, skip it.",
     names.length > 0 ? `Known employee names for correction: ${names.join(", ")}` : "",
   ].filter(Boolean).join("\n");

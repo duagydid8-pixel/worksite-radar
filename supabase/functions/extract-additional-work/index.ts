@@ -10,7 +10,6 @@ interface RequestImage {
 
 interface VisionRow {
   name?: unknown;
-  trade?: unknown;
   date?: unknown;
   units?: unknown;
 }
@@ -51,19 +50,18 @@ function normalizeUnits(value: unknown): number | null {
   return parsed;
 }
 
-function normalizeRows(rows: unknown): Array<{ name: string; trade: string; date: string; units: number }> {
+function normalizeRows(rows: unknown): Array<{ name: string; date: string; units: number }> {
   if (!Array.isArray(rows)) return [];
 
   return rows.flatMap((row) => {
     if (!row || typeof row !== "object") return [];
     const record = row as VisionRow;
     const name = compactText(record.name);
-    const trade = compactText(record.trade);
     const units = normalizeUnits(record.units);
     const date = normalizeDate(record.date);
 
-    if (!name || !trade || units === null) return [];
-    return [{ name, trade, date, units }];
+    if (!name || units === null) return [];
+    return [{ name, date, units }];
   });
 }
 
@@ -87,7 +85,7 @@ function extractOutputText(response: Record<string, unknown>): string {
   return parts.join("\n").trim();
 }
 
-function parseRowsFromOutput(outputText: string): Array<{ name: string; trade: string; date: string; units: number }> {
+function parseRowsFromOutput(outputText: string): Array<{ name: string; date: string; units: number }> {
   try {
     const parsed = JSON.parse(outputText);
     return normalizeRows((parsed as Record<string, unknown>).rows);
@@ -168,11 +166,10 @@ Deno.serve(async (req) => {
                   additionalProperties: false,
                   properties: {
                     name: { type: "string" },
-                    trade: { type: "string" },
                     date: { type: "string" },
                     units: { type: "number" },
                   },
-                  required: ["name", "trade", "date", "units"],
+                  required: ["name", "date", "units"],
                 },
               },
             },

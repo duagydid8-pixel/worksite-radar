@@ -63,8 +63,21 @@ describe("additional work processor", () => {
     `);
 
     expect(rows).toEqual([
-      { name: "송승석", trade: "공구장", units: 1, sourceLine: "송승석 공구장 1.00" },
-      { name: "정회옥", trade: "유도원", units: 0.5, sourceLine: "정회옥 유도원 0.50" },
+      { name: "송승석", trade: "", units: 1, sourceLine: "송승석 공구장 1.00" },
+      { name: "정회옥", trade: "", units: 0.5, sourceLine: "정회옥 유도원 0.50" },
+    ]);
+  });
+
+  it("parses name and units without requiring trade text", () => {
+    const rows = parseAdditionalWorkText(`
+      이름 추가요청공수
+      송승석 1.00
+      정회옥 0.50
+    `);
+
+    expect(rows).toEqual([
+      { name: "송승석", trade: "", units: 1, sourceLine: "송승석 1.00" },
+      { name: "정회옥", trade: "", units: 0.5, sourceLine: "정회옥 0.50" },
     ]);
   });
 
@@ -76,9 +89,9 @@ describe("additional work processor", () => {
     `);
 
     expect(rows).toEqual([
-      expect.objectContaining({ name: "mas", trade: "유도원", units: 1 }),
-      expect.objectContaining({ name: "이상민", trade: "신호수", units: 1 }),
-      expect.objectContaining({ name: "sue", trade: "신호수", units: 2 }),
+      expect.objectContaining({ name: "mas", trade: "", units: 1 }),
+      expect.objectContaining({ name: "이상민", trade: "", units: 1 }),
+      expect.objectContaining({ name: "sue", trade: "", units: 2 }),
     ]);
   });
 
@@ -99,8 +112,27 @@ describe("additional work processor", () => {
     `);
 
     expect(rows).toEqual([
-      expect.objectContaining({ name: "송승석", trade: "공구장", units: 1 }),
-      expect.objectContaining({ name: "정진수", trade: "신호수", units: 2 }),
+      expect.objectContaining({ name: "송승석", trade: "", units: 1 }),
+      expect.objectContaining({ name: "정진수", trade: "", units: 2 }),
+    ]);
+  });
+
+  it("parses split OCR cells when only name and units are present", () => {
+    const rows = parseAdditionalWorkText(`
+      NO
+      성명
+      추가요청공수
+      1
+      송승석
+      100
+      2
+      정진수
+      200
+    `);
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "송승석", trade: "", units: 1 }),
+      expect.objectContaining({ name: "정진수", trade: "", units: 2 }),
     ]);
   });
 
@@ -151,9 +183,31 @@ describe("additional work processor", () => {
     `, { knownNames: ["송승석", "정회옥", "유진환"] });
 
     expect(rows).toEqual([
-      expect.objectContaining({ name: "송승석", trade: "공구장", units: 1 }),
-      expect.objectContaining({ name: "정회옥", trade: "유도원", units: 1 }),
-      expect.objectContaining({ name: "유진환", trade: "신호수", units: 2 }),
+      expect.objectContaining({ name: "송승석", trade: "", units: 1 }),
+      expect.objectContaining({ name: "정회옥", trade: "", units: 1 }),
+      expect.objectContaining({ name: "유진환", trade: "", units: 2 }),
+    ]);
+  });
+
+  it("parses indexed OCR PDF cells without trade cells", () => {
+    const rows = parseAdditionalWorkText(`
+      NO
+      성명
+      추가공수
+      요청일자
+      1
+      송숭석
+      2026-03-30
+      1.00
+      2
+      정회옥
+      2026-03-30
+      2.00
+    `, { knownNames: ["송승석", "정회옥"] });
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "송승석", trade: "", units: 1 }),
+      expect.objectContaining({ name: "정회옥", trade: "", units: 2 }),
     ]);
   });
 
@@ -164,8 +218,8 @@ describe("additional work processor", () => {
     `);
 
     expect(rows).toEqual([
-      expect.objectContaining({ name: "송승석", trade: "공구장", units: 1 }),
-      expect.objectContaining({ name: "정진수", trade: "신호수", units: 2 }),
+      expect.objectContaining({ name: "송승석", trade: "", units: 1 }),
+      expect.objectContaining({ name: "정진수", trade: "", units: 2 }),
     ]);
   });
 
@@ -176,8 +230,8 @@ describe("additional work processor", () => {
     `, { knownNames: ["송승석", "정진수"] });
 
     expect(rows).toEqual([
-      expect.objectContaining({ name: "송승석", trade: "배관", units: 1 }),
-      expect.objectContaining({ name: "정진수", trade: "신호수", units: 2 }),
+      expect.objectContaining({ name: "송승석", trade: "", units: 1 }),
+      expect.objectContaining({ name: "정진수", trade: "", units: 2 }),
     ]);
   });
 

@@ -272,7 +272,7 @@ function parseIndexedPdfRows(lines: string[], knownNames: string[]): AdditionalW
 
   const rows: AdditionalWorkEntry[] = [];
 
-  for (let i = 0; i < cells.length - 4; i++) {
+  for (let i = 0; i < cells.length - 3; i++) {
     const rowNoCell = cells[i];
     if (!isOcrRowNumber(rowNoCell.clean)) continue;
 
@@ -280,16 +280,32 @@ function parseIndexedPdfRows(lines: string[], knownNames: string[]): AdditionalW
     if (!Number.isInteger(rowNo) || rowNo <= 0 || rowNo > 300) continue;
 
     const nameCell = cells[i + 1];
-    const tradeCell = cells[i + 2];
-    const dateCell = cells[i + 3];
-    const unitCell = cells[i + 4];
-    if (!nameCell || !tradeCell || !dateCell || !unitCell) continue;
+    const secondCell = cells[i + 2];
+    const thirdCell = cells[i + 3];
+    const fourthCell = cells[i + 4];
+    if (!nameCell || !secondCell || !thirdCell) continue;
 
-    const units = parseSplitCellUnit(unitCell.raw, unitCell.clean);
+    if (isLikelySplitName(nameCell.clean) && isDateCell(secondCell.clean)) {
+      const units = parseSplitCellUnit(thirdCell.raw, thirdCell.clean);
+      if (units !== null) {
+        rows.push({
+          name: correctKnownName(nameCell.clean, knownNames),
+          trade: "",
+          units,
+          sourceLine: [rowNoCell.raw, nameCell.raw, secondCell.raw, thirdCell.raw].join(" "),
+        });
+        i += 3;
+        continue;
+      }
+    }
+
+    if (!fourthCell) continue;
+
+    const units = parseSplitCellUnit(fourthCell.raw, fourthCell.clean);
     if (
       !isLikelySplitName(nameCell.clean) ||
-      !isLikelyIndexedTrade(tradeCell.clean) ||
-      !isDateCell(dateCell.clean) ||
+      !isLikelyIndexedTrade(secondCell.clean) ||
+      !isDateCell(thirdCell.clean) ||
       units === null
     ) {
       continue;
@@ -297,9 +313,9 @@ function parseIndexedPdfRows(lines: string[], knownNames: string[]): AdditionalW
 
     rows.push({
       name: correctKnownName(nameCell.clean, knownNames),
-      trade: compactText(tradeCell.clean),
+      trade: "",
       units,
-      sourceLine: [rowNoCell.raw, nameCell.raw, tradeCell.raw, dateCell.raw, unitCell.raw].join(" "),
+      sourceLine: [rowNoCell.raw, nameCell.raw, secondCell.raw, thirdCell.raw, fourthCell.raw].join(" "),
     });
     i += 4;
   }
@@ -317,18 +333,38 @@ function parseSplitCellRows(lines: string[]): AdditionalWorkEntry[] {
   for (let i = 0; i < cells.length - 2; i++) {
     const start = isOcrRowNumber(cells[i].clean) ? i + 1 : i;
     const nameCell = cells[start];
-    const tradeCell = cells[start + 1];
-    const unitCell = cells[start + 2];
-    if (!nameCell || !tradeCell || !unitCell) continue;
+    const secondCell = cells[start + 1];
+    const thirdCell = cells[start + 2];
+    if (!nameCell || !secondCell) continue;
 
-    const units = parseSplitCellUnit(unitCell.raw, unitCell.clean);
-    if (!isLikelySplitName(nameCell.clean) || !isLikelySplitTrade(tradeCell.clean) || units === null) continue;
+    const directUnits = parseSplitCellUnit(secondCell.raw, secondCell.clean);
+    if (isLikelySplitName(nameCell.clean) && directUnits !== null) {
+      rows.push({
+        name: nameCell.clean.replace(/\s+/g, ""),
+        trade: "",
+        units: directUnits,
+        sourceLine: [nameCell.raw, secondCell.raw].join(" "),
+      });
+      i = start + 1;
+      continue;
+    }
+
+    if (!thirdCell) continue;
+
+    const units = parseSplitCellUnit(thirdCell.raw, thirdCell.clean);
+    if (
+      !isLikelySplitName(nameCell.clean) ||
+      (!isLikelySplitTrade(secondCell.clean) && !isDateCell(secondCell.clean)) ||
+      units === null
+    ) {
+      continue;
+    }
 
     rows.push({
       name: nameCell.clean.replace(/\s+/g, ""),
-      trade: compactText(tradeCell.clean),
+      trade: "",
       units,
-      sourceLine: [nameCell.raw, tradeCell.raw, unitCell.raw].join(" "),
+      sourceLine: [nameCell.raw, secondCell.raw, thirdCell.raw].join(" "),
     });
     i = start + 2;
   }
@@ -346,11 +382,11 @@ function parseKnownNameLine(line: string, unitsIndex: number, units: number, kno
     if (nameIndex < 0) continue;
 
     const trade = compactBeforeUnits.slice(nameIndex + knownName.length);
-    if (!trade || /^\d+$/.test(trade) || isOcrHeaderCell(trade)) continue;
+    if (/^\d+$/.test(trade) || isOcrHeaderCell(trade)) continue;
 
     return {
       name: knownName,
-      trade: compactText(trade),
+      trade: "",
       units,
       sourceLine: line,
     };
@@ -369,23 +405,20 @@ function parseTableOcrLine(line: string): AdditionalWorkEntry | null {
 
   let rowIndex = parts.findIndex((part) => /^\d{1,3}$/.test(part));
   let name: string | undefined;
-  let trade: string | undefined;
   let rest = "";
 
   if (rowIndex >= 0) {
     name = parts[rowIndex + 1];
-    trade = parts[rowIndex + 2];
-    rest = parts.slice(rowIndex + 3).join(" ");
+    rest = parts.slice(rowIndex + 2).join(" ");
   } else {
     const first = parts[0]?.match(/^(\d{1,3})\s+(.+)$/);
     if (!first) return null;
     rowIndex = 0;
     name = first[2]?.trim();
-    trade = parts[1];
-    rest = parts.slice(2).join(" ");
+    rest = parts.slice(1).join(" ");
   }
 
-  if (!name || !trade) return null;
+  if (!name) return null;
   if (/^(이름|성명|공종|추가|no)$/i.test(name.replace(/\s+/g, ""))) return null;
 
   const units = parseOcrUnit(rest || line);
@@ -393,7 +426,7 @@ function parseTableOcrLine(line: string): AdditionalWorkEntry | null {
 
   return {
     name: compactText(name),
-    trade: compactText(trade),
+    trade: "",
     units,
     sourceLine: line.trim(),
   };
@@ -438,10 +471,7 @@ export function parseAdditionalWorkText(text: string, options: AdditionalWorkPar
     if (nameIndex < 0) continue;
 
     const name = tokens[nameIndex];
-    const trade = compactText(tokens.slice(nameIndex + 1).join(""));
-    if (!trade) continue;
-
-    rows.push({ name, trade, units, sourceLine: line });
+    rows.push({ name, trade: "", units, sourceLine: line });
   }
 
   if (rows.length === 0) {
