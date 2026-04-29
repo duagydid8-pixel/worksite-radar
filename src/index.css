@@ -1280,6 +1280,18 @@
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+@keyframes hp-schedChipIn {
+  from { opacity: 0; transform: translateY(5px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes hp-schedTodayGlow {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12), 0 0 0 rgba(15, 23, 42, 0); }
+  50%      { box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.28), 0 0 0 3px rgba(15, 23, 42, 0.05); }
+}
+@keyframes hp-schedPriorityPulse {
+  0%, 100% { filter: saturate(1); transform: translateY(0) scale(1); }
+  50%      { filter: saturate(1.12); transform: translateY(-1px) scale(1.02); }
+}
 
 .hp-anim-hero  { opacity: 0; animation: hp-slideInLeft 0.5s ease-out  0.05s forwards; }
 .hp-anim-w     { opacity: 0; animation: hp-popIn       0.5s ease-out  0.12s forwards; }
@@ -1296,3 +1308,57 @@
 .hp-sched-r3 { opacity: 0; animation: hp-fadeUp 0.4s ease-out 1.20s forwards; }
 .hp-sched-r4 { opacity: 0; animation: hp-fadeUp 0.4s ease-out 1.30s forwards; }
 .hp-sched-r5 { opacity: 0; animation: hp-fadeUp 0.4s ease-out 1.40s forwards; }
+
+.ops-home .hp-anim-sched { opacity: 0; animation: hp-fadeUp 0.5s ease-out 0.80s forwards !important; }
+.ops-home .hp-sched-r1 { opacity: 0; animation: hp-fadeUp 0.4s ease-out 1.00s forwards !important; }
+.ops-home .hp-sched-r2 { opacity: 0; animation: hp-fadeUp 0.4s ease-out 1.10s forwards !important; }
+.ops-home .hp-sched-r3 { opacity: 0; animation: hp-fadeUp 0.4s ease-out 1.20s forwards !important; }
+.ops-home .hp-sched-r4 { opacity: 0; animation: hp-fadeUp 0.4s ease-out 1.30s forwards !important; }
+.ops-home .hp-sched-r5 { opacity: 0; animation: hp-fadeUp 0.4s ease-out 1.40s forwards !important; }
+
+.ops-home .hp-sched-day,
+.ops-home .hp-sched-cell {
+  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.ops-home .hp-sched-cell:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 23, 42, 0.22);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+
+.ops-home .hp-sched-day-today,
+.ops-home .hp-sched-cell-today {
+  animation: hp-schedTodayGlow 2.8s ease-in-out 1.35s 2;
+}
+
+.ops-home .hp-sched-chip {
+  opacity: 0;
+  transform-origin: center;
+  animation: hp-schedChipIn 0.26s ease-out forwards;
+}
+
+.ops-home .hp-sched-chip-priority {
+  animation-name: hp-schedChipIn, hp-schedPriorityPulse;
+  animation-duration: 0.26s, 2.2s;
+  animation-timing-function: ease-out, ease-in-out;
+  animation-fill-mode: forwards, none;
+  animation-iteration-count: 1, infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-home .hp-anim-sched,
+  .ops-home .hp-sched-r1,
+  .ops-home .hp-sched-r2,
+  .ops-home .hp-sched-r3,
+  .ops-home .hp-sched-r4,
+  .ops-home .hp-sched-r5,
+  .ops-home .hp-sched-day-today,
+  .ops-home .hp-sched-cell-today,
+  .ops-home .hp-sched-chip,
+  .ops-home .hp-sched-chip-priority {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+}

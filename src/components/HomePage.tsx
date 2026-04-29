@@ -124,6 +124,7 @@ const TYPE_META: Record<string, { bg: string; text: string; border: string; labe
   "주말중식OT": { bg:"bg-amber-50", text:"text-amber-700", border:"border-amber-200", label:"중식OT" },
   "현장휴무": { bg:"bg-rose-50",     text:"text-rose-600",    border:"border-rose-200",    label:"휴무"  },
 };
+const IMPORTANT_SCHEDULE_TYPES = new Set(["연장", "야간", "주말중식OT"]);
 
 function getWeekDates(ws: string) {
   const s = new Date(ws + "T00:00:00");
@@ -176,7 +177,7 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                 const isToday   = date === todayStr;
                 const isWeekend = i >= 5;
                 return (
-                  <div key={date} className={`rounded-lg border border-slate-100 bg-white px-2 py-2 text-center ${isToday ? "ring-1 ring-slate-300" : ""}`}>
+                  <div key={date} className={`hp-sched-day rounded-lg border border-slate-100 bg-white px-2 py-2 text-center ${isToday ? "hp-sched-day-today ring-1 ring-slate-300" : ""}`}>
                     <div className={`text-[11px] font-extrabold ${isToday?"text-slate-950":isWeekend?"text-sky-500":"text-slate-700"}`}>{m}/{d}</div>
                     <div className={`mt-0.5 text-[10px] ${isToday?"text-slate-500":isWeekend?"text-sky-400":"text-slate-400"}`}>{WEEK_DAY[i]}</div>
                   </div>
@@ -198,7 +199,7 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                     <div className="flex items-center px-2 text-xs font-extrabold text-slate-800">
                       <span className="truncate">{group.label ? zone.replace(/^[13]층\s*/,"") : zone}</span>
                     </div>
-                    {weekDates.map(date=>{
+                    {weekDates.map((date, dateIdx)=>{
                       const type = schedule.schedule[date]?.[zone] ?? "";
                       const matchedMetas = Object.entries(TYPE_META).filter(([k]) => type.includes(k));
                       const getTime = (key: string) => {
@@ -207,15 +208,20 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
                       };
                       const memo = type.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
                       const isToday = date === todayStr;
+                      const cellDelayMs = 980 + Math.min(zoneIdx, 5) * 70 + dateIdx * 24;
                       return (
-                        <div key={date} className={`min-h-[58px] rounded-md border px-1.5 py-1.5 text-center ${isToday ? "border-slate-300 bg-slate-50" : "border-slate-100 bg-white"}`}>
+                        <div key={date} className={`hp-sched-cell min-h-[58px] rounded-md border px-1.5 py-1.5 text-center ${isToday ? "hp-sched-cell-today border-slate-300 bg-slate-50" : "border-slate-100 bg-white"}`}>
                           {matchedMetas.length > 0 ? (
                             <div className="flex flex-col items-center gap-1">
                               {matchedMetas.slice(0, 3).map(([k, meta]) => {
                                 const time = getTime(k);
+                                const isImportant = IMPORTANT_SCHEDULE_TYPES.has(k);
                                 return (
                                   <div key={k} className="flex flex-col items-center gap-0.5">
-                                    <span className={`inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${meta.bg} ${meta.text} ${meta.border}`}>
+                                    <span
+                                      className={`hp-sched-chip inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${isImportant ? "hp-sched-chip-priority" : ""} ${meta.bg} ${meta.text} ${meta.border}`}
+                                      style={{ animationDelay: `${cellDelayMs}ms` }}
+                                    >
                                       {meta.label}
                                     </span>
                                     {time && <span className="text-[8px] text-gray-400 tabular-nums">{time}</span>}
