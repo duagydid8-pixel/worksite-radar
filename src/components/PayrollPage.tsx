@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { processPayroll, type PayrollCorrection } from "@/lib/payrollProcessor";
 import { fetchAttendanceFS } from "@/lib/firestoreAttendance";
 import { loadManualAbsencesFS, loadScheduleFS, saveManualAbsencesFS } from "@/lib/firestoreService";
-import type { ScheduleData } from "@/lib/geminiService";
+import type { ScheduleData } from "@/lib/scheduleTypes";
 import { expandDateRange, type ManualAbsence } from "@/lib/manualAbsences";
 import {
   Dialog,

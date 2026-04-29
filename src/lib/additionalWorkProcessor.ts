@@ -43,6 +43,10 @@ export interface PayrollEmployeeOption {
   rowKey: string;
 }
 
+export interface AdditionalWorkParseOptions {
+  knownNames?: string[];
+}
+
 interface PayrollLayout {
   nameCol: number;
   jobTitleCol: number;
@@ -166,6 +170,106 @@ function parseOcrUnit(text: string): number | null {
   return null;
 }
 
+function parsePlainUnit(text: string): number | null {
+  const normalized = text.replace(",", ".").replace(/\s+/g, "").trim();
+  const value = Number(normalized);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  if (value === 100) return 1;
+  if (value === 200) return 2;
+  return value;
+}
+
+function compactText(value: string): string {
+  return value.replace(/\s+/g, "").trim();
+}
+
+function knownNamesByLength(names: string[] | undefined): string[] {
+  const unique = new Map<string, string>();
+  for (const rawName of names ?? []) {
+    const name = compactText(rawName);
+    if (name.length < 2) continue;
+    unique.set(name, name);
+  }
+  return Array.from(unique.values()).sort((a, b) => b.length - a.length);
+}
+
+function parseSplitCellUnit(raw: string, clean: string): number | null {
+  return parsePlainUnit(raw) ?? parsePlainUnit(clean) ?? parseOcrUnit(raw) ?? parseOcrUnit(clean);
+}
+
+function isOcrHeaderCell(value: string): boolean {
+  const compact = value.replace(/\s+/g, "").toLowerCase();
+  return /^(no|번호|순번|이름|성명|성함|공종|직종|추가|추가공수|추가요청공수|요청공수)$/.test(compact);
+}
+
+function isOcrRowNumber(value: string): boolean {
+  return /^\d{1,3}$/.test(value.replace(/\s+/g, ""));
+}
+
+function isLikelySplitName(value: string): boolean {
+  const compact = value.replace(/\s+/g, "");
+  return /^[가-힣]{2,4}$/.test(compact) || /^[A-Za-z]{2,20}$/.test(compact);
+}
+
+function isLikelySplitTrade(value: string): boolean {
+  const compact = value.replace(/\s+/g, "");
+  if (!compact || isOcrHeaderCell(compact) || isOcrRowNumber(compact)) return false;
+  if (parseSplitCellUnit(value, compact) !== null) return false;
+  return compact.length <= 20;
+}
+
+function parseSplitCellRows(lines: string[]): AdditionalWorkEntry[] {
+  const cells = lines
+    .map((raw) => ({ raw, clean: cleanOcrCell(raw) }))
+    .filter((cell) => cell.clean && !isOcrHeaderCell(cell.clean));
+
+  const rows: AdditionalWorkEntry[] = [];
+
+  for (let i = 0; i < cells.length - 2; i++) {
+    const start = isOcrRowNumber(cells[i].clean) ? i + 1 : i;
+    const nameCell = cells[start];
+    const tradeCell = cells[start + 1];
+    const unitCell = cells[start + 2];
+    if (!nameCell || !tradeCell || !unitCell) continue;
+
+    const units = parseSplitCellUnit(unitCell.raw, unitCell.clean);
+    if (!isLikelySplitName(nameCell.clean) || !isLikelySplitTrade(tradeCell.clean) || units === null) continue;
+
+    rows.push({
+      name: nameCell.clean.replace(/\s+/g, ""),
+      trade: compactText(tradeCell.clean),
+      units,
+      sourceLine: [nameCell.raw, tradeCell.raw, unitCell.raw].join(" "),
+    });
+    i = start + 2;
+  }
+
+  return rows;
+}
+
+function parseKnownNameLine(line: string, unitsIndex: number, units: number, knownNames: string[]): AdditionalWorkEntry | null {
+  if (knownNames.length === 0) return null;
+
+  const beforeUnits = line.slice(0, unitsIndex).trim();
+  const compactBeforeUnits = compactText(beforeUnits);
+  for (const knownName of knownNames) {
+    const nameIndex = compactBeforeUnits.indexOf(knownName);
+    if (nameIndex < 0) continue;
+
+    const trade = compactBeforeUnits.slice(nameIndex + knownName.length);
+    if (!trade || /^\d+$/.test(trade) || isOcrHeaderCell(trade)) continue;
+
+    return {
+      name: knownName,
+      trade: compactText(trade),
+      units,
+      sourceLine: line,
+    };
+  }
+
+  return null;
+}
+
 function parseTableOcrLine(line: string): AdditionalWorkEntry | null {
   if (!/[|ㅣ]/.test(line)) return null;
 
@@ -199,16 +303,17 @@ function parseTableOcrLine(line: string): AdditionalWorkEntry | null {
   if (!units) return null;
 
   return {
-    name,
-    trade,
+    name: compactText(name),
+    trade: compactText(trade),
     units,
     sourceLine: line.trim(),
   };
 }
 
-export function parseAdditionalWorkText(text: string): AdditionalWorkEntry[] {
+export function parseAdditionalWorkText(text: string, options: AdditionalWorkParseOptions = {}): AdditionalWorkEntry[] {
   const rows: AdditionalWorkEntry[] = [];
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const knownNames = knownNamesByLength(options.knownNames);
 
   for (const rawLine of lines) {
     const tableRow = parseTableOcrLine(rawLine);
@@ -224,8 +329,14 @@ export function parseAdditionalWorkText(text: string): AdditionalWorkEntry[] {
     const unitsMatch = line.match(/(\d+(?:[.,]\d+)?)\s*$/);
     if (!unitsMatch || unitsMatch.index == null) continue;
 
-    const units = Number(unitsMatch[1].replace(",", "."));
-    if (!Number.isFinite(units) || units <= 0) continue;
+    const units = parsePlainUnit(unitsMatch[1]);
+    if (units === null) continue;
+
+    const knownNameRow = parseKnownNameLine(line, unitsMatch.index, units, knownNames);
+    if (knownNameRow) {
+      rows.push(knownNameRow);
+      continue;
+    }
 
     const beforeUnits = line.slice(0, unitsMatch.index).trim();
     const tokens = beforeUnits.split(/\s+/).filter(Boolean);
@@ -233,10 +344,14 @@ export function parseAdditionalWorkText(text: string): AdditionalWorkEntry[] {
     if (nameIndex < 0) continue;
 
     const name = tokens[nameIndex];
-    const trade = tokens.slice(nameIndex + 1).join(" ").trim();
+    const trade = compactText(tokens.slice(nameIndex + 1).join(""));
     if (!trade) continue;
 
     rows.push({ name, trade, units, sourceLine: line });
+  }
+
+  if (rows.length === 0) {
+    rows.push(...parseSplitCellRows(lines));
   }
 
   return rows;

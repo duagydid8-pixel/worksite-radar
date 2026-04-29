@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import FileUploadZone from "@/components/FileUploadZone";
 import StatCard from "@/components/StatCard";
 import AttendanceTable from "@/components/AttendanceTable";
@@ -122,8 +122,10 @@ const NAV_SEMI_PUBLIC: NavItem[] = [
 ];
 
 const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN];
+const ADMIN_TOP_NAV_KEY = "__admin";
 
 const Index = () => {
+  const topbarRef = useRef<HTMLElement | null>(null);
   const [data, setData] = useState<ParsedData | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -148,6 +150,7 @@ const Index = () => {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
+  const [subnavOffsets, setSubnavOffsets] = useState({ primary: 18, admin: 18, nested: 18 });
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -329,6 +332,70 @@ const Index = () => {
     return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
   }, [filteredEmployees, data, monday, selectedDate]);
 
+  const primaryNavItems = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC];
+  const isAdminSection = NAV_ADMIN.some((item) => item.key === activeTab);
+  const activePrimarySubnavKey = activeTab === "근태관리" ? activeTab : isAdminSection ? ADMIN_TOP_NAV_KEY : null;
+  const activeNestedSubnavKey = activeTab === "본사메일송부" || activeTab === "급여대장" ? activeTab : null;
+
+  const updateSubnavOffsets = useCallback(() => {
+    const topbar = topbarRef.current;
+    if (!topbar) return;
+
+    const topbarRect = topbar.getBoundingClientRect();
+    const measureLeft = (element: HTMLElement | undefined) => {
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return Math.max(12, Math.round(rect.left - topbarRect.left));
+    };
+
+    const findByData = (selector: string, datasetKey: "navKey" | "adminKey", value: string) =>
+      Array.from(topbar.querySelectorAll<HTMLElement>(selector)).find(
+        (element) => element.dataset[datasetKey] === value
+      );
+
+    const primaryLeft = activePrimarySubnavKey
+      ? measureLeft(findByData("[data-nav-key]", "navKey", activePrimarySubnavKey))
+      : null;
+    const adminLeft = measureLeft(findByData("[data-nav-key]", "navKey", ADMIN_TOP_NAV_KEY));
+    const nestedLeft = activeNestedSubnavKey
+      ? measureLeft(findByData("[data-admin-key]", "adminKey", activeNestedSubnavKey))
+      : null;
+
+    setSubnavOffsets((current) => {
+      const next = {
+        primary: primaryLeft ?? current.primary,
+        admin: adminLeft ?? current.admin,
+        nested: nestedLeft ?? adminLeft ?? current.nested,
+      };
+      return next.primary === current.primary && next.admin === current.admin && next.nested === current.nested
+        ? current
+        : next;
+    });
+  }, [activeNestedSubnavKey, activePrimarySubnavKey]);
+
+  useLayoutEffect(() => {
+    updateSubnavOffsets();
+
+    const topbar = topbarRef.current;
+    if (!topbar) return;
+
+    const handleLayoutChange = () => updateSubnavOffsets();
+    window.addEventListener("resize", handleLayoutChange);
+
+    const scrollers = topbar.querySelectorAll(".ops-topnav, .ops-admin-strip");
+    scrollers.forEach((element) => element.addEventListener("scroll", handleLayoutChange, { passive: true }));
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleLayoutChange);
+    resizeObserver?.observe(topbar);
+
+    return () => {
+      window.removeEventListener("resize", handleLayoutChange);
+      scrollers.forEach((element) => element.removeEventListener("scroll", handleLayoutChange));
+      resizeObserver?.disconnect();
+    };
+  }, [updateSubnavOffsets, isAdmin]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -340,16 +407,8 @@ const Index = () => {
     );
   }
 
-  // 모바일 하단 네비 아이템 (5개)
-  const MOBILE_NAV: NavItem[] = [
-    { key: "홈",      label: "홈",      icon: <Home className="h-5 w-5" />,          adminOnly: false },
-    { key: "근태관리", label: "근태관리", icon: <ClipboardList className="h-5 w-5" />, adminOnly: false },
-    { key: "조직도",  label: "조직도",  icon: <GitBranch className="h-5 w-5" />,      adminOnly: false },
-    { key: "XERP&PMIS", label: "XERP", icon: <Database className="h-5 w-5" />,       adminOnly: false },
-  ];
-
   return (
-    <div className="flex flex-col h-[100dvh] bg-[#F0F3FA]">
+    <div className="ops-shell flex flex-col h-[100dvh]">
       {/* 관리자 로그인 다이얼로그 */}
       <Dialog open={loginDialogOpen} onOpenChange={setLoginDialogOpen}>
         <DialogContent className="sm:max-w-[340px]">
@@ -389,36 +448,146 @@ const Index = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ── 모바일 상단 헤더 (md 이하) ───────────── */}
-      <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 shrink-0 z-30 shadow-sm">
-        <div onClick={() => window.location.reload()} className="cursor-pointer">
-          <div className="text-lg font-extrabold leading-tight tracking-tight text-slate-900">
-            한성크린텍
+      <header
+        ref={topbarRef}
+        className="ops-topbar shrink-0 z-30"
+        style={{
+          "--ops-subnav-left": `${subnavOffsets.primary}px`,
+          "--ops-admin-subnav-left": `${subnavOffsets.admin}px`,
+          "--ops-nested-subnav-left": `${subnavOffsets.nested}px`,
+        } as React.CSSProperties}
+      >
+        <div className="ops-topbar-main">
+          <button
+            type="button"
+            onClick={() => handleNavClick("홈", false)}
+            className="ops-brand"
+          >
+            <span className="ops-brand-title">한성크린텍</span>
+            <span className="ops-brand-subtitle">P4 현장관리</span>
+          </button>
+
+          <nav className="ops-topnav" aria-label="주요 메뉴">
+            {primaryNavItems.map(({ key, label, icon }) => {
+              const isActive = activeTab === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  data-nav-key={key}
+                  onClick={() => handleNavClick(key, false)}
+                  className={`ops-topnav-item ${isActive ? "is-active" : ""}`}
+                >
+                  {icon}
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              data-nav-key={ADMIN_TOP_NAV_KEY}
+              onClick={() => isAdmin ? handleNavClick("주간일정", true) : setLoginDialogOpen(true)}
+              className={`ops-topnav-item ${isAdminSection ? "is-active" : ""} ${!isAdmin ? "is-locked" : ""}`}
+            >
+              <Lock className="h-4 w-4" />
+              <span>관리자</span>
+            </button>
+          </nav>
+
+          <div className="ops-topmeta">
+            <span className="ops-date">{selectedDate}</span>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => { logout(); toast.info("로그아웃 되었습니다."); }}
+                className="ops-login-button"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                로그아웃
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setLoginDialogOpen(true)}
+                className="ops-login-button"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                관리자 로그인
+              </button>
+            )}
           </div>
-          <div className="text-[10px] text-slate-500 font-medium">현장 관리 시스템</div>
         </div>
-        {isAdmin ? (
-          <button
-            onClick={() => { logout(); toast.info("로그아웃 되었습니다."); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-medium text-gray-500"
-          >
-            <LogOut className="h-3.5 w-3.5" /> 로그아웃
-          </button>
-        ) : (
-          <button
-            onClick={() => setLoginDialogOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#c8d8f8] text-xs font-semibold text-[#4a6aaa] bg-[#f0f4ff]"
-          >
-            <KeyRound className="h-3.5 w-3.5" /> 관리자
-          </button>
+
+        {activeTab === "근태관리" && (
+          <div className="ops-subbar">
+            {ATTENDANCE_SUB_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setAttendanceSubTab(tab)}
+                className={attendanceSubTab === tab ? "is-active" : ""}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {(isAdmin || isAdminSection) && (
+          <div className="ops-admin-strip">
+            <span>관리자 메뉴</span>
+            {NAV_ADMIN.map(({ key, label, icon, adminOnly }) => (
+              <button
+                key={key}
+                type="button"
+                data-admin-key={key}
+                onClick={() => handleNavClick(key, adminOnly)}
+                className={activeTab === key ? "is-active" : ""}
+              >
+                {icon}
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {activeTab === "본사메일송부" && isAdmin && (
+          <div className="ops-subbar ops-subbar-nested">
+            {MAIL_REQUEST_MENU_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setMailSubTab(option.value)}
+                className={mailSubTab === option.value ? "is-active" : ""}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {activeTab === "급여대장" && isAdmin && (
+          <div className="ops-subbar ops-subbar-nested">
+            {PAYROLL_SUB_TABS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setPayrollSubTab(option.value)}
+                className={payrollSubTab === option.value ? "is-active" : ""}
+              >
+                {option.icon}
+                <span>{option.label}</span>
+              </button>
+            ))}
+          </div>
         )}
       </header>
 
       {/* ── 데스크탑 레이아웃 ────────────────────── */}
-      <div className="flex flex-1 overflow-hidden bg-slate-100">
+      <div className="ops-layout flex flex-1 overflow-hidden bg-slate-100">
 
         {/* ── SIDEBAR (md 이상) ─────────────────── */}
-        <aside className="hidden md:flex w-60 shrink-0 bg-white flex-col border-r border-slate-200 z-20">
+        <aside className="hidden">
 
           {/* 로고 */}
           <div
@@ -556,7 +725,7 @@ const Index = () => {
         </aside>
 
         {/* ── MAIN ──────────────────────────────── */}
-        <main className="flex-1 overflow-auto pb-16 md:pb-0">
+        <main className="ops-main flex-1 overflow-auto pb-0">
 
           {/* 홈 */}
           {activeTab === "홈" && (
@@ -838,25 +1007,6 @@ const Index = () => {
         </main>
       </div>
 
-      {/* ── 모바일 하단 네비게이션 (md 이하) ──────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 shadow-[0_-2px_12px_rgba(0,0,0,0.06)] z-30 flex items-stretch">
-        {MOBILE_NAV.map(({ key, label, icon }) => {
-          const isActive = activeTab === key;
-          return (
-            <button
-              key={key}
-              onClick={() => handleNavClick(key, false)}
-              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-semibold transition-colors ${
-                isActive ? "text-primary" : "text-gray-400"
-              }`}
-            >
-              <span className={`transition-transform ${isActive ? "scale-110" : ""}`}>{icon}</span>
-              <span>{label}</span>
-              {isActive && <span className="absolute bottom-0 w-8 h-0.5 rounded-full bg-primary" />}
-            </button>
-          );
-        })}
-      </nav>
     </div>
   );
 };

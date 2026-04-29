@@ -10,8 +10,8 @@ import {
   type AdditionalWorkPayrollResult,
   type PayrollEmployeeOption,
 } from "@/lib/additionalWorkProcessor";
+import { extractAdditionalWorkWithVision, type VisionExtractImage } from "@/lib/openaiAdditionalWorkExtractor";
 import { loadEmployeesPH2FS, loadEmployeesPH4FS } from "@/lib/firestoreService";
-import { analyzeAdditionalWorkImage, hasGeminiKey } from "@/lib/geminiService";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -41,12 +41,21 @@ function formatRowsForText(rows: AdditionalWorkEntry[]): string {
   return rows.map((row) => `${row.name}\t${row.trade}\t${row.units.toFixed(2)}`).join("\n");
 }
 
-function canvasToBase64(canvas: HTMLCanvasElement, mimeType = "image/png"): string {
-  return canvas.toDataURL(mimeType).split(",")[1] ?? "";
+function publicAssetPath(path: string): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  return `${base}/${path.replace(/^\//, "")}`;
 }
 
 function normalizeName(name: string): string {
   return name.replace(/\s+/g, "").trim();
+}
+
+function collectKnownNames(payrollEmployees: PayrollEmployeeOption[], identities: TechnicalIdentity[]): string[] {
+  const names = [
+    ...payrollEmployees.map((employee) => employee.name),
+    ...identities.map((identity) => identity.name),
+  ].map(normalizeName).filter(Boolean);
+  return Array.from(new Set(names));
 }
 
 function readField(row: unknown, field: string): string {
@@ -86,17 +95,22 @@ function candidateLabel(candidate: PayrollEmployeeOption, identities: TechnicalI
   return `${candidate.name} / ${trade || "직종 없음"} / ${birth || maskResidentNo(candidate.residentNo)} / ${candidate.rowKey}`;
 }
 
-function preprocessCanvasForOcr(source: HTMLCanvasElement): HTMLCanvasElement {
+function cloneCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = source.width;
   canvas.height = source.height;
+  canvas.getContext("2d")!.drawImage(source, 0, 0);
+  return canvas;
+}
+
+function enhanceCanvasForOcr(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = cloneCanvas(source);
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-  ctx.drawImage(source, 0, 0);
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
   for (let i = 0; i < image.data.length; i += 4) {
     const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
-    const value = gray > 175 ? 255 : 0;
+    const value = Math.max(0, Math.min(255, (gray - 128) * 1.45 + 128));
     image.data[i] = value;
     image.data[i + 1] = value;
     image.data[i + 2] = value;
@@ -106,13 +120,72 @@ function preprocessCanvasForOcr(source: HTMLCanvasElement): HTMLCanvasElement {
   return canvas;
 }
 
+function thresholdCanvasForOcr(source: HTMLCanvasElement): HTMLCanvasElement {
+  const canvas = cloneCanvas(source);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i < image.data.length; i += 4) {
+    const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+    const value = gray > 205 ? 255 : 0;
+    image.data[i] = value;
+    image.data[i + 1] = value;
+    image.data[i + 2] = value;
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+function cropCanvas(
+  source: HTMLCanvasElement,
+  leftRatio: number,
+  widthRatio: number,
+  topRatio = 0,
+  heightRatio = 1,
+  scale = 1.8
+): HTMLCanvasElement {
+  const sx = Math.max(0, Math.floor(source.width * leftRatio));
+  const sw = Math.min(source.width - sx, Math.floor(source.width * widthRatio));
+  const sy = Math.max(0, Math.floor(source.height * topRatio));
+  const sh = Math.min(source.height - sy, Math.floor(source.height * heightRatio));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.floor(sw * scale);
+  canvas.height = Math.floor(sh * scale);
+  canvas.getContext("2d")!.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function makeOcrRegions(source: HTMLCanvasElement): Array<{ canvas: HTMLCanvasElement; label: string }> {
+  return [
+    { canvas: cropCanvas(source, 0.05, 0.42, 0.16, 0.72), label: "표 왼쪽" },
+    { canvas: cropCanvas(source, 0.10, 0.24, 0.16, 0.72, 2.4), label: "이름/공종" },
+  ];
+}
+
+function mergeOcrTexts(texts: string[]): string {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const text of texts) {
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const key = line.replace(/\s+/g, "");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(line);
+    }
+  }
+  return lines.join("\n");
+}
+
 async function imageFileToCanvas(file: File): Promise<HTMLCanvasElement> {
   const url = URL.createObjectURL(file);
   try {
     const image = new Image();
     image.src = url;
     await image.decode();
-    const scale = image.width < 2200 ? 2 : 1;
+    const scale = image.width < 1200 ? 3 : image.width < 2200 ? 2 : 1;
     const canvas = document.createElement("canvas");
     canvas.width = image.width * scale;
     canvas.height = image.height * scale;
@@ -121,6 +194,13 @@ async function imageFileToCanvas(file: File): Promise<HTMLCanvasElement> {
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+function canvasToVisionImage(canvas: HTMLCanvasElement, label: string): VisionExtractImage {
+  return {
+    dataUrl: canvas.toDataURL("image/jpeg", 0.92),
+    label,
+  };
 }
 
 async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
@@ -151,7 +231,7 @@ async function renderPdfPages(buffer: ArrayBuffer): Promise<HTMLCanvasElement[]>
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
-    canvases.push(preprocessCanvasForOcr(canvas));
+    canvases.push(canvas);
   }
 
   return canvases;
@@ -165,16 +245,20 @@ export default function AdditionalWorkScanPage() {
   const [payrollFileName, setPayrollFileName] = useState("");
   const [payrollBuffer, setPayrollBuffer] = useState<ArrayBuffer | null>(null);
   const [rawText, setRawText] = useState("");
+  const [sourceOcrText, setSourceOcrText] = useState("");
   const [draftRows, setDraftRows] = useState<AdditionalWorkEntry[]>([]);
   const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployeeOption[]>([]);
   const [technicalIdentities, setTechnicalIdentities] = useState<TechnicalIdentity[]>([]);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
-  const [customGeminiKey, setCustomGeminiKey] = useState(() => localStorage.getItem("additional_work_gemini_key") ?? "");
   const [ocrMessage, setOcrMessage] = useState("");
   const [outputBuffer, setOutputBuffer] = useState<ArrayBuffer | null>(null);
   const [result, setResult] = useState<AdditionalWorkPayrollResult | null>(null);
 
   const totalUnits = useMemo(() => draftRows.reduce((sum, row) => sum + row.units, 0), [draftRows]);
+  const knownEmployeeNames = useMemo(
+    () => collectKnownNames(payrollEmployees, technicalIdentities),
+    [payrollEmployees, technicalIdentities]
+  );
   const duplicateRows = useMemo(() => draftRows
     .map((row, index) => ({
       row,
@@ -205,9 +289,22 @@ export default function AdditionalWorkScanPage() {
     });
   }, []);
 
-  const recognizeImage = useCallback(async (image: File | HTMLCanvasElement): Promise<string> => {
-    const { createWorker, PSM } = await import("tesseract.js");
-    const worker = await createWorker("kor+eng", 1, {
+  useEffect(() => {
+    if (!sourceOcrText.trim() || knownEmployeeNames.length === 0) return;
+    const rows = parseAdditionalWorkText(sourceOcrText, { knownNames: knownEmployeeNames });
+    if (rows.length <= draftRows.length) return;
+    setDraftRows(rows);
+    setRawText(formatRowsForText(rows));
+    setResult(null);
+    setOutputBuffer(null);
+  }, [sourceOcrText, knownEmployeeNames, draftRows.length]);
+
+  const createOcrWorker = useCallback(async () => {
+    const { createWorker } = await import("tesseract.js");
+    return createWorker("kor+eng", 1, {
+      workerPath: publicAssetPath("tesseract/worker.min.js"),
+      corePath: publicAssetPath("tesseract-core"),
+      langPath: publicAssetPath("tessdata"),
       logger: (message: any) => {
         if (message?.status) {
           const pct = Number.isFinite(message.progress) ? ` ${Math.round(message.progress * 100)}%` : "";
@@ -215,36 +312,45 @@ export default function AdditionalWorkScanPage() {
         }
       },
     } as any);
-    try {
-      await worker.setParameters({
-        tessedit_pageseg_mode: PSM.SPARSE_TEXT,
-        preserve_interword_spaces: "1",
-        user_defined_dpi: "300",
-      } as any);
-      const recognized = await worker.recognize(image as any);
-      return recognized.data.text;
-    } finally {
-      await worker.terminate();
-    }
   }, []);
 
-  const hasVisionKey = hasGeminiKey() || customGeminiKey.trim().length > 0;
+  const recognizeWithWorker = useCallback(async (worker: any, image: HTMLCanvasElement, pageSegMode: string): Promise<string> => {
+    await worker.setParameters({
+      tessedit_pageseg_mode: pageSegMode,
+      preserve_interword_spaces: "1",
+      user_defined_dpi: "300",
+    } as any);
+    const recognized = await worker.recognize(image as any);
+    return recognized.data.text;
+  }, []);
 
-  const extractWithVision = useCallback(async (canvas: HTMLCanvasElement): Promise<AdditionalWorkEntry[]> => {
-    if (!hasVisionKey) return [];
-    const rows = await analyzeAdditionalWorkImage(canvasToBase64(canvas), "image/png", customGeminiKey);
-    return rows.map((row) => ({
-      name: row.name,
-      trade: row.trade,
-      units: row.units,
-      sourceLine: `${row.name} ${row.trade} ${row.units}`,
-    }));
-  }, [customGeminiKey, hasVisionKey]);
+  const recognizeCanvasVariants = useCallback(async (worker: any, canvas: HTMLCanvasElement, label: string): Promise<string> => {
+    const regions = makeOcrRegions(canvas);
+    const variants = [
+      { canvas: enhanceCanvasForOcr(regions[0].canvas), psm: "6", name: "표 왼쪽" },
+      { canvas: enhanceCanvasForOcr(regions[1].canvas), psm: "6", name: "이름/공종" },
+    ];
+    const texts: string[] = [];
+
+    for (let i = 0; i < variants.length; i++) {
+      setOcrMessage(`${label} OCR ${i + 1}/${variants.length} (${variants[i].name})`);
+      texts.push(await recognizeWithWorker(worker, variants[i].canvas, variants[i].psm));
+    }
+
+    return mergeOcrTexts(texts);
+  }, [recognizeWithWorker]);
+
+  const extractCanvasesWithVision = useCallback(async (canvases: HTMLCanvasElement[], label: string) => {
+    setOcrMessage(`${label} OpenAI Vision 추출 중`);
+    const images = canvases.map((canvas, index) => canvasToVisionImage(canvas, `${label} ${index + 1}`));
+    return extractAdditionalWorkWithVision(images, knownEmployeeNames);
+  }, [knownEmployeeNames]);
 
   const extractScanFile = useCallback(async (file: File) => {
     setStep("extracting");
     setScanFileName(file.name);
     setRawText("");
+    setSourceOcrText("");
     setDraftRows([]);
     setResult(null);
     setOutputBuffer(null);
@@ -261,67 +367,66 @@ export default function AdditionalWorkScanPage() {
           text = embeddedText;
         } else {
           const canvases = await renderPdfPages(buffer);
-          const visionRows: AdditionalWorkEntry[] = [];
-
-          if (hasVisionKey) {
-            try {
-              for (let i = 0; i < canvases.length; i++) {
-                setOcrMessage(`AI 추출 ${i + 1}/${canvases.length}`);
-                visionRows.push(...await extractWithVision(canvases[i]));
-              }
-            } catch (visionError: any) {
-              toast.warning(visionError?.message || "AI 추출에 실패해서 OCR로 다시 시도합니다.");
-            }
-          }
-
-          if (visionRows.length > 0) {
-            const rows = visionRows;
-            setDraftRows(rows);
-            setRawText(formatRowsForText(rows));
-            setStep("ready");
-            toast.success(`${rows.length}건의 추가공수 행을 AI로 추출했습니다.`);
-            return;
-          }
-
-          const ocrTexts: string[] = [];
-          for (let i = 0; i < canvases.length; i++) {
-            setOcrMessage(`OCR 예비 추출 ${i + 1}/${canvases.length}`);
-            ocrTexts.push(await recognizeImage(canvases[i]));
-          }
-          text = ocrTexts.join("\n");
-        }
-      } else if (file.type.startsWith("image/")) {
-        const canvas = preprocessCanvasForOcr(await imageFileToCanvas(file));
-        if (hasVisionKey) {
           try {
-            setOcrMessage("AI 추출 중");
-            const rows = await extractWithVision(canvas);
-            if (rows.length > 0) {
-              setDraftRows(rows);
-              setRawText(formatRowsForText(rows));
+            const visionResult = await extractCanvasesWithVision(canvases, "PDF");
+            if (visionResult.rows.length > 0) {
+              setSourceOcrText(visionResult.rawText);
+              setDraftRows(visionResult.rows);
+              setRawText(formatRowsForText(visionResult.rows));
               setStep("ready");
-              toast.success(`${rows.length}건의 추가공수 행을 AI로 추출했습니다.`);
+              toast.success(`${visionResult.rows.length}건의 추가공수 행을 OpenAI Vision으로 읽었습니다.`);
               return;
             }
-          } catch (visionError: any) {
-            toast.warning(visionError?.message || "AI 추출에 실패해서 OCR로 다시 시도합니다.");
+          } catch (visionError) {
+            console.warn("OpenAI Vision extraction failed, falling back to OCR.", visionError);
+            setOcrMessage("OpenAI Vision 실패, 로컬 OCR 전환 중");
           }
+          const ocrTexts: string[] = [];
+          const worker = await createOcrWorker();
+          try {
+            for (let i = 0; i < canvases.length; i++) {
+              ocrTexts.push(await recognizeCanvasVariants(worker, canvases[i], `페이지 ${i + 1}/${canvases.length}`));
+            }
+          } finally {
+            await worker.terminate();
+          }
+          text = mergeOcrTexts(ocrTexts);
         }
-
-        setOcrMessage("OCR 예비 추출 중");
-        text = await recognizeImage(canvas);
+      } else if (file.type.startsWith("image/")) {
+        const canvas = await imageFileToCanvas(file);
+        try {
+          const visionResult = await extractCanvasesWithVision([canvas], "이미지");
+          if (visionResult.rows.length > 0) {
+            setSourceOcrText(visionResult.rawText);
+            setDraftRows(visionResult.rows);
+            setRawText(formatRowsForText(visionResult.rows));
+            setStep("ready");
+            toast.success(`${visionResult.rows.length}건의 추가공수 행을 OpenAI Vision으로 읽었습니다.`);
+            return;
+          }
+        } catch (visionError) {
+          console.warn("OpenAI Vision extraction failed, falling back to OCR.", visionError);
+          setOcrMessage("OpenAI Vision 실패, 로컬 OCR 전환 중");
+        }
+        const worker = await createOcrWorker();
+        try {
+          text = await recognizeCanvasVariants(worker, canvas, "이미지");
+        } finally {
+          await worker.terminate();
+        }
       } else {
         toast.error("PDF 또는 이미지 파일만 업로드할 수 있습니다.");
         setStep(rawText ? "ready" : "idle");
         return;
       }
 
-      const rows = parseAdditionalWorkText(text);
+      setSourceOcrText(text);
+      const rows = parseAdditionalWorkText(text, { knownNames: knownEmployeeNames });
       setDraftRows(rows);
-      setRawText(formatRowsForText(rows));
+      setRawText(rows.length > 0 ? formatRowsForText(rows) : text);
       setStep("ready");
       const count = rows.length;
-      if (count === 0) toast.warning("자동 추출이 실패했습니다. 필요한 3개 항목만 직접 입력해 주세요.");
+      if (count === 0) toast.warning("자동 추출이 실패했습니다. OCR 원문을 남겼으니 필요한 3개 항목만 정리해 주세요.");
       else toast.success(`${count}건의 추가공수 행을 읽었습니다.`);
     } catch (err: any) {
       toast.error(err?.message || "스캔본 텍스트 추출 중 오류가 발생했습니다.");
@@ -329,7 +434,7 @@ export default function AdditionalWorkScanPage() {
     } finally {
       setOcrMessage("");
     }
-  }, [rawText, recognizeImage, extractWithVision, hasVisionKey]);
+  }, [rawText, createOcrWorker, recognizeCanvasVariants, knownEmployeeNames, extractCanvasesWithVision]);
 
   const handleScanChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -347,13 +452,23 @@ export default function AdditionalWorkScanPage() {
     }
 
     const buffer = await file.arrayBuffer();
+    const nextPayrollEmployees = readPayrollEmployeeOptions(buffer);
     setPayrollFileName(file.name);
     setPayrollBuffer(buffer);
-    setPayrollEmployees(readPayrollEmployeeOptions(buffer));
+    setPayrollEmployees(nextPayrollEmployees);
     setResult(null);
     setOutputBuffer(null);
+    if (sourceOcrText.trim()) {
+      const rows = parseAdditionalWorkText(sourceOcrText, {
+        knownNames: collectKnownNames(nextPayrollEmployees, technicalIdentities),
+      });
+      if (rows.length > 0) {
+        setDraftRows(rows);
+        setRawText(formatRowsForText(rows));
+      }
+    }
     toast.success("급여대장을 불러왔습니다.");
-  }, []);
+  }, [sourceOcrText, technicalIdentities]);
 
   const handleApply = useCallback(async () => {
     if (!payrollBuffer || !payrollFileName) {
@@ -398,25 +513,20 @@ export default function AdditionalWorkScanPage() {
 
   const handleClearText = useCallback(() => {
     setRawText("");
+    setSourceOcrText("");
     setDraftRows([]);
     setResult(null);
     setOutputBuffer(null);
     setStep("idle");
   }, []);
 
-  const handleGeminiKeyChange = useCallback((value: string) => {
-    setCustomGeminiKey(value);
-    if (value.trim()) localStorage.setItem("additional_work_gemini_key", value.trim());
-    else localStorage.removeItem("additional_work_gemini_key");
-  }, []);
-
   const handleNeededTextChange = useCallback((value: string) => {
     setRawText(value);
-    setDraftRows(parseAdditionalWorkText(value));
+    setDraftRows(parseAdditionalWorkText(value, { knownNames: knownEmployeeNames }));
     setResult(null);
     setOutputBuffer(null);
     if (value.trim()) setStep("ready");
-  }, []);
+  }, [knownEmployeeNames]);
 
   const updateDraftRow = useCallback((index: number, patch: Partial<AdditionalWorkEntry>) => {
     setDraftRows((rows) => {
@@ -439,7 +549,7 @@ export default function AdditionalWorkScanPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-[1200px] space-y-4 p-4 md:p-6">
+    <div className="ops-scan mx-auto max-w-[1200px] space-y-4 p-4 md:p-6">
       <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
@@ -512,16 +622,6 @@ export default function AdditionalWorkScanPage() {
             <h2 className="text-base font-extrabold text-slate-950">추가공수 스캔본 추출</h2>
             <p className="text-xs font-semibold text-slate-500">스캔본의 이름, 공종, 추가요청공수를 읽어서 급여대장 경비(2)에 반영</p>
           </div>
-        </div>
-        <div className="w-full md:w-[360px]">
-          <label className="block text-[11px] font-extrabold text-slate-400">AI 추출용 Gemini API 키</label>
-          <input
-            type="password"
-            value={customGeminiKey}
-            onChange={(event) => handleGeminiKeyChange(event.target.value)}
-            placeholder="기본 키 한도 초과 시 새 키 입력"
-            className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-400"
-          />
         </div>
         <div className="flex flex-wrap gap-2">
           <button

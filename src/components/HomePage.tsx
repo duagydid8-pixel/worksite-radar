@@ -562,6 +562,11 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
     return diff > 0 ? diff : 0;
   }, [prevXerpRows, xerpRows]);
 
+  const latestXerpDate = useMemo(() => {
+    const dates = Object.keys(xerpDateMap).sort();
+    return dates.length ? dates[dates.length - 1] : null;
+  }, [xerpDateMap]);
+
   // 선택일 기준 당일 연차자 필터링
   const todayLeaveDetails = useMemo(() => {
     const [y, m, d] = selectedDate.split("-").map(Number);
@@ -583,138 +588,132 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
   ];
 
   return (
-    <div className="p-5 md:p-7 max-w-[1440px] mx-auto min-h-full bg-slate-100 space-y-4">
+    <div className="ops-home p-4 md:p-5 max-w-[1500px] mx-auto min-h-full space-y-4">
 
-      {/* ── 상단: 히어로 + 날씨 ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
-
-        {/* 히어로 */}
-        <div className="hp-anim-hero rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between gap-4">
+      <section className="home-command-panel hp-anim-hero">
+        <div className="home-command-title">
+          <span>평택 초순수 P4 현장</span>
+          <h1>현장 상황판</h1>
+          <p>{dateLabel}</p>
+        </div>
+        <div className="home-command-meta">
           <div>
-            <p className="text-xs font-bold text-slate-500 tracking-wide mb-1">평택 초순수 P4 현장</p>
-            <h1 className="text-2xl font-extrabold text-slate-950 mb-1">현장 관리 시스템</h1>
-            <p className="text-sm text-slate-500 font-medium">{dateLabel}</p>
-            {lastUploadedAt && (
-              <div className="flex items-center gap-1.5 mt-3">
-                <div className="flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 border border-slate-200">
-                  <Clock className="h-3 w-3 text-slate-400" />
-                  <span className="text-[11px] font-semibold text-slate-600">최근 업데이트 · {lastUploadedAt}</span>
-                </div>
+            <span>선택 기준일</span>
+            <strong>{selectedDate.replaceAll("-", ".")}</strong>
+          </div>
+          <div>
+            <span>공수 기준일</span>
+            <strong>{latestXerpDate ? latestXerpDate.replaceAll("-", ".") : "미등록"}</strong>
+          </div>
+          <div>
+            <span>근태 업데이트</span>
+            <strong>{lastUploadedAt ?? "업로드 전"}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="home-kpi-strip">
+        {KPI.map((k, i) => {
+          const showDash = !xerpLoaded || k.showDash;
+          return (
+            <div
+              key={k.label}
+              className={`home-kpi-card hp-anim-kpi-${i + 1}`}
+            >
+              <div className={`home-kpi-icon ${k.iconBg} ${k.color}`}>
+                {k.icon}
+              </div>
+              <div>
+                <p className="home-kpi-label">{k.label}</p>
+                <p className={`home-kpi-value ${k.color}`}>
+                  {showDash ? <span className="text-gray-300">—</span> : k.value}
+                  {!showDash && <span>명</span>}
+                </p>
+                <p className="home-kpi-sub">{k.sub}</p>
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
+      <div className="home-board-grid">
+        <main className="home-board-main">
+          <div className="hp-anim-sched">
+            <WorkScheduleSection isAdmin={isAdmin} />
+          </div>
+
+          <div className="hp-anim-chart">
+            {xerpLoaded && Object.keys(xerpDateMap).length > 0 ? (
+              <DailyAttendanceChart dateMap={xerpDateMap} />
+            ) : (
+              <div className="home-empty-panel">
+                <HardHat className="h-5 w-5 text-slate-400" />
+                <span>출력인원 데이터가 아직 없습니다.</span>
               </div>
             )}
           </div>
-          <div className="hidden sm:flex flex-col items-end gap-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <span className="text-[11px] font-bold text-slate-400">최근 기술인</span>
-            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{xerpLoaded ? stats.total : "—"}</span>
-          </div>
-        </div>
+        </main>
 
-        {/* 날씨 */}
-        <div className="hp-anim-w">
+        <aside className="home-board-aside hp-anim-side">
           <WeatherCard />
-        </div>
-      </div>
 
-      {/* ── KPI 4개 ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {KPI.map((k, i) => (
-          <div
-            key={k.label}
-            className={`bg-white rounded-2xl shadow-sm border border-slate-200 p-5 hover:border-slate-300 transition-colors hp-anim-kpi-${i + 1}`}
-          >
-            <div className={`w-10 h-10 rounded-xl ${k.iconBg} flex items-center justify-center mb-4 ${k.color}`}>
-              {k.icon}
-            </div>
-            <p className={`text-3xl font-bold tabular-nums mb-0.5 ${k.color}`}>
-              {xerpLoaded ? (k.showDash ? <span className="text-gray-200">—</span> : k.value) : <span className="text-gray-200">—</span>}
-            </p>
-            <p className="text-sm font-bold text-slate-800">{k.label}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">{k.sub}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ── 당일 연차자 (데이터 있을 때만) ── */}
-      {todayLeaveDetails.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50">
-                <CalendarOff className="h-4.5 w-4.5 text-amber-500" />
-              </div>
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900">당일 연차자</h3>
-                <p className="text-[11px] font-semibold text-slate-400">{selectedDate} 기준</p>
-              </div>
-            </div>
-            <span className="text-xl font-bold text-amber-500 tabular-nums">
-              {todayLeaveDetails.length}<span className="ml-0.5 text-xs font-semibold text-slate-400">명</span>
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {todayLeaveDetails.map((item, i) => (
-              <div key={i} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5">
-                <span className="text-xs font-bold text-amber-700">{item.name}</span>
-                {item.days !== 1 && <span className="text-[10px] text-amber-500 font-medium">{item.days}일</span>}
-                {item.reason && <span className="text-[10px] font-semibold text-slate-400">({item.reason})</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── 차트 + 사이드바 ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
-
-        {/* 일일 출력인원 그래프 */}
-        <div className="hp-anim-chart">
-          {xerpLoaded && Object.keys(xerpDateMap).length > 0 && (
-            <DailyAttendanceChart dateMap={xerpDateMap} />
-          )}
-        </div>
-
-        {/* 사이드: 달력 + 데이터현황 */}
-        <div className="hp-anim-side space-y-4">
-          <MiniCalendar selectedDate={selectedDate} />
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100">
+          <div className="home-side-panel">
+            <div className="home-side-heading">
+              <div className="home-side-icon">
                 <CloudUpload className="h-4.5 w-4.5 text-slate-700" />
               </div>
               <div>
-                <p className="text-sm font-extrabold text-slate-900">데이터 현황</p>
-                <p className="text-[11px] font-semibold text-slate-400">근태 파일 업로드 상태</p>
+                <p>데이터 현황</p>
+                <span>근태 파일 업로드 상태</span>
               </div>
             </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between py-2 border-b border-gray-50">
-                <span className="text-xs font-semibold text-slate-500">기술인 데이터</span>
-                <span className={`rounded-md border px-2 py-0.5 text-xs font-extrabold ${xerpLoaded && stats.total > 0 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-100 text-slate-400"}`}>
+
+            <div className="home-status-list">
+              <div>
+                <span>기술인 데이터</span>
+                <strong className={xerpLoaded && stats.total > 0 ? "is-ok" : ""}>
                   {xerpLoaded && stats.total > 0 ? "로드됨" : "없음"}
-                </span>
+                </strong>
               </div>
-              <div className="flex items-center justify-between py-2 border-b border-gray-50">
-                <span className="text-xs font-semibold text-slate-500">최근 업데이트</span>
-                <span className="max-w-[120px] text-right text-xs font-bold leading-tight text-slate-700">
-                  {lastUploadedAt ?? "—"}
-                </span>
+              <div>
+                <span>최근 업데이트</span>
+                <strong>{lastUploadedAt ?? "—"}</strong>
               </div>
-              <div className="flex items-center justify-between py-2">
-                <span className="text-xs font-semibold text-slate-500">총 기술인</span>
-                <span className="text-xs font-extrabold text-slate-900">
-                  {xerpLoaded ? `${stats.total}명` : "—"}
-                </span>
+              <div>
+                <span>총 기술인</span>
+                <strong>{xerpLoaded ? `${stats.total}명` : "—"}</strong>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* ── 주간 작업일정 ── */}
-      <div className="hp-anim-sched">
-        <WorkScheduleSection isAdmin={isAdmin} />
-      </div>
+          <div className="home-side-panel">
+            <div className="home-side-heading">
+              <div className="home-side-icon home-side-icon-warn">
+                <CalendarOff className="h-4.5 w-4.5 text-amber-600" />
+              </div>
+              <div>
+                <p>당일 연차자</p>
+                <span>{selectedDate} 기준</span>
+              </div>
+              <strong className="home-side-count">{todayLeaveDetails.length}명</strong>
+            </div>
+            <div className="home-leave-list">
+              {todayLeaveDetails.length > 0 ? (
+                todayLeaveDetails.map((item, i) => (
+                  <div key={i}>
+                    <span>{item.name}</span>
+                    <small>{item.days !== 1 ? `${item.days}일` : "1일"}{item.reason ? ` · ${item.reason}` : ""}</small>
+                  </div>
+                ))
+              ) : (
+                <p>등록된 연차자가 없습니다.</p>
+              )}
+            </div>
+          </div>
 
+          <MiniCalendar selectedDate={selectedDate} />
+        </aside>
+      </div>
     </div>
   );
 }

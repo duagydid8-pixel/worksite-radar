@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { isKoreanHoliday } from "./koreanHolidays";
-import type { ScheduleData } from "./geminiService";
+import type { ScheduleData } from "./scheduleTypes";
 import type { LeaveDetail, Employee } from "./parseExcel";
 import type { ManualAbsence } from "./manualAbsences";
 

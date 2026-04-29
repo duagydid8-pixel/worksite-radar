@@ -82,6 +82,52 @@ describe("additional work processor", () => {
     ]);
   });
 
+  it("parses OCR output when table cells are split across lines", () => {
+    const rows = parseAdditionalWorkText(`
+      NO
+      성명
+      공종
+      추가요청공수
+      1
+      송승석
+      공구장
+      100
+      2
+      정진수
+      신호수
+      200
+    `);
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "송승석", trade: "공구장", units: 1 }),
+      expect.objectContaining({ name: "정진수", trade: "신호수", units: 2 }),
+    ]);
+  });
+
+  it("normalizes 100 and 200 unit notation in plain OCR lines", () => {
+    const rows = parseAdditionalWorkText(`
+      송승석 공구장 100
+      정진수 신호수 200
+    `);
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "송승석", trade: "공구장", units: 1 }),
+      expect.objectContaining({ name: "정진수", trade: "신호수", units: 2 }),
+    ]);
+  });
+
+  it("uses known employee names when OCR splits name syllables in plain lines", () => {
+    const rows = parseAdditionalWorkText(`
+      1 송 승 석 배 관 100
+      2 정 진 수 신 호 수 200
+    `, { knownNames: ["송승석", "정진수"] });
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "송승석", trade: "배관", units: 1 }),
+      expect.objectContaining({ name: "정진수", trade: "신호수", units: 2 }),
+    ]);
+  });
+
   it("writes additional work amount into expense2 and adjusts salary by the delta", async () => {
     const result = await applyAdditionalWorkToPayroll(makePayrollBuffer(), [
       { name: "송승석", trade: "공구장", units: 1.5 },
