@@ -629,15 +629,15 @@ const Index = () => {
                 <ClipboardList className="h-5 w-5" />
               </span>
               <span>
-                현장 메뉴 바로가기
-                <small>비로그인 확인 메뉴</small>
+                현장 정보 바로가기
+                <small>로그인 없이 확인 가능</small>
               </span>
             </DialogTitle>
           </DialogHeader>
 
           <div className="admin-todo-greeting">
-            <strong>한성크린텍 P4 현장관리</strong>
-            <p>관리자 로그인 없이 확인 가능한 메뉴로 바로 이동할 수 있습니다.</p>
+            <strong>필요한 현장 정보를 바로 확인하세요</strong>
+            <p>근태관리, 조직도, XERP & PMIS는 관리자 로그인 없이 열람할 수 있습니다.</p>
           </div>
 
           <div className="admin-todo-list">
@@ -648,8 +648,8 @@ const Index = () => {
             >
               <span className="admin-todo-item-icon"><ClipboardList className="h-4 w-4" /></span>
               <span className="admin-todo-item-copy">
-                <strong>근태관리 바로 확인하기</strong>
-                <small>출근, 퇴근, 지각, 연차 현황을 확인합니다.</small>
+                <strong>근태관리 확인하기</strong>
+                <small>출근·퇴근, 지각, 연차 현황을 확인합니다.</small>
               </span>
               <span className="admin-todo-badge is-base">근태</span>
               <ArrowRight className="admin-todo-arrow h-4 w-4" />
@@ -662,7 +662,7 @@ const Index = () => {
               <span className="admin-todo-item-icon"><GitBranch className="h-4 w-4" /></span>
               <span className="admin-todo-item-copy">
                 <strong>조직도 확인하기</strong>
-                <small>현장 조직과 담당자 구조를 확인합니다.</small>
+                <small>현장 조직과 담당자 배치를 확인합니다.</small>
               </span>
               <span className="admin-todo-badge is-base">조직</span>
               <ArrowRight className="admin-todo-arrow h-4 w-4" />
@@ -674,8 +674,8 @@ const Index = () => {
             >
               <span className="admin-todo-item-icon"><Database className="h-4 w-4" /></span>
               <span className="admin-todo-item-copy">
-                <strong>XERP & PMIS 바로 확인</strong>
-                <small>XERP와 PMIS 공수 현황을 확인합니다.</small>
+                <strong>XERP & PMIS 확인하기</strong>
+                <small>공수 및 PMIS 반영 현황을 확인합니다.</small>
               </span>
               <span className="admin-todo-badge is-base">공수</span>
               <ArrowRight className="admin-todo-arrow h-4 w-4" />
