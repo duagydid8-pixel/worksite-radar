@@ -193,6 +193,41 @@ function knownNamesByLength(names: string[] | undefined): string[] {
   return Array.from(unique.values()).sort((a, b) => b.length - a.length);
 }
 
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > 1) return 2;
+
+  const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return dp[a.length][b.length];
+}
+
+function correctKnownName(name: string, knownNames: string[]): string {
+  const compact = compactText(name);
+  if (!compact || knownNames.length === 0) return compact;
+  if (knownNames.includes(compact)) return compact;
+  if (compact.length < 3) return compact;
+
+  const candidates = knownNames.filter((knownName) =>
+    knownName.length === compact.length && editDistance(compact, knownName) === 1
+  );
+
+  return candidates.length === 1 ? candidates[0] : compact;
+}
+
 function parseSplitCellUnit(raw: string, clean: string): number | null {
   return parsePlainUnit(raw) ?? parsePlainUnit(clean) ?? parseOcrUnit(raw) ?? parseOcrUnit(clean);
 }
@@ -216,6 +251,60 @@ function isLikelySplitTrade(value: string): boolean {
   if (!compact || isOcrHeaderCell(compact) || isOcrRowNumber(compact)) return false;
   if (parseSplitCellUnit(value, compact) !== null) return false;
   return compact.length <= 20;
+}
+
+function isDateCell(value: string): boolean {
+  return /20\d{2}[-./]\d{1,2}[-./]\d{1,2}/.test(value.replace(/\s+/g, ""));
+}
+
+function isLikelyIndexedTrade(value: string): boolean {
+  const compact = value.replace(/\s+/g, "");
+  if (!compact || isOcrHeaderCell(compact) || isOcrRowNumber(compact)) return false;
+  if (isDateCell(compact)) return false;
+  if (parseSplitCellUnit(value, compact) !== null) return false;
+  return compact.length <= 20;
+}
+
+function parseIndexedPdfRows(lines: string[], knownNames: string[]): AdditionalWorkEntry[] {
+  const cells = lines
+    .map((raw) => ({ raw, clean: cleanOcrCell(raw) }))
+    .filter((cell) => cell.clean && !isOcrHeaderCell(cell.clean));
+
+  const rows: AdditionalWorkEntry[] = [];
+
+  for (let i = 0; i < cells.length - 4; i++) {
+    const rowNoCell = cells[i];
+    if (!isOcrRowNumber(rowNoCell.clean)) continue;
+
+    const rowNo = Number(rowNoCell.clean.replace(/\s+/g, ""));
+    if (!Number.isInteger(rowNo) || rowNo <= 0 || rowNo > 300) continue;
+
+    const nameCell = cells[i + 1];
+    const tradeCell = cells[i + 2];
+    const dateCell = cells[i + 3];
+    const unitCell = cells[i + 4];
+    if (!nameCell || !tradeCell || !dateCell || !unitCell) continue;
+
+    const units = parseSplitCellUnit(unitCell.raw, unitCell.clean);
+    if (
+      !isLikelySplitName(nameCell.clean) ||
+      !isLikelyIndexedTrade(tradeCell.clean) ||
+      !isDateCell(dateCell.clean) ||
+      units === null
+    ) {
+      continue;
+    }
+
+    rows.push({
+      name: correctKnownName(nameCell.clean, knownNames),
+      trade: compactText(tradeCell.clean),
+      units,
+      sourceLine: [rowNoCell.raw, nameCell.raw, tradeCell.raw, dateCell.raw, unitCell.raw].join(" "),
+    });
+    i += 4;
+  }
+
+  return rows;
 }
 
 function parseSplitCellRows(lines: string[]): AdditionalWorkEntry[] {
@@ -314,6 +403,11 @@ export function parseAdditionalWorkText(text: string, options: AdditionalWorkPar
   const rows: AdditionalWorkEntry[] = [];
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const knownNames = knownNamesByLength(options.knownNames);
+  const indexedRows = parseIndexedPdfRows(lines, knownNames);
+
+  if (indexedRows.length > 0) {
+    return indexedRows;
+  }
 
   for (const rawLine of lines) {
     const tableRow = parseTableOcrLine(rawLine);

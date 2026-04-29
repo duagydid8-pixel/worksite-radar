@@ -104,6 +104,59 @@ describe("additional work processor", () => {
     ]);
   });
 
+  it("parses OCR PDFs where rows are emitted as indexed cell lines", () => {
+    const rows = parseAdditionalWorkText(`
+      총
+      27
+      명
+      1
+      공수 지급
+      성명
+      공종
+      추가공수
+      요청일자
+      추가요청공
+      수
+      1
+      송숭석
+      공구장
+      2026-03-30
+      1.00
+      26
+      년
+      4
+      월
+      3
+      월
+      만근 추가 공수
+      무
+      2
+      정회옥
+      유도원
+      2026-03-30
+      1.00
+      26
+      년
+      4
+      월
+      3
+      월
+      만근 추가 공수
+      무
+      5
+      유진환
+      신호수
+      2026-03-30
+      2.00
+    `, { knownNames: ["송승석", "정회옥", "유진환"] });
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "송승석", trade: "공구장", units: 1 }),
+      expect.objectContaining({ name: "정회옥", trade: "유도원", units: 1 }),
+      expect.objectContaining({ name: "유진환", trade: "신호수", units: 2 }),
+    ]);
+  });
+
   it("normalizes 100 and 200 unit notation in plain OCR lines", () => {
     const rows = parseAdditionalWorkText(`
       송승석 공구장 100
