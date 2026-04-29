@@ -817,7 +817,7 @@ const Index = () => {
             className="ops-brand"
           >
             <span className="ops-brand-title">한성크린텍</span>
-            <span className="ops-brand-subtitle">P4 현장관리</span>
+            <span className="ops-brand-subtitle">현장관리자동시스템</span>
           </button>
 
           <nav className="ops-topnav" aria-label="주요 메뉴">
