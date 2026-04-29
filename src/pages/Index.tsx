@@ -161,6 +161,7 @@ function readAdminDailyTasks(dateKey: string): AdminDailyTask[] {
 const Index = () => {
   const topbarRef = useRef<HTMLElement | null>(null);
   const adminTodoShownRef = useRef(false);
+  const publicGuideShownRef = useRef(false);
   const [data, setData] = useState<ParsedData | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -185,6 +186,7 @@ const Index = () => {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
+  const [publicGuideDialogOpen, setPublicGuideDialogOpen] = useState(false);
   const [adminTodoDialogOpen, setAdminTodoDialogOpen] = useState(false);
   const [hideAdminTodoToday, setHideAdminTodoToday] = useState(false);
   const [adminTodoDate, setAdminTodoDate] = useState(() => getLocalDateKey());
@@ -337,6 +339,11 @@ const Index = () => {
     setAdminTodoDialogOpen(false);
   };
 
+  const handlePublicGuideMove = (key: "근태관리" | "조직도" | "XERP&PMIS") => {
+    handleNavClick(key, false);
+    setPublicGuideDialogOpen(false);
+  };
+
   const filteredEmployees = useMemo(() => {
     if (!data) return [];
     const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
@@ -487,6 +494,17 @@ const Index = () => {
     }
   }, [adminTodoHideStorageKey, isAdmin]);
 
+  useEffect(() => {
+    if (isAdmin) {
+      setPublicGuideDialogOpen(false);
+      return;
+    }
+    if (!publicGuideShownRef.current) {
+      publicGuideShownRef.current = true;
+      setPublicGuideDialogOpen(true);
+    }
+  }, [isAdmin]);
+
   const primaryNavItems = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC];
   const isAdminSection = NAV_ADMIN.some((item) => item.key === activeTab);
   const activePrimarySubnavKey = activeTab === "근태관리" ? activeTab : isAdminSection ? ADMIN_TOP_NAV_KEY : null;
@@ -511,7 +529,7 @@ const Index = () => {
     const primaryLeft = activePrimarySubnavKey
       ? measureLeft(findByData("[data-nav-key]", "navKey", activePrimarySubnavKey))
       : null;
-    const adminLeft = measureLeft(findByData("[data-nav-key]", "navKey", ADMIN_TOP_NAV_KEY));
+    const adminLeft = Math.max(18, Math.min(Math.round(topbarRect.width * 0.32), 460));
     const nestedLeft = activeNestedSubnavKey
       ? measureLeft(findByData("[data-admin-key]", "adminKey", activeNestedSubnavKey))
       : null;
@@ -600,6 +618,79 @@ const Index = () => {
               로그인
             </button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={publicGuideDialogOpen} onOpenChange={setPublicGuideDialogOpen}>
+        <DialogContent className="admin-todo-dialog sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="admin-todo-title">
+              <span className="admin-todo-title-icon">
+                <ClipboardList className="h-5 w-5" />
+              </span>
+              <span>
+                현장 메뉴 바로가기
+                <small>비로그인 확인 메뉴</small>
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="admin-todo-greeting">
+            <strong>한성크린텍 P4 현장관리</strong>
+            <p>관리자 로그인 없이 확인 가능한 메뉴로 바로 이동할 수 있습니다.</p>
+          </div>
+
+          <div className="admin-todo-list">
+            <button
+              type="button"
+              onClick={() => handlePublicGuideMove("근태관리")}
+              className="admin-todo-item"
+            >
+              <span className="admin-todo-item-icon"><ClipboardList className="h-4 w-4" /></span>
+              <span className="admin-todo-item-copy">
+                <strong>근태관리 바로 확인하기</strong>
+                <small>출근, 퇴근, 지각, 연차 현황을 확인합니다.</small>
+              </span>
+              <span className="admin-todo-badge is-base">근태</span>
+              <ArrowRight className="admin-todo-arrow h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePublicGuideMove("조직도")}
+              className="admin-todo-item"
+            >
+              <span className="admin-todo-item-icon"><GitBranch className="h-4 w-4" /></span>
+              <span className="admin-todo-item-copy">
+                <strong>조직도 확인하기</strong>
+                <small>현장 조직과 담당자 구조를 확인합니다.</small>
+              </span>
+              <span className="admin-todo-badge is-base">조직</span>
+              <ArrowRight className="admin-todo-arrow h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePublicGuideMove("XERP&PMIS")}
+              className="admin-todo-item"
+            >
+              <span className="admin-todo-item-icon"><Database className="h-4 w-4" /></span>
+              <span className="admin-todo-item-copy">
+                <strong>XERP & PMIS 바로 확인</strong>
+                <small>XERP와 PMIS 공수 현황을 확인합니다.</small>
+              </span>
+              <span className="admin-todo-badge is-base">공수</span>
+              <ArrowRight className="admin-todo-arrow h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="admin-todo-footer" style={{ justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={() => setPublicGuideDialogOpen(false)}
+              className="admin-todo-close"
+            >
+              닫기
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
 
