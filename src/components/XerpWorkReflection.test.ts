@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   calcGongsuForWorkDate,
   getSpecialListLabels,
+  inferGasanReason,
+  normalizeGasanReasonParentheses,
   canBuildDownloadWorkbook,
   isWeekendWorkDate,
   resolveLoadedAdjustment,
@@ -58,6 +60,36 @@ describe("XERP work reflection gongsu rules", () => {
     );
 
     expect(result).toBe(1);
+  });
+});
+
+describe("XERP work reflection adjustment reasons", () => {
+  it("uses only the last work type label inside adjustment reason parentheses", () => {
+    const reason = inferGasanReason({
+      xerpIn: "07:20",
+      xerpOut: "18:00",
+      pmisIn: "07:00",
+      rawInMin: 7 * 60,
+      rawOutMin: 18 * 60,
+      isLate: false,
+      standardStart: 7 * 60,
+    });
+
+    expect(reason).toBe("출근타각지연(연장) / 1h 연장근무");
+    expect(reason).not.toContain("XERP");
+  });
+
+  it("removes old XERP times from saved adjustment reason parentheses", () => {
+    const reason = normalizeGasanReasonParentheses("출근타각지연(XERP 07:20)", ["주간", "연장"]);
+
+    expect(reason).toBe("출근타각지연(연장)");
+    expect(reason).not.toContain("07:20");
+  });
+
+  it("keeps only the last allowed label when a reason has multiple labels", () => {
+    const reason = normalizeGasanReasonParentheses("근무인정(주간, 연장, 야간)");
+
+    expect(reason).toBe("근무인정(야간)");
   });
 });
 

@@ -50,6 +50,51 @@ const WEEKEND_START      = 7 * 60;   // 07:00
 const WEEKEND_END        = 14 * 60;  // 14:00
 const WEEKEND_RATE_PER_HOUR = 0.143;
 const WEEKEND_FULL_WORK_MIN = 7 * 60;
+const GASAN_REASON_TAG_ORDER = ["조출", "주간", "연장", "야간", "주말OT"] as const;
+
+type GasanReasonTag = typeof GASAN_REASON_TAG_ORDER[number];
+
+function uniqueGasanReasonTags(tags: GasanReasonTag[]): GasanReasonTag[] {
+  return GASAN_REASON_TAG_ORDER.filter((tag) => tags.includes(tag));
+}
+
+function formatGasanReasonTags(tags: GasanReasonTag[]): string {
+  const orderedTags = uniqueGasanReasonTags(tags);
+  return orderedTags[orderedTags.length - 1] ?? "";
+}
+
+function inferGasanReasonTags(row: { rawOutMin: number | null }): GasanReasonTag[] {
+  const tags: GasanReasonTag[] = ["주간"];
+  if (row.rawOutMin !== null && row.rawOutMin > STANDARD_END) tags.push("연장");
+  return uniqueGasanReasonTags(tags);
+}
+
+function extractGasanReasonTags(text: string): GasanReasonTag[] {
+  const compact = text.replace(/\s+/g, "").toLowerCase();
+  const tags: GasanReasonTag[] = [];
+
+  if (compact.includes("조출")) tags.push("조출");
+  if (compact.includes("주간")) tags.push("주간");
+  if (compact.includes("연장")) tags.push("연장");
+  if (compact.includes("야간")) tags.push("야간");
+  if (compact.includes("주말")) tags.push("주말OT");
+
+  return uniqueGasanReasonTags(tags);
+}
+
+export function normalizeGasanReasonParentheses(reason: string, fallbackTags: GasanReasonTag[] = []): string {
+  if (!reason.trim()) return "";
+
+  return reason
+    .replace(/\(([^)]*)\)/g, (_match, inner: string) => {
+      const tags = extractGasanReasonTags(inner);
+      const label = formatGasanReasonTags(tags.length > 0 ? tags : fallbackTags);
+      return label ? `(${label})` : "";
+    })
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+\/\s+/g, " / ")
+    .trim();
+}
 
 // ── 신규자 정보 타입 ──────────────────────────────────
 interface NewEmpInfo { 생년월일: string; 단가: string; }
@@ -85,7 +130,7 @@ function roundBy50(min: number): number {
 }
 
 /** 가산 사유 자동 추론 */
-function inferGasanReason(row: {
+export function inferGasanReason(row: {
   xerpIn: string; xerpOut: string;
   pmisIn: string;
   rawInMin: number | null; rawOutMin: number | null;
@@ -95,6 +140,7 @@ function inferGasanReason(row: {
   const noXerpIn  = !row.xerpIn;
   const noXerpOut = !row.xerpOut;
   const hasOvertime = row.rawOutMin !== null && row.rawOutMin > STANDARD_END;
+  const reasonTags = inferGasanReasonTags(row);
   const jochulCutoff = row.standardStart + 10;
 
   const xerpInMin = parseMin(row.xerpIn);
@@ -110,7 +156,7 @@ function inferGasanReason(row: {
     const pmisOnTime = pmisInMin !== null && pmisInMin <= row.standardStart;
     const xerpLate   = xerpInMin !== null && xerpInMin > row.standardStart;
     if (pmisOnTime && xerpLate) {
-      reasons.push(`출근타각지연(XERP ${row.xerpIn})`);
+      reasons.push(`출근타각지연(${formatGasanReasonTags(reasonTags)})`);
     }
     // 유예 10분 내 지각 → 인정 처리 (isLate = false 이지만 rawInMin이 기준 초과)
     else if (
@@ -135,7 +181,7 @@ function inferGasanReason(row: {
     reasons.push(`${h}h 연장근무`);
   }
 
-  return reasons.join(" / ");
+  return normalizeGasanReasonParentheses(reasons.join(" / "), reasonTags);
 }
 
 /** 지각 시 출근 시간을 다음 정각으로 올림 (ex. 16:37 → 17:00) */
@@ -302,7 +348,10 @@ export function resolveLoadedAdjustment(
   saved: { diff?: number | null; 가산사유?: string; manualAdjustment?: boolean },
   calculated: { diff: number | null; needsUpdate: boolean; 가산사유: string },
 ): XerpAdjustmentState {
-  const savedReason = (saved.가산사유 ?? "").trim();
+  const savedReason = normalizeGasanReasonParentheses(
+    (saved.가산사유 ?? "").trim(),
+    extractGasanReasonTags(calculated.가산사유),
+  );
   const hasSavedAdjustment =
     Boolean(saved.manualAdjustment) ||
     (saved.diff !== undefined && saved.diff !== null) ||
@@ -711,7 +760,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const calcVal   = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, newJochul, cfg);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const isLate    = effInMin !== null && effInMin > cfg.standardStart;
-      const 가산사유 = needsUpdate ? (r.가산사유 || inferGasanReason(r)) : "";
+      const 가산사유 = needsUpdate
+        ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason(r), inferGasanReasonTags(r))
+        : "";
       return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate, 가산사유 };
     }));
   };
@@ -730,7 +781,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (isNaN(num) || num <= 0) {
         return { ...r, diff: null, 가산사유: "", needsUpdate: false, manualAdjustment: true };
       }
-      const reason = editingReason.trim() || inferGasanReason(r);
+      const reason = normalizeGasanReasonParentheses(
+        editingReason.trim() || inferGasanReason(r),
+        inferGasanReasonTags(r),
+      );
       return { ...r, diff: num, 가산사유: reason, needsUpdate: true, manualAdjustment: true };
     }));
     setEditingIdx(null);
@@ -969,7 +1023,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           가산승인: c[20],
           공수합계AB: gongsuAB,
           월누계: c[22],
-          가산사유: pr?.가산사유 ?? c[25] ?? "",
+          가산사유: normalizeGasanReasonParentheses(pr?.가산사유 ?? c[25] ?? "", pr ? inferGasanReasonTags(pr) : []),
         };
       });
 
@@ -1017,6 +1071,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             effectiveReason = "정기안전교육으로 빠른퇴근타각";
           }
         }
+        effectiveReason = normalizeGasanReasonParentheses(effectiveReason, inferGasanReasonTags(row));
 
         const excelRow = row.rowIndex + 1; // 0-based → 1-based
 
