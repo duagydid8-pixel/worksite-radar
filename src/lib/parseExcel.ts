@@ -358,6 +358,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   const filteredFingerEmployees = hanseongEmployees.filter(
     (emp) => !xerpHanseongNames.has(emp.name)
   );
+  const fingerOnlyNames = new Set(filteredFingerEmployees.map((emp) => emp.name));
 
   // Determine dataYear/dataMonth
   if (xerpHanseongEmployees.length > 0) {
@@ -516,5 +517,17 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     annualLeaveMap[detail.name][key] = true;
   }
 
-  return { employees, anomalies, annualLeaveMap, dataMonth, dataYear, leaveEmployees, leaveDetails };
+  for (const name of fingerOnlyNames) {
+    delete annualLeaveMap[name];
+  }
+
+  return {
+    employees,
+    anomalies,
+    annualLeaveMap,
+    dataMonth,
+    dataYear,
+    leaveEmployees: leaveEmployees.filter((emp) => !fingerOnlyNames.has(emp.name)),
+    leaveDetails: leaveDetails.filter((detail) => !fingerOnlyNames.has(detail.name)),
+  };
 }
