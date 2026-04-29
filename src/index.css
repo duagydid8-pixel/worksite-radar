@@ -215,9 +215,12 @@
 
   .admin-todo-dialog {
     display: flex;
-    overflow: hidden;
-    max-height: min(86vh, 760px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    width: min(calc(100vw - 24px), 620px) !important;
+    max-height: calc(100dvh - 24px);
     flex-direction: column;
+    gap: 0 !important;
     border: 1px solid #111712 !important;
     border-radius: 6px !important;
     background: #f8f9f3 !important;
