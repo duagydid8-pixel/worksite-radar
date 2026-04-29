@@ -14,7 +14,7 @@ import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOffic
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2 } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -124,9 +124,37 @@ const NAV_SEMI_PUBLIC: NavItem[] = [
 const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN];
 const ADMIN_TOP_NAV_KEY = "__admin";
 const ADMIN_TODO_HIDE_PREFIX = "admin_todo_hidden_";
+const ADMIN_DAILY_TASKS_PREFIX = "admin_daily_tasks_";
+
+interface AdminDailyTask {
+  id: string;
+  text: string;
+  done: boolean;
+  createdAt: string;
+}
 
 function getLocalDateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function readAdminDailyTasks(dateKey: string): AdminDailyTask[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`${ADMIN_DAILY_TASKS_PREFIX}${dateKey}`) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as Partial<AdminDailyTask>;
+      if (typeof record.id !== "string" || typeof record.text !== "string") return [];
+      return [{
+        id: record.id,
+        text: record.text,
+        done: record.done === true,
+        createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
+      }];
+    });
+  } catch {
+    return [];
+  }
 }
 
 const Index = () => {
@@ -158,6 +186,9 @@ const Index = () => {
   const [loginPw, setLoginPw] = useState("");
   const [adminTodoDialogOpen, setAdminTodoDialogOpen] = useState(false);
   const [hideAdminTodoToday, setHideAdminTodoToday] = useState(false);
+  const [adminTodoDate, setAdminTodoDate] = useState(() => getLocalDateKey());
+  const [adminTodoDraft, setAdminTodoDraft] = useState("");
+  const [adminDailyTasks, setAdminDailyTasks] = useState<AdminDailyTask[]>([]);
   const [subnavOffsets, setSubnavOffsets] = useState({ primary: 18, admin: 18, nested: 18 });
 
   const adminTodoTodayKey = useMemo(() => getLocalDateKey(), []);
@@ -179,6 +210,38 @@ const Index = () => {
       localStorage.setItem(adminTodoHideStorageKey, "true");
     }
     setAdminTodoDialogOpen(open);
+  };
+
+  const saveAdminDailyTasks = useCallback((nextTasks: AdminDailyTask[]) => {
+    setAdminDailyTasks(nextTasks);
+    localStorage.setItem(`${ADMIN_DAILY_TASKS_PREFIX}${adminTodoDate}`, JSON.stringify(nextTasks));
+  }, [adminTodoDate]);
+
+  const handleAddAdminDailyTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = adminTodoDraft.trim();
+    if (!text) return;
+
+    saveAdminDailyTasks([
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        text,
+        done: false,
+        createdAt: new Date().toISOString(),
+      },
+      ...adminDailyTasks,
+    ]);
+    setAdminTodoDraft("");
+  };
+
+  const handleToggleAdminDailyTask = (id: string) => {
+    saveAdminDailyTasks(
+      adminDailyTasks.map((task) => task.id === id ? { ...task, done: !task.done } : task)
+    );
+  };
+
+  const handleDeleteAdminDailyTask = (id: string) => {
+    saveAdminDailyTasks(adminDailyTasks.filter((task) => task.id !== id));
   };
 
   useEffect(() => {
@@ -206,6 +269,10 @@ const Index = () => {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    setAdminDailyTasks(readAdminDailyTasks(adminTodoDate));
+  }, [adminTodoDate]);
 
   const monday = useMemo(() => getMonday(new Date(selectedDate)), [selectedDate]);
 
@@ -414,6 +481,7 @@ const Index = () => {
 
     if (!hiddenToday && !adminTodoShownRef.current) {
       adminTodoShownRef.current = true;
+      setAdminTodoDate(adminTodoTodayKey);
       setAdminTodoDialogOpen(true);
     }
   }, [adminTodoHideStorageKey, isAdmin]);
@@ -542,17 +610,70 @@ const Index = () => {
                 <ListChecks className="h-5 w-5" />
               </span>
               <span>
-                관리자님, 오늘 확인할 업무입니다
-                <small>{adminTodoTodayKey.replaceAll("-", ".")} 기준</small>
+                오늘 할 일 캘린더
+                <small>{adminTodoDate.replaceAll("-", ".")} 기준</small>
               </span>
             </DialogTitle>
           </DialogHeader>
 
           <div className="admin-todo-greeting">
             <strong>한성크린텍 P4 현장관리</strong>
-            <p>오늘은 근태, 일정, 추가공수, 메일 요청을 먼저 확인하면 됩니다.</p>
+            <p>관리자님, 날짜별 할 일을 적고 완료 상태를 체크하세요.</p>
           </div>
 
+          <div className="admin-task-calendar">
+            <div className="admin-task-calendar-head">
+              <div>
+                <strong>할 일 작성</strong>
+                <span>선택한 날짜 기준으로 이 브라우저에 저장됩니다.</span>
+              </div>
+              <input
+                type="date"
+                value={adminTodoDate}
+                onChange={(event) => setAdminTodoDate(event.target.value || adminTodoTodayKey)}
+              />
+            </div>
+
+            <form onSubmit={handleAddAdminDailyTask} className="admin-task-entry">
+              <input
+                value={adminTodoDraft}
+                onChange={(event) => setAdminTodoDraft(event.target.value)}
+                placeholder="오늘 처리할 업무를 입력하세요"
+              />
+              <button type="submit">
+                <Plus className="h-4 w-4" />
+                추가
+              </button>
+            </form>
+
+            <div className="admin-task-list">
+              {adminDailyTasks.length > 0 ? (
+                adminDailyTasks.map((task) => (
+                  <div key={task.id} className={`admin-task-row ${task.done ? "is-done" : ""}`}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={task.done}
+                        onChange={() => handleToggleAdminDailyTask(task.id)}
+                      />
+                      <span>{task.text}</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteAdminDailyTask(task.id)}
+                      aria-label="할 일 삭제"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <p className="admin-task-empty">선택한 날짜에 등록된 할 일이 없습니다.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="admin-todo-section-title">추천 확인 업무</div>
           <div className="admin-todo-list">
             {adminTodoItems.map((item) => (
               <button
@@ -594,7 +715,7 @@ const Index = () => {
               onClick={() => handleAdminTodoDialogChange(false)}
               className="admin-todo-close"
             >
-              오늘 업무 시작
+              닫기
             </button>
           </div>
         </DialogContent>
@@ -647,6 +768,19 @@ const Index = () => {
           </nav>
 
           <div className="ops-topmeta">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminTodoDate(adminTodoTodayKey);
+                  setAdminTodoDialogOpen(true);
+                }}
+                className="ops-todo-button"
+              >
+                <ListChecks className="h-3.5 w-3.5" />
+                오늘할일
+              </button>
+            )}
             <span className="ops-date">{selectedDate}</span>
             {isAdmin ? (
               <button

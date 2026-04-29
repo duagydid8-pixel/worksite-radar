@@ -189,7 +189,8 @@
     line-height: 36px;
   }
 
-  .ops-login-button {
+  .ops-login-button,
+  .ops-todo-button {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -202,12 +203,21 @@
     line-height: 36px;
   }
 
-  .ops-login-button:hover {
+  .ops-login-button:hover,
+  .ops-todo-button:hover {
     background: rgba(244, 209, 59, 0.1);
   }
 
+  .ops-todo-button {
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #e8eee5;
+  }
+
   .admin-todo-dialog {
+    display: flex;
     overflow: hidden;
+    max-height: min(86vh, 760px);
+    flex-direction: column;
     border: 1px solid #111712 !important;
     border-radius: 6px !important;
     background: #f8f9f3 !important;
@@ -274,6 +284,164 @@
     color: #596657;
     font-size: 12px;
     font-weight: 800;
+  }
+
+  .admin-task-calendar {
+    margin: 14px 14px 0;
+    border: 1px solid #c2cabd;
+    background: #fffef8;
+  }
+
+  .admin-task-calendar-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px;
+    gap: 12px;
+    align-items: center;
+    border-bottom: 1px solid #d9dfd4;
+    background: #f8f9f3;
+    padding: 12px;
+  }
+
+  .admin-task-calendar-head strong {
+    display: block;
+    color: #1d241f;
+    font-size: 13px;
+    font-weight: 950;
+  }
+
+  .admin-task-calendar-head span {
+    display: block;
+    margin-top: 2px;
+    color: #687466;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .admin-task-calendar-head input,
+  .admin-task-entry input {
+    min-width: 0;
+    border: 1px solid #aeb8aa;
+    border-radius: 4px;
+    background: #fffef8;
+    color: #1d241f;
+    font-size: 12px;
+    font-weight: 850;
+    outline: none;
+  }
+
+  .admin-task-calendar-head input {
+    height: 34px;
+    padding: 0 9px;
+  }
+
+  .admin-task-entry {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .admin-task-entry input {
+    height: 36px;
+    padding: 0 10px;
+  }
+
+  .admin-task-entry input:focus,
+  .admin-task-calendar-head input:focus {
+    border-color: #314b3a;
+  }
+
+  .admin-task-entry button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid #1f2722;
+    background: #1f2722;
+    padding: 0 12px;
+    color: #f8f9f3;
+    font-size: 12px;
+    font-weight: 950;
+  }
+
+  .admin-task-entry button:hover {
+    background: #111712;
+  }
+
+  .admin-task-list {
+    max-height: 168px;
+    overflow-y: auto;
+    border-top: 1px solid #d9dfd4;
+  }
+
+  .admin-task-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 32px;
+    gap: 8px;
+    align-items: center;
+    min-height: 38px;
+    border-bottom: 1px solid #e2e6dd;
+    padding: 6px 8px 6px 12px;
+  }
+
+  .admin-task-row:last-child {
+    border-bottom: 0;
+  }
+
+  .admin-task-row label {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+    color: #1d241f;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .admin-task-row input {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+    accent-color: #314b3a;
+  }
+
+  .admin-task-row span {
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+  }
+
+  .admin-task-row.is-done span {
+    color: #798476;
+    text-decoration: line-through;
+  }
+
+  .admin-task-row button {
+    display: flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    color: #8a9487;
+  }
+
+  .admin-task-row button:hover {
+    background: #ecefe7;
+    color: #b3362f;
+  }
+
+  .admin-task-empty {
+    padding: 16px 12px;
+    color: #687466;
+    font-size: 12px;
+    font-weight: 850;
+    text-align: center;
+  }
+
+  .admin-todo-section-title {
+    padding: 14px 14px 0;
+    color: #596657;
+    font-size: 11px;
+    font-weight: 950;
   }
 
   .admin-todo-list {
@@ -492,6 +660,10 @@
       display: none;
     }
 
+    .ops-todo-button {
+      padding: 0 9px;
+    }
+
     .ops-subbar,
     .ops-admin-strip {
       padding: 6px 12px;
@@ -513,6 +685,16 @@
 
     .admin-todo-greeting {
       padding: 12px 16px;
+    }
+
+    .admin-task-calendar-head,
+    .admin-task-entry {
+      grid-template-columns: 1fr;
+    }
+
+    .admin-task-calendar-head input,
+    .admin-task-entry button {
+      width: 100%;
     }
 
     .admin-todo-item {
