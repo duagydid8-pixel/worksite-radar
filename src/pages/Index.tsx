@@ -14,7 +14,7 @@ import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOffic
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -123,9 +123,15 @@ const NAV_SEMI_PUBLIC: NavItem[] = [
 
 const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN];
 const ADMIN_TOP_NAV_KEY = "__admin";
+const ADMIN_TODO_HIDE_PREFIX = "admin_todo_hidden_";
+
+function getLocalDateKey(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
 
 const Index = () => {
   const topbarRef = useRef<HTMLElement | null>(null);
+  const adminTodoShownRef = useRef(false);
   const [data, setData] = useState<ParsedData | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -150,7 +156,12 @@ const Index = () => {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
+  const [adminTodoDialogOpen, setAdminTodoDialogOpen] = useState(false);
+  const [hideAdminTodoToday, setHideAdminTodoToday] = useState(false);
   const [subnavOffsets, setSubnavOffsets] = useState({ primary: 18, admin: 18, nested: 18 });
+
+  const adminTodoTodayKey = useMemo(() => getLocalDateKey(), []);
+  const adminTodoHideStorageKey = `${ADMIN_TODO_HIDE_PREFIX}${adminTodoTodayKey}`;
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,6 +172,13 @@ const Index = () => {
     } else {
       toast.error("아이디 또는 비밀번호가 올바르지 않습니다.");
     }
+  };
+
+  const handleAdminTodoDialogChange = (open: boolean) => {
+    if (!open && hideAdminTodoToday) {
+      localStorage.setItem(adminTodoHideStorageKey, "true");
+    }
+    setAdminTodoDialogOpen(open);
   };
 
   useEffect(() => {
@@ -241,6 +259,14 @@ const Index = () => {
     }
     setActiveTab(key);
     setSearchQuery("");
+  };
+
+  const handleAdminTodoMove = (key: ActiveTab, payrollTab?: PayrollSubTab) => {
+    if (key === "급여대장" && payrollTab) {
+      setPayrollSubTab(payrollTab);
+    }
+    handleNavClick(key, true);
+    setAdminTodoDialogOpen(false);
   };
 
   const filteredEmployees = useMemo(() => {
@@ -331,6 +357,66 @@ const Index = () => {
     }
     return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
   }, [filteredEmployees, data, monday, selectedDate]);
+
+  const adminTodoItems = useMemo(() => [
+    {
+      title: "근태 파일 확인",
+      description: lastUploadedAt ? `최근 저장: ${formatUploadTime(lastUploadedAt)}` : "오늘 근태 파일 업로드 상태를 먼저 확인하세요.",
+      badge: lastUploadedAt ? "확인" : "필요",
+      tone: lastUploadedAt ? "ok" : "warn",
+      icon: <ClipboardList className="h-4 w-4" />,
+      target: "근태관리" as ActiveTab,
+    },
+    {
+      title: "주간 작업일정 점검",
+      description: `${formatWeekRange(monday)} 구역별 조출·연장·야간 일정을 확인하세요.`,
+      badge: "일정",
+      tone: "base",
+      icon: <CalendarRange className="h-4 w-4" />,
+      target: "주간일정" as ActiveTab,
+    },
+    {
+      title: "추가공수 스캔 추출",
+      description: "스캔본/PDF 요청서에서 이름, 직종, 날짜, 공수를 추출해 급여대장에 반영하세요.",
+      badge: "스캔",
+      tone: "warn",
+      icon: <ScanText className="h-4 w-4" />,
+      target: "급여대장" as ActiveTab,
+      payrollTab: "추가공수스캔" as PayrollSubTab,
+    },
+    {
+      title: "본사 메일 송부",
+      description: "증명서, 퇴직공제, 산재 개시·종료 요청 건을 확인하세요.",
+      badge: "메일",
+      tone: "base",
+      icon: <Mail className="h-4 w-4" />,
+      target: "본사메일송부" as ActiveTab,
+    },
+    {
+      title: "신규자 명단 정리",
+      description: "신규 기술인과 관리자 명단 변경 사항을 반영하세요.",
+      badge: "명단",
+      tone: "base",
+      icon: <Users className="h-4 w-4" />,
+      target: "신규자명단" as ActiveTab,
+    },
+  ], [lastUploadedAt, monday]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      adminTodoShownRef.current = false;
+      setAdminTodoDialogOpen(false);
+      return;
+    }
+
+    const hiddenToday = localStorage.getItem(adminTodoHideStorageKey) === "true";
+    setHideAdminTodoToday(hiddenToday);
+
+    if (!hiddenToday && !adminTodoShownRef.current) {
+      adminTodoShownRef.current = true;
+      setAdminTodoDialogOpen(true);
+    }
+  }, [adminTodoHideStorageKey, isAdmin]);
 
   const primaryNavItems = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC];
   const isAdminSection = NAV_ADMIN.some((item) => item.key === activeTab);
@@ -445,6 +531,72 @@ const Index = () => {
               로그인
             </button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={adminTodoDialogOpen} onOpenChange={handleAdminTodoDialogChange}>
+        <DialogContent className="admin-todo-dialog sm:max-w-[620px]">
+          <DialogHeader>
+            <DialogTitle className="admin-todo-title">
+              <span className="admin-todo-title-icon">
+                <ListChecks className="h-5 w-5" />
+              </span>
+              <span>
+                관리자님, 오늘 확인할 업무입니다
+                <small>{adminTodoTodayKey.replaceAll("-", ".")} 기준</small>
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="admin-todo-greeting">
+            <strong>한성크린텍 P4 현장관리</strong>
+            <p>오늘은 근태, 일정, 추가공수, 메일 요청을 먼저 확인하면 됩니다.</p>
+          </div>
+
+          <div className="admin-todo-list">
+            {adminTodoItems.map((item) => (
+              <button
+                key={item.title}
+                type="button"
+                onClick={() => handleAdminTodoMove(item.target, item.payrollTab)}
+                className="admin-todo-item"
+              >
+                <span className="admin-todo-item-icon">{item.icon}</span>
+                <span className="admin-todo-item-copy">
+                  <strong>{item.title}</strong>
+                  <small>{item.description}</small>
+                </span>
+                <span className={`admin-todo-badge is-${item.tone}`}>{item.badge}</span>
+                <ArrowRight className="admin-todo-arrow h-4 w-4" />
+              </button>
+            ))}
+          </div>
+
+          <div className="admin-todo-footer">
+            <label className="admin-todo-check">
+              <input
+                type="checkbox"
+                checked={hideAdminTodoToday}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setHideAdminTodoToday(checked);
+                  if (checked) {
+                    localStorage.setItem(adminTodoHideStorageKey, "true");
+                  } else {
+                    localStorage.removeItem(adminTodoHideStorageKey);
+                  }
+                }}
+              />
+              <span>오늘 보지 않기</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => handleAdminTodoDialogChange(false)}
+              className="admin-todo-close"
+            >
+              오늘 업무 시작
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
 
