@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, Download, FileSpreadsheet, Loader2, ScanText, Upload, Wand2, X } from "lucide-react";
+import { AlertTriangle, CheckCircle, FileSpreadsheet, Loader2, Save, ScanText, Upload, Wand2, X } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import { toast } from "sonner";
 import {
@@ -707,16 +707,15 @@ export default function AdditionalWorkScanPage() {
                 {step === "applying" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                 급여대장 경비(2) 반영
               </button>
-              {outputBuffer && (
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-900 shadow-sm transition-colors hover:bg-slate-50"
-                >
-                  <Download className="h-4 w-4" />
-                  반영 파일 다운로드
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={!outputBuffer || step === "extracting" || step === "applying"}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-900 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-45"
+              >
+                <Save className="h-4 w-4" />
+                반영 파일 저장
+              </button>
             </div>
           </section>
 
