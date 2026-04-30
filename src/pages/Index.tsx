@@ -11,12 +11,10 @@ import PdfSplitter from "@/components/tabs/PdfSplitter";
 import ExpenseReportTab from "@/components/ExpenseReport";
 import HeadOfficeMailRequest from "@/components/HeadOfficeMailRequest";
 import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOfficeMail";
-import InquirySupport from "@/components/InquirySupport";
-import { INQUIRY_MENU_OPTIONS, type InquiryMenu } from "@/lib/inquirySupport";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, MessageSquare } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2 } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -74,7 +72,7 @@ function formatWeekRange(monday: Date): string {
 }
 
 type TeamFilter = "전체" | "한성" | "태화";
-type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장" | "문의관리";
+type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔";
 
@@ -114,7 +112,6 @@ const NAV_ADMIN: NavItem[] = [
   { key: "주간일정", label: "주간일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
   { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
-  { key: "문의관리", label: "문의관리", icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
   { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: true },
   { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: true },
   { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: true },
@@ -183,7 +180,6 @@ const Index = () => {
   const [attendanceSubTab, setAttendanceSubTab] = useState<AttendanceSubTab>("근태현황");
   const [payrollSubTab, setPayrollSubTab] = useState<PayrollSubTab>("급여대장보정");
   const [mailSubTab, setMailSubTab] = useState<MailRequestMenu>("certificate");
-  const [inquirySubTab, setInquirySubTab] = useState<InquiryMenu>("kakao");
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const { isAdmin, login, logout } = useAdminAuth();
@@ -512,7 +508,7 @@ const Index = () => {
   const primaryNavItems = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC];
   const isAdminSection = NAV_ADMIN.some((item) => item.key === activeTab);
   const activePrimarySubnavKey = activeTab === "근태관리" ? activeTab : isAdminSection ? ADMIN_TOP_NAV_KEY : null;
-  const activeNestedSubnavKey = activeTab === "본사메일송부" || activeTab === "급여대장" || activeTab === "문의관리" ? activeTab : null;
+  const activeNestedSubnavKey = activeTab === "본사메일송부" || activeTab === "급여대장" ? activeTab : null;
 
   const updateSubnavOffsets = useCallback(() => {
     const topbar = topbarRef.current;
@@ -936,22 +932,6 @@ const Index = () => {
           </div>
         )}
 
-        {activeTab === "문의관리" && isAdmin && (
-          <div className="ops-subbar ops-subbar-nested">
-            {INQUIRY_MENU_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setInquirySubTab(option.value)}
-                className={inquirySubTab === option.value ? "is-active" : ""}
-              >
-                {option.icon}
-                <span>{option.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
         {activeTab === "급여대장" && isAdmin && (
           <div className="ops-subbar ops-subbar-nested">
             {PAYROLL_SUB_TABS.map((option) => (
@@ -1061,24 +1041,6 @@ const Index = () => {
                           }`}
                         >
                           {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {key === "문의관리" && isActive && !locked && (
-                    <div className="ml-9 mt-1 space-y-1 border-l border-slate-200 pl-3">
-                      {INQUIRY_MENU_OPTIONS.map((option) => (
-                        <button
-                          key={option.value}
-                          onClick={() => setInquirySubTab(option.value)}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-extrabold transition-colors ${
-                            inquirySubTab === option.value
-                              ? "bg-slate-100 text-slate-950"
-                              : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                          }`}
-                        >
-                          {option.icon}
-                          <span>{option.label}</span>
                         </button>
                       ))}
                     </div>
@@ -1438,31 +1400,6 @@ const Index = () => {
                 </div>
               </div>
               <HeadOfficeMailRequest activeMenu={mailSubTab} onMenuChange={setMailSubTab} />
-            </div>
-          )}
-
-          {/* 문의관리 */}
-          {activeTab === "문의관리" && isAdmin && (
-            <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-              <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm md:hidden">
-                <div className="grid grid-cols-2 gap-1">
-                  {INQUIRY_MENU_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => setInquirySubTab(option.value)}
-                      className={`flex h-10 items-center justify-center gap-1.5 rounded-lg text-sm font-extrabold transition-colors ${
-                        inquirySubTab === option.value
-                          ? "bg-slate-900 text-white shadow-sm"
-                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                      }`}
-                    >
-                      {option.icon}
-                      <span>{option.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <InquirySupport activeMenu={inquirySubTab} onMenuChange={setInquirySubTab} />
             </div>
           )}
 
