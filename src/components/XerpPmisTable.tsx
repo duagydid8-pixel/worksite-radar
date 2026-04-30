@@ -5,6 +5,7 @@ import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
 import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS } from "@/lib/firestoreService";
+import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -368,45 +369,6 @@ function calcMonthlyStats(dateMap: DateMap): EmpMonthlyStat[] {
 
   return Array.from(empMap.values())
     .sort((a, b) => a.팀명.localeCompare(b.팀명) || a.성명.localeCompare(b.성명));
-}
-
-// ── 파일명에서 날짜 추출 ──────────────────────────────
-// YYYYMMDD, YYYY-MM-DD, YYYY.MM.DD, YY.MM.DD 등 패턴을 찾아 "YYYY-MM-DD" 반환
-function extractDateFromFilename(filename: string): string | null {
-  const name = filename.replace(/\.[^.]+$/, "");
-
-  // YYYY-MM-DD / YYYY.MM.DD / YYYY/MM/DD (4자리 연도 우선)
-  const sep = name.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
-  if (sep) {
-    const [, y, m, d] = sep;
-    const date = new Date(`${y}-${m}-${d}T00:00:00`);
-    if (!isNaN(date.getTime())) return `${y}-${m}-${d}`;
-  }
-
-  // YYYYMMDD (8자리 연속)
-  const compact = name.match(/(\d{4})(\d{2})(\d{2})/);
-  if (compact) {
-    const [, y, m, d] = compact;
-    const mo = Number(m), dy = Number(d);
-    if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
-      const date = new Date(`${y}-${m}-${d}T00:00:00`);
-      if (!isNaN(date.getTime())) return `${y}-${m}-${d}`;
-    }
-  }
-
-  // YY.MM.DD (2자리 연도, 예: 26.04.01 → 2026-04-01)
-  const yy = name.match(/(?<!\d)(\d{2})\.(\d{2})\.(\d{2})(?!\d)/);
-  if (yy) {
-    const [, y2, m, d] = yy;
-    const y = `20${y2}`;
-    const mo = Number(m), dy = Number(d);
-    if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) {
-      const date = new Date(`${y}-${m}-${d}T00:00:00`);
-      if (!isNaN(date.getTime())) return `${y}-${m}-${d}`;
-    }
-  }
-
-  return null;
 }
 
 // ── 주민번호 뒷자리 마스킹 ────────────────────────────

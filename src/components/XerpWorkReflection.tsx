@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import { extractXerpPmisDateFromFilename as extractDateFromFilename, upsertXerpPmisDateList } from "@/lib/xerpPmisDates";
 
 // ── 시간 유틸 ─────────────────────────────────────────
 function parseMin(val: unknown): number | null {
@@ -372,24 +373,6 @@ export function resolveLoadedAdjustment(
     가산사유: savedReason || calculated.가산사유,
     manualAdjustment: Boolean(saved.manualAdjustment),
   };
-}
-
-// ── 파일명 유틸 ───────────────────────────────────────
-function extractDateFromFilename(filename: string): string | null {
-  const name = filename.replace(/\.[^.]+$/, "");
-  const sep4 = name.match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
-  if (sep4) return `${sep4[1]}-${sep4[2]}-${sep4[3]}`;
-  const sep2 = name.match(/(\d{2})[-./](\d{2})[-./](\d{2})/);
-  if (sep2) {
-    const [, y, m, d] = sep2;
-    if (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) return `20${y}-${m}-${d}`;
-  }
-  const compact = name.match(/(\d{4})(\d{2})(\d{2})/);
-  if (compact) {
-    const [, y, m, d] = compact;
-    if (+m >= 1 && +m <= 12 && +d >= 1 && +d <= 31) return `${y}-${m}-${d}`;
-  }
-  return null;
 }
 
 function detectSite(filename: string): "PH4" | "PH2" {
@@ -1029,6 +1012,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       const updated = { ...dateMap, [syncDate]: newEntries };
       await saveFn(updated as Record<string, unknown[]>);
+      setXerpDates((current) => upsertXerpPmisDateList(current, syncDate));
       toast.success(`XERP&PMIS (${syncSite}, ${syncDate}) 반영 완료 — ${newEntries.length}명 전체 업데이트`);
     } catch (err) {
       toast.error("반영 중 오류: " + String(err));
@@ -1597,6 +1581,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             <option value="PH2">P4-PH2</option>
           </select>
 
+          <input
+            type="date"
+            value={syncDate}
+            onChange={(e) => setSyncDate(e.target.value)}
+            className="border border-emerald-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none"
+          />
+
           {xerpDates.length > 0 ? (
             <select
               value={syncDate}
@@ -1608,19 +1599,19 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               ))}
             </select>
           ) : (
-            <span className="text-xs text-emerald-600">XERP&PMIS에 저장된 날짜 없음</span>
+            <span className="text-xs text-emerald-600">입력한 날짜로 새로 저장됩니다</span>
           )}
 
           <button
             onClick={handleSync}
-            disabled={isSyncing || xerpDates.length === 0}
+            disabled={isSyncing || !rows.length || !syncDate}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? "animate-spin" : ""}`} />
-            {isSyncing ? "반영 중..." : "XERP&PMIS에 반영"}
+            {isSyncing ? "반영 중..." : "XERP&PMIS에 저장/반영"}
           </button>
 
-          <span className="text-[11px] text-emerald-600">가산B 신청값을 선택한 날짜에 업데이트합니다</span>
+          <span className="text-[11px] text-emerald-600">가산B 신청값을 입력한 날짜에 업데이트합니다</span>
         </div>
       )}
 
