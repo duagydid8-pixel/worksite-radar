@@ -5,6 +5,15 @@ export interface ManualEntry {
   answer: string;
 }
 
+export interface KakaoConversationEntry {
+  id: string;
+  title: string;
+  importedAt: string;
+  sourceText: string;
+  inquiryText: string;
+  replyText: string;
+}
+
 export interface ExtractKakaoOptions {
   myNames?: string[];
   limit?: number;
@@ -101,4 +110,46 @@ export function buildKakaoReply(inquiryText: string, manuals: ManualEntry[]): st
   }
 
   return lines.join("\n");
+}
+
+export function normalizeKakaoConversationEntries(entries: KakaoConversationEntry[]): KakaoConversationEntry[] {
+  return entries.flatMap((entry, index) => {
+    const title = cleanLine(entry.title);
+    const sourceText = entry.sourceText.trim();
+    const inquiryText = entry.inquiryText.trim();
+    if (!title || (!sourceText && !inquiryText)) return [];
+    return [{
+      id: entry.id || `conversation-${index}`,
+      title,
+      importedAt: entry.importedAt || new Date(0).toISOString(),
+      sourceText,
+      inquiryText,
+      replyText: entry.replyText?.trim() ?? "",
+    }];
+  });
+}
+
+export function createKakaoConversationEntry({
+  sourceText,
+  fileName,
+  inquiryText,
+  replyText = "",
+  now = new Date().toISOString(),
+}: {
+  sourceText: string;
+  fileName?: string;
+  inquiryText?: string;
+  replyText?: string;
+  now?: string;
+}): KakaoConversationEntry {
+  const extracted = extractLatestKakaoMessages(sourceText).join("\n");
+  const title = fileName?.trim() || `카톡 문의 ${now.slice(0, 10)}`;
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    importedAt: now,
+    sourceText: sourceText.trim(),
+    inquiryText: (inquiryText?.trim() || extracted || sourceText.trim()),
+    replyText: replyText.trim(),
+  };
 }

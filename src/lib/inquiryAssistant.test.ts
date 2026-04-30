@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildKakaoReply,
+  createKakaoConversationEntry,
   extractLatestKakaoMessages,
   findManualMatches,
+  normalizeKakaoConversationEntries,
   normalizeManualEntries,
   type ManualEntry,
 } from "./inquiryAssistant";
@@ -60,5 +62,51 @@ describe("findManualMatches", () => {
     ]);
 
     expect(findManualMatches("오늘 연장 몇시간인가요?", manuals).map((entry) => entry.title)).toEqual(["연장 문의"]);
+  });
+});
+
+describe("createKakaoConversationEntry", () => {
+  it("stores loaded KakaoTalk content with extracted inquiry text", () => {
+    const sourceText = [
+      "[김철수] [오전 9:02] 오늘 연장 몇시간 들어갔나요?",
+      "[나] [오전 9:03] 확인해보겠습니다.",
+    ].join("\n");
+
+    expect(createKakaoConversationEntry({ sourceText, fileName: "openchat.txt", now: "2026-04-30T01:00:00.000Z" })).toMatchObject({
+      title: "openchat.txt",
+      sourceText,
+      inquiryText: "김철수: 오늘 연장 몇시간 들어갔나요?",
+      importedAt: "2026-04-30T01:00:00.000Z",
+    });
+  });
+});
+
+describe("normalizeKakaoConversationEntries", () => {
+  it("keeps valid saved conversations and drops empty entries", () => {
+    expect(normalizeKakaoConversationEntries([
+      {
+        id: "",
+        title: " 문의 ",
+        importedAt: "2026-04-30T01:00:00.000Z",
+        sourceText: " 원문 ",
+        inquiryText: " 정리 ",
+      },
+      {
+        id: "bad",
+        title: "",
+        importedAt: "",
+        sourceText: "",
+        inquiryText: "",
+      },
+    ])).toEqual([
+      {
+        id: "conversation-0",
+        title: "문의",
+        importedAt: "2026-04-30T01:00:00.000Z",
+        sourceText: "원문",
+        inquiryText: "정리",
+        replyText: "",
+      },
+    ]);
   });
 });

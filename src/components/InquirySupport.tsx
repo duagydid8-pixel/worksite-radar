@@ -3,14 +3,18 @@ import { Clipboard, Download, FileText, MessageSquare, NotebookText, Plus, Save,
 import { toast } from "sonner";
 import {
   buildKakaoReply,
+  createKakaoConversationEntry,
   extractLatestKakaoMessages,
   findManualMatches,
+  normalizeKakaoConversationEntries,
   normalizeManualEntries,
+  type KakaoConversationEntry,
   type ManualEntry,
 } from "@/lib/inquiryAssistant";
 import { INQUIRY_MENU_OPTIONS, type InquiryMenu } from "@/lib/inquirySupport";
 
 const MANUAL_STORAGE_KEY = "inquiry_manual_entries";
+const KAKAO_CONVERSATION_STORAGE_KEY = "inquiry_kakao_conversations";
 
 function loadManualEntries(): ManualEntry[] {
   try {
@@ -23,6 +27,19 @@ function loadManualEntries(): ManualEntry[] {
 
 function saveManualEntries(entries: ManualEntry[]) {
   localStorage.setItem(MANUAL_STORAGE_KEY, JSON.stringify(normalizeManualEntries(entries)));
+}
+
+function loadKakaoConversations(): KakaoConversationEntry[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(KAKAO_CONVERSATION_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? normalizeKakaoConversationEntries(parsed as KakaoConversationEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveKakaoConversations(entries: KakaoConversationEntry[]) {
+  localStorage.setItem(KAKAO_CONVERSATION_STORAGE_KEY, JSON.stringify(normalizeKakaoConversationEntries(entries).slice(0, 100)));
 }
 
 interface InquirySupportProps {
@@ -79,8 +96,15 @@ function KakaoInquiryPanel({ manualEntries }: { manualEntries: ManualEntry[] }) 
   const [sourceText, setSourceText] = useState("");
   const [inquiryText, setInquiryText] = useState("");
   const [replyText, setReplyText] = useState("");
+  const [savedConversations, setSavedConversations] = useState<KakaoConversationEntry[]>(() => loadKakaoConversations());
   const latestMessages = useMemo(() => extractLatestKakaoMessages(sourceText), [sourceText]);
   const matchedManuals = useMemo(() => findManualMatches(inquiryText || sourceText, manualEntries), [inquiryText, sourceText, manualEntries]);
+
+  const persistConversation = (entry: KakaoConversationEntry) => {
+    const next = normalizeKakaoConversationEntries([entry, ...savedConversations]).slice(0, 100);
+    setSavedConversations(next);
+    saveKakaoConversations(next);
+  };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -90,8 +114,11 @@ function KakaoInquiryPanel({ manualEntries }: { manualEntries: ManualEntry[] }) 
       const text = await file.text();
       setSourceText(text);
       const messages = extractLatestKakaoMessages(text);
-      setInquiryText(messages.join("\n"));
-      toast.success(`${file.name} 대화 내용을 불러왔습니다.`);
+      const nextInquiryText = messages.join("\n");
+      setInquiryText(nextInquiryText);
+      setReplyText("");
+      persistConversation(createKakaoConversationEntry({ sourceText: text, fileName: file.name, inquiryText: nextInquiryText }));
+      toast.success(`${file.name} 대화 내용을 불러오고 저장했습니다.`);
     } catch {
       toast.error("카카오톡 대화 파일을 읽지 못했습니다.");
     }
@@ -109,6 +136,34 @@ function KakaoInquiryPanel({ manualEntries }: { manualEntries: ManualEntry[] }) 
       return;
     }
     setReplyText(buildKakaoReply(target, manualEntries));
+  };
+
+  const saveCurrentConversation = () => {
+    const target = sourceText.trim() || inquiryText.trim();
+    if (!target) {
+      toast.error("저장할 카톡 내용이 없습니다.");
+      return;
+    }
+    persistConversation(createKakaoConversationEntry({
+      sourceText: sourceText || inquiryText,
+      inquiryText,
+      replyText,
+    }));
+    toast.success("현재 카톡 내용을 저장했습니다.");
+  };
+
+  const loadSavedConversation = (entry: KakaoConversationEntry) => {
+    setSourceText(entry.sourceText);
+    setInquiryText(entry.inquiryText);
+    setReplyText(entry.replyText);
+    toast.info(`${entry.title} 내용을 불러왔습니다.`);
+  };
+
+  const deleteSavedConversation = (id: string) => {
+    const next = savedConversations.filter((entry) => entry.id !== id);
+    setSavedConversations(next);
+    saveKakaoConversations(next);
+    toast.success("저장된 카톡 내용을 삭제했습니다.");
   };
 
   const copyReply = async () => {
@@ -167,6 +222,14 @@ function KakaoInquiryPanel({ manualEntries }: { manualEntries: ManualEntry[] }) 
           <Clipboard className="h-3.5 w-3.5" />
           답장 복사
         </button>
+        <button
+          type="button"
+          onClick={saveCurrentConversation}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-600 transition-colors hover:bg-slate-50"
+        >
+          <Save className="h-3.5 w-3.5" />
+          현재 내용 저장
+        </button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -212,6 +275,48 @@ function KakaoInquiryPanel({ manualEntries }: { manualEntries: ManualEntry[] }) 
             placeholder="답장 만들기 버튼을 누르면 카톡에 바로 붙여넣을 문구가 여기에 생성됩니다."
           />
         </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="mb-3 flex items-center gap-2 text-sm font-extrabold text-slate-700">
+          <Save className="h-4 w-4" />
+          저장된 카톡 내용 {savedConversations.length}개
+        </div>
+        {savedConversations.length > 0 ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {savedConversations.map((entry) => (
+              <div key={entry.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => loadSavedConversation(entry)}
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <p className="truncate text-sm font-extrabold text-slate-900">{entry.title}</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-400">
+                      {new Date(entry.importedAt).toLocaleString("ko-KR")}
+                    </p>
+                    <p className="mt-2 line-clamp-2 text-xs font-semibold leading-5 text-slate-500">
+                      {entry.inquiryText || entry.sourceText}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteSavedConversation(entry.id)}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-rose-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                    title="삭제"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm font-semibold text-slate-400">
+            카톡 대화파일을 불러오면 이곳에 자동 저장됩니다.
+          </p>
+        )}
       </div>
     </section>
   );

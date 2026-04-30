@@ -9,5 +9,6 @@ describe("InquirySupport", () => {
     expect(screen.getByRole("button", { name: "카카오톡" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "메뉴얼" })).toBeInTheDocument();
     expect(screen.getByText("카카오톡 문의")).toBeInTheDocument();
+    expect(screen.getByText("저장된 카톡 내용 0개")).toBeInTheDocument();
   });
 });
