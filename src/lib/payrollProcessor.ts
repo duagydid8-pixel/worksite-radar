@@ -461,8 +461,7 @@ export async function processPayroll(
         changes.push({ day, before: 0, after, reason: "연차" });
       }
 
-      // ── Step 2: 총공수 < 25이면 기존 근무일 값 올리기 ────────
-      // 주의: 0인 날(결근·미타각)은 건드리지 않음 — 값이 있는 날만 올림
+      // ── Step 2: 총공수 < 25이면 빈 평일 채우기 → 그래도 부족하면 1.5까지 올리기 ──
       let total = newValues.reduce((s, v) => s + v, 0);
       const manualAbsenceTarget = manualAbsenceCalendarDays.size > 0
         ? ceilToWorkUnit(25 * (daysInMonth - manualAbsenceCalendarDays.size) / daysInMonth)
@@ -471,48 +470,61 @@ export async function processPayroll(
       const targetTotal = Math.max(0, (manualAbsenceTarget ?? 25) - nonManualUnpaidCount);
 
       if (total < targetTotal) {
-        const adjustable: { day: number; maxVal: number; cur: number }[] = [];
-
+        // Phase A: 비어 있는 평일(월~금)을 1.0으로 채우기
         for (let day = 1; day <= daysInMonth; day++) {
-          const cur = newValues[day - 1];
-          if (cur <= 0) continue; // 0인 날은 건드리지 않음
-
-          const dow = new Date(year, month - 1, day).getDay();
-          const dateStr = toDateStr(year, month, day);
-
-          if (dow === 0) continue;
+          if (total >= targetTotal) break;
+          if (newValues[day - 1] !== 0) continue;
+          if (unpaidDays.has(day)) continue;
+          const dowA = new Date(year, month - 1, day).getDay();
+          if (dowA === 0 || dowA === 6) continue;
+          const dateStrA = toDateStr(year, month, day);
           if (isKoreanHoliday(year, month, day)) continue;
-          if (isSiteClosure(dateStr, schedule)) continue;
+          if (isSiteClosure(dateStrA, schedule)) continue;
 
-          let maxVal: number;
-          if (dow === 6) {
-            if (!saturdayHasWorkers.has(day)) continue;
-            maxVal = 1;
-          } else {
-            maxVal = 2;
-          }
-
-          if (cur >= maxVal) continue;
-          adjustable.push({ day, maxVal, cur });
+          newValues[day - 1] = 1;
+          total = roundPayrollValue(total + 1);
+          changes.push({ day, before: 0, after: 1, reason: "평일 공수 보정" });
         }
 
-        // 현재 값이 낮은 날부터 올림
-        adjustable.sort((a, b) => a.cur - b.cur);
+        // Phase B: 아직 부족하면 평일을 최대 1.5까지 올리기
+        if (total < targetTotal) {
+          const adjustable: { day: number; maxVal: number; cur: number }[] = [];
 
-        for (const { day, maxVal, cur } of adjustable) {
-          if (total >= targetTotal) break;
-          const needed = targetTotal - total;
+          for (let day = 1; day <= daysInMonth; day++) {
+            const cur = newValues[day - 1];
+            if (cur <= 0) continue;
+            const dow = new Date(year, month - 1, day).getDay();
+            const dateStr = toDateStr(year, month, day);
+            if (dow === 0) continue;
+            if (isKoreanHoliday(year, month, day)) continue;
+            if (isSiteClosure(dateStr, schedule)) continue;
 
-          let after = cur;
-          for (let s = ceilToWorkUnit(cur + 0.125); s <= maxVal + 0.001; s = roundPayrollValue(s + 0.125)) {
-            if (s - cur <= needed + 0.001) after = s;
-            else break;
+            let maxVal: number;
+            if (dow === 6) {
+              if (!saturdayHasWorkers.has(day)) continue;
+              maxVal = 1;
+            } else {
+              maxVal = 1.5;
+            }
+            if (cur >= maxVal) continue;
+            adjustable.push({ day, maxVal, cur });
           }
-          if (after <= cur) continue;
 
-          newValues[day - 1] = after;
-          total += after - cur;
-          changes.push({ day, before: cur, after, reason: "총공수 보정" });
+          adjustable.sort((a, b) => a.cur - b.cur);
+
+          for (const { day, maxVal, cur } of adjustable) {
+            if (total >= targetTotal) break;
+            const needed = targetTotal - total;
+            let after = cur;
+            for (let s = ceilToWorkUnit(cur + 0.125); s <= maxVal + 0.001; s = roundPayrollValue(s + 0.125)) {
+              if (s - cur <= needed + 0.001) after = s;
+              else break;
+            }
+            if (after <= cur) continue;
+            newValues[day - 1] = after;
+            total += after - cur;
+            changes.push({ day, before: cur, after, reason: "총공수 보정" });
+          }
         }
       }
 

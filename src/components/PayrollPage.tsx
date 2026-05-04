@@ -284,7 +284,7 @@ export default function PayrollPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-4">
       <div className="flex items-center gap-3">
         <FileSpreadsheet className="h-6 w-6 text-primary" />
         <div className="flex-1">
@@ -395,7 +395,7 @@ export default function PayrollPage() {
       {/* 업로드 영역 */}
       {step === "idle" && (
         <div
-          className={`border-2 border-dashed rounded-2xl p-10 text-center transition-colors cursor-pointer ${
+          className={`border-2 border-dashed rounded-2xl p-6 text-center transition-colors cursor-pointer ${
             dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/20"
           }`}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -418,7 +418,7 @@ export default function PayrollPage() {
 
       {/* 처리 중 */}
       {step === "processing" && (
-        <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <div className="flex flex-col items-center justify-center py-8 gap-3">
           <Loader2 className="h-10 w-10 text-primary animate-spin" />
           <div className="text-center">
             <p className="font-bold text-foreground">자동 보정 처리 중...</p>
@@ -464,7 +464,7 @@ export default function PayrollPage() {
 
           {/* 수정 없음 메시지 */}
           {corrections.length === 0 && (
-            <div className="rounded-xl border border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+            <div className="rounded-xl border border-border bg-muted/20 p-4 text-center text-sm text-muted-foreground">
               모든 월급제 직원의 총공수가 이미 정상입니다.
             </div>
           )}
