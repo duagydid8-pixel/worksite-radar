@@ -469,9 +469,8 @@ export async function processPayroll(
       const nonManualUnpaidCount = Array.from(unpaidDays).filter((day) => !manualAbsenceCalendarDays.has(day)).length;
       const targetTotal = Math.max(0, (manualAbsenceTarget ?? 25) - nonManualUnpaidCount);
 
-      // Phase A: total 관계없이 빈 평일(월~금)을 항상 1.0으로 채우기
+      // Phase A: 모든 평일(월~금)을 1.0으로 통일 — 빈 날 채우기 + 1.0 초과 값 내리기
       for (let day = 1; day <= daysInMonth; day++) {
-        if (newValues[day - 1] !== 0) continue;
         if (unpaidDays.has(day)) continue;
         const dowA = new Date(year, month - 1, day).getDay();
         if (dowA === 0 || dowA === 6) continue;
@@ -479,9 +478,12 @@ export async function processPayroll(
         if (isKoreanHoliday(year, month, day)) continue;
         if (isSiteClosure(dateStrA, schedule)) continue;
 
+        const cur = newValues[day - 1];
+        if (cur === 1) continue;
+
         newValues[day - 1] = 1;
-        total = roundPayrollValue(total + 1);
-        changes.push({ day, before: 0, after: 1, reason: "평일 공수 보정" });
+        total = roundPayrollValue(total + (1 - cur));
+        changes.push({ day, before: cur, after: 1, reason: cur === 0 ? "평일 공수 보정" : "평일 1.0 정규화" });
       }
 
       // Phase B: 아직 부족하면 평일을 최대 1.5까지 올리기
