@@ -51,7 +51,9 @@ export function getVisibleAttendanceEmployees(
   if (employees.length === 0) employees = data.employees;
   const rosterNames = new Set(attendanceRoster.map((employee) => normalizeName(employee.name)));
   if (rosterNames.size > 0) {
-    employees = employees.filter((employee) => rosterNames.has(normalizeName(employee.name)));
+    employees = employees.filter(
+      (employee) => employee.team !== "한성_F" || rosterNames.has(normalizeName(employee.name))
+    );
   }
 
   const mondayYear = monday.getFullYear();
