@@ -255,10 +255,10 @@ export default function AttendanceTable({
 
       if (!rec || (!rec.punchIn && !rec.punchOut)) {
         const isToday2 = cellDate.getTime() === today2.getTime();
-        if (!isToday2 && emp.name !== "이형우") missingCheckCount++;
+        if (!isToday2) missingCheckCount++;
         return;
       }
-      if (rec?.punchIn && isLate(rec.punchIn) && emp.name !== "이형우") lateCount++;
+      if (rec?.punchIn && isLate(rec.punchIn)) lateCount++;
       const isToday = cellDate.getTime() === today2.getTime();
       if (!isToday && rec?.punchIn && !rec.punchOut && requiresPunchOut(emp)) missingPunchOutCount++;
     });
