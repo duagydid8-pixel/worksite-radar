@@ -21,6 +21,11 @@ interface SourcePunchRecord {
   punchOut: string | null;
 }
 
+interface YearMonth {
+  year: number;
+  month: number;
+}
+
 function normalizeName(name: string): string {
   return name.replace(/\s+/g, "").trim();
 }
@@ -102,6 +107,14 @@ function parseAttendanceSource(value: SheetCell): Employee["attendanceSource"] |
   if (text.includes("지문") || text.includes("finger")) return "fingerprint";
   if (text.includes("xerp")) return "xerp";
   return undefined;
+}
+
+function parseDayHeader(value: SheetCell): number | null {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 31) return value;
+  const match = String(value ?? "").trim().match(/^(\d{1,2})일?$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  return day >= 1 && day <= 31 ? day : null;
 }
 
 function findHeaderIndex(headers: string[], candidates: string[]): number {
@@ -223,11 +236,66 @@ function parseFingerprintRecords(buffer: ArrayBuffer): SourcePunchRecord[] {
   return [...records.values()];
 }
 
-function parseXerpEmployees(buffer: ArrayBuffer): { employees: Employee[]; dataYear: number; dataMonth: number } {
+function parseMonthlyXerpEmployees(rows: SheetRow[], fallbackDate: YearMonth): Employee[] | null {
+  for (let headerRow = 0; headerRow < Math.min(rows.length, 10); headerRow++) {
+    const headers = rows[headerRow].map(normalizeHeader);
+    const teamIndex = findHeaderIndex(headers, ["팀명", "팀", "회사", "구분"]);
+    const nameIndex = findHeaderIndex(headers, ["이름", "성명", "직원명", "사원명", "name"]);
+    const jobTitleIndex = findHeaderIndex(headers, ["직책", "직종", "직무", "직위", "job"]);
+    const dayColumns = rows[headerRow]
+      .map((cell, index) => ({ day: parseDayHeader(cell), index }))
+      .filter((item): item is { day: number; index: number } => item.day !== null);
+
+    if (teamIndex === -1 || nameIndex === -1 || dayColumns.length === 0) continue;
+
+    const employees: Employee[] = [];
+    for (let r = headerRow + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const team = parseTeam(row[teamIndex]);
+      const name = String(row[nameIndex] ?? "").trim();
+      if (!team || !name || isNameHeader(name)) continue;
+
+      const dailyRecords: Employee["dailyRecords"] = {};
+      for (const { day, index } of dayColumns) {
+        const punchIn = excelTimeToString(row[index]);
+        const punchOut = excelTimeToString(row[index + 1]);
+        if (punchIn || punchOut) {
+          dailyRecords[`${fallbackDate.year}-${fallbackDate.month}-${day}`] = { punchIn, punchOut };
+        }
+      }
+
+      employees.push({
+        team,
+        name,
+        jobTitle: jobTitleIndex >= 0 ? String(row[jobTitleIndex] ?? "").trim() : "",
+        rank: "",
+        totalDays: Object.keys(dailyRecords).length,
+        dataYear: fallbackDate.year,
+        dataMonth: fallbackDate.month,
+        attendanceSource: "xerp",
+        dailyRecords,
+      });
+    }
+
+    return employees;
+  }
+
+  return null;
+}
+
+function parseXerpEmployees(
+  buffer: ArrayBuffer,
+  fallbackDate: YearMonth = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 }
+): { employees: Employee[]; dataYear: number; dataMonth: number } {
   const rows = getRows(buffer, "XERP");
+  const monthlyEmployees = parseMonthlyXerpEmployees(rows, fallbackDate);
+  if (monthlyEmployees) {
+    return { employees: monthlyEmployees, dataYear: fallbackDate.year, dataMonth: fallbackDate.month };
+  }
+
   const employees: Employee[] = [];
-  let dataYear = new Date().getFullYear();
-  let dataMonth = new Date().getMonth() + 1;
+  let dataYear = fallbackDate.year;
+  let dataMonth = fallbackDate.month;
 
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
@@ -294,7 +362,10 @@ export function parseAttendanceSourceFiles(
   roster: AttendanceRosterEmployee[] = []
 ): ParsedData {
   const fingerprintRecords = parseFingerprintRecords(fingerprintBuffer);
-  const { employees: xerpEmployees, dataYear, dataMonth } = parseXerpEmployees(xerpBuffer);
+  const fallbackDate = fingerprintRecords[0]
+    ? { year: fingerprintRecords[0].year, month: fingerprintRecords[0].month }
+    : undefined;
+  const { employees: xerpEmployees, dataYear, dataMonth } = parseXerpEmployees(xerpBuffer, fallbackDate);
   const employees = roster.map((item) => employeeFromRoster(item, dataYear, dataMonth));
   const employeeByName = new Map(employees.map((employee) => [normalizeName(employee.name), employee]));
 

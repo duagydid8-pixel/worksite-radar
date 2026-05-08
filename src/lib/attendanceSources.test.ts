@@ -106,6 +106,47 @@ describe("parseAttendanceSourceFiles", () => {
     });
   });
 
+  it("parses monthly XERP files whose rows are employees and columns are days", () => {
+    const roster = [
+      { team: "태화_F" as const, name: "신향모", jobTitle: "공사", rank: "" },
+      { team: "현채" as const, name: "소영성", jobTitle: "설계", rank: "" },
+    ];
+    const fingerprint = writeWorkbook({
+      "지문기록": [
+        ["근무일자", "", "이름", "", "", "", "", "출근시간", "퇴근시간"],
+        ["2026-05-08", "", "서재근", "", "", "", "", "06:20", "17:10"],
+      ],
+    });
+    const xerp = writeWorkbook({
+      Sheet1: [
+        ["현장명", "팀명", "성명", "직종", "생년월일", "전화번호", "출역로그", "1일", "", "2일", "", "3일", "", "4일", "", "5일", ""],
+        ["평택 P4-Ph4 초순수", "태화_F", "신향모", "공사관리자", "", "", 2, "", "", "", "", "", "", "06:09", "14:07", "06:27", "17:29"],
+        ["평택 P4-Ph4 초순수", "현채", "소영성", "설계관리자", "", "", 1, "", "", "06:18", "17:15"],
+      ],
+    });
+
+    const parsed = parseAttendanceSourceFiles(fingerprint, xerp, roster);
+
+    const taehwa = parsed.employees.find((employee) => employee.name === "신향모");
+    const localHire = parsed.employees.find((employee) => employee.name === "소영성");
+
+    expect(taehwa).toMatchObject({
+      team: "태화_F",
+      attendanceSource: "xerp",
+      dailyRecords: {
+        "2026-5-4": { punchIn: "06:09", punchOut: "14:07" },
+        "2026-5-5": { punchIn: "06:27", punchOut: "17:29" },
+      },
+    });
+    expect(localHire).toMatchObject({
+      team: "현채",
+      attendanceSource: "xerp",
+      dailyRecords: {
+        "2026-5-2": { punchIn: "06:18", punchOut: "17:15" },
+      },
+    });
+  });
+
   it("uses the separate roster as manual candidates without requiring punch records", () => {
     const roster = [
       { team: "한성_F" as const, name: "김명단", jobTitle: "관리자", rank: "반장" },
