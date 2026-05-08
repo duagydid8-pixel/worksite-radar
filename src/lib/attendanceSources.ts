@@ -362,8 +362,17 @@ export function parseAttendanceSourceFiles(
   roster: AttendanceRosterEmployee[] = []
 ): ParsedData {
   const fingerprintRecords = parseFingerprintRecords(fingerprintBuffer);
-  const fallbackDate = fingerprintRecords[0]
-    ? { year: fingerprintRecords[0].year, month: fingerprintRecords[0].month }
+  const latestFingerprint = fingerprintRecords.reduce<SourcePunchRecord | null>(
+    (latest, r) => {
+      if (!latest) return r;
+      const rKey = r.year * 12 + r.month;
+      const lKey = latest.year * 12 + latest.month;
+      return rKey > lKey ? r : latest;
+    },
+    null
+  );
+  const fallbackDate = latestFingerprint
+    ? { year: latestFingerprint.year, month: latestFingerprint.month }
     : undefined;
   const { employees: xerpEmployees, dataYear, dataMonth } = parseXerpEmployees(xerpBuffer, fallbackDate);
   const employees = roster.map((item) => employeeFromRoster(item, dataYear, dataMonth));

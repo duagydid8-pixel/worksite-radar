@@ -257,6 +257,34 @@ describe("parseAttendanceSourceFiles", () => {
     });
   });
 
+  it("uses the latest fingerprint month when the file contains prior-month records before current-month records", () => {
+    const roster = [
+      { team: "태화_F" as const, name: "신향모", jobTitle: "공사", rank: "" },
+    ];
+    const fingerprint = writeWorkbook({
+      "지문기록": [
+        ["근무일자", "", "이름", "", "", "", "", "출근시간", "퇴근시간"],
+        ["2026-04-30", "", "서재근", "", "", "", "", "07:00", "17:00"],
+        ["2026-05-08", "", "서재근", "", "", "", "", "06:20", "17:10"],
+      ],
+    });
+    const xerp = writeWorkbook({
+      Sheet1: [
+        ["현장명", "팀명", "성명", "직종", "생년월일", "전화번호", "출역로그", "1일", "", "2일", ""],
+        ["평택 P4-Ph4 초순수", "태화_F", "신향모", "공사관리자", "", "", 2, "06:09", "14:07", "06:27", "17:29"],
+      ],
+    });
+
+    const parsed = parseAttendanceSourceFiles(fingerprint, xerp, roster);
+    const taehwa = parsed.employees.find((e) => e.name === "신향모");
+
+    expect(parsed.dataMonth).toBe(5);
+    expect(taehwa?.dailyRecords).toMatchObject({
+      "2026-5-1": { punchIn: "06:09", punchOut: "14:07" },
+      "2026-5-2": { punchIn: "06:27", punchOut: "17:29" },
+    });
+  });
+
   it("preserves annual leave records when attendance source files are re-parsed for the same month", () => {
     const nextAttendanceData = parseAttendanceSourceFiles(
       writeWorkbook({
