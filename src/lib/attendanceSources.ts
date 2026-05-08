@@ -377,7 +377,8 @@ export function parseAttendanceSourceFiles(
       continue;
     }
 
-    if (roster.length === 0 && Object.keys(xerpEmployee.dailyRecords).length > 0) {
+    const isNonHanseong = xerpEmployee.team !== "한성_F";
+    if ((roster.length === 0 || isNonHanseong) && Object.keys(xerpEmployee.dailyRecords).length > 0) {
       employees.push(xerpEmployee);
       employeeByName.set(normalizedName, xerpEmployee);
     }

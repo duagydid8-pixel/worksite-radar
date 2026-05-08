@@ -178,7 +178,7 @@ describe("parseAttendanceSourceFiles", () => {
     expect(xerpRecord?.dailyRecords["2026-5-1"]).toEqual({ punchIn: "06:20", punchOut: "17:10" });
   });
 
-  it("ignores fingerprint and XERP records for names outside the uploaded roster", () => {
+  it("roster filters 한성_F only — 태화/현채 XERP employees always included", () => {
     const roster = [
       { team: "한성_F" as const, name: "Roster Worker", jobTitle: "관리자", rank: "" },
     ];
@@ -200,11 +200,13 @@ describe("parseAttendanceSourceFiles", () => {
 
     const parsed = parseAttendanceSourceFiles(fingerprint, xerp, roster);
 
-    expect(parsed.employees.map((employee) => employee.name)).toEqual(["Roster Worker"]);
+    // 한성_F 명단 외 지문기록(Outside Finger)은 제외, 태화_F는 명단 무관하게 포함
+    expect(parsed.employees.map((employee) => employee.name)).toEqual(["Roster Worker", "Outside Xerp"]);
     expect(parsed.employees[0].dailyRecords).toMatchObject({
       "2026-5-1": { punchIn: "06:20", punchOut: "17:10" },
       "2026-5-8": { punchIn: "06:20", punchOut: "17:10" },
     });
+    expect(parsed.employees[1].team).toBe("태화_F");
   });
 
   it("matches fingerprint punch records to XERP employees by name and date", () => {
