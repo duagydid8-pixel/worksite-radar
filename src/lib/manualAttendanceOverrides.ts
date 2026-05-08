@@ -19,6 +19,10 @@ export interface ManualAttendanceRosterEmployee {
   attendanceSource?: Employee["attendanceSource"];
 }
 
+function normalizeName(name: string): string {
+  return name.replace(/\s+/g, "").trim();
+}
+
 function parseDateKey(date: string): { year: number; month: number; day: number; recordKey: string; leaveKey: string } | null {
   const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -39,12 +43,31 @@ export function applyManualAttendanceOverrides(
   overrides: ManualAttendanceOverride[],
   roster: ManualAttendanceRosterEmployee[] = []
 ): ParsedData {
+  const currentEmployeesByName = new Map(data.employees.map((employee) => [normalizeName(employee.name), employee]));
   const next: ParsedData = {
     ...data,
-    employees: data.employees.map((employee) => ({
-      ...employee,
-      dailyRecords: { ...employee.dailyRecords },
-    })),
+    employees: roster.length > 0
+      ? roster.map((rosterEmployee) => {
+          const existing = currentEmployeesByName.get(normalizeName(rosterEmployee.name));
+          return {
+            ...(existing ?? {
+              totalDays: 0,
+              dataYear: data.dataYear,
+              dataMonth: data.dataMonth,
+              dailyRecords: {},
+            }),
+            team: rosterEmployee.team,
+            name: rosterEmployee.name,
+            jobTitle: rosterEmployee.jobTitle?.trim() || existing?.jobTitle || "",
+            rank: rosterEmployee.rank?.trim() || existing?.rank || "",
+            attendanceSource: rosterEmployee.attendanceSource ?? existing?.attendanceSource,
+            dailyRecords: { ...(existing?.dailyRecords ?? {}) },
+          };
+        })
+      : data.employees.map((employee) => ({
+          ...employee,
+          dailyRecords: { ...employee.dailyRecords },
+        })),
     annualLeaveMap: Object.fromEntries(
       Object.entries(data.annualLeaveMap).map(([name, dates]) => [name, { ...dates }])
     ),
@@ -55,9 +78,10 @@ export function applyManualAttendanceOverrides(
     const date = parseDateKey(override.date);
     if (!date) continue;
 
-    let employee = next.employees.find((item) => item.name === override.name);
+    const overrideNameKey = normalizeName(override.name);
+    let employee = next.employees.find((item) => normalizeName(item.name) === overrideNameKey);
     if (!employee) {
-      const rosterEmployee = roster.find((item) => item.name === override.name);
+      const rosterEmployee = roster.find((item) => normalizeName(item.name) === overrideNameKey);
       if (rosterEmployee) {
         employee = {
           team: rosterEmployee.team,

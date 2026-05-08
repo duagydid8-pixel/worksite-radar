@@ -38,6 +38,29 @@ function override(status: ManualAttendanceOverride["status"]): ManualAttendanceO
 }
 
 describe("applyManualAttendanceOverrides", () => {
+  it("updates existing employee metadata from the roster", () => {
+    const data = makeData();
+    data.employees[0] = {
+      ...data.employees[0],
+      jobTitle: "",
+      rank: "",
+    };
+
+    const result = applyManualAttendanceOverrides(data, [], [
+      { team: "태화_F", name: "홍길동", jobTitle: "공사", rank: "수석" },
+    ]);
+
+    expect(result.employees[0]).toMatchObject({
+      team: "태화_F",
+      name: "홍길동",
+      jobTitle: "공사",
+      rank: "수석",
+      dailyRecords: {
+        "2026-5-8": { punchIn: "06:20", punchOut: "17:10" },
+      },
+    });
+  });
+
   it("creates an employee from the roster when a manual override targets a roster-only name", () => {
     const data = makeData();
     data.employees = [];

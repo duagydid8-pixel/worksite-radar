@@ -308,7 +308,7 @@ const Index = () => {
           ...ROW_ORDER_CONTEXTS.map((ctx) => fetchRowOrderFS(ctx).then((names) => ({ ctx, names }))),
         ]);
         if (result) {
-          setData(result.data);
+          setData(applyManualAttendanceOverrides(result.data, readManualAttendanceOverrides(), readAttendanceRoster()));
           setLastUploadedAt(result.uploadedAt);
         }
         const orderMap: Record<string, string[]> = {};
@@ -515,7 +515,8 @@ const Index = () => {
           return;
         }
 
-        setLocalWatchStatus(`감시 중: ${status.fingerprint?.name ?? "지문기록"} / ${status.xerp?.name ?? "XERP기록"}`);
+        const rosterStatus = status.roster?.name ? ` / ${status.roster.name}` : "";
+        setLocalWatchStatus(`감시 중: ${status.fingerprint?.name ?? "지문기록"} / ${status.xerp?.name ?? "XERP기록"}${rosterStatus}`);
         if (!shouldApplyLocalWatchVersion(status, localWatchVersionRef.current)) return;
 
         const payload = await fetchLocalAttendanceSourceFiles();
@@ -523,10 +524,22 @@ const Index = () => {
 
         const nextFingerprintBuffer = decodeBase64ToArrayBuffer(payload.fingerprint.base64);
         const nextXerpBuffer = decodeBase64ToArrayBuffer(payload.xerp.base64);
+        let nextRoster = attendanceRoster;
+        if (payload.roster?.base64) {
+          const nextRosterBuffer = decodeBase64ToArrayBuffer(payload.roster.base64);
+          const parsedRoster = parseAttendanceRosterFile(nextRosterBuffer);
+          if (parsedRoster.length > 0) {
+            nextRoster = parsedRoster;
+            setAttendanceRoster(parsedRoster);
+            setRosterFileName(payload.roster.name);
+            localStorage.setItem(ATTENDANCE_ROSTER_KEY, JSON.stringify(parsedRoster));
+            localStorage.setItem(ATTENDANCE_ROSTER_FILE_NAME_KEY, payload.roster.name);
+          }
+        }
         const parsed = applyManualAttendanceOverrides(
-          parseAttendanceSourceFiles(nextFingerprintBuffer, nextXerpBuffer, attendanceRoster),
+          parseAttendanceSourceFiles(nextFingerprintBuffer, nextXerpBuffer, nextRoster),
           manualAttendanceOverrides,
-          attendanceRoster
+          nextRoster
         );
 
         localWatchVersionRef.current = payload.version;
@@ -537,7 +550,8 @@ const Index = () => {
         setData(parsed);
         setFileName(`${payload.fingerprint.name} + ${payload.xerp.name}`);
         setPendingBuffer(null);
-        setLocalWatchStatus(`자동 반영됨: ${payload.fingerprint.name} / ${payload.xerp.name}`);
+        const rosterAppliedStatus = payload.roster?.name ? ` / ${payload.roster.name}` : "";
+        setLocalWatchStatus(`자동 반영됨: ${payload.fingerprint.name} / ${payload.xerp.name}${rosterAppliedStatus}`);
         toast.success("로컬 폴더 변경을 자동 반영했습니다.");
       } catch {
         if (!cancelled) {

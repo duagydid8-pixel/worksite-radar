@@ -13,13 +13,14 @@ export function classifyAttendanceFile(fileName) {
   const lowerName = fileName.toLowerCase();
   if (fileName.startsWith("~$")) return null;
   if (!EXCEL_EXTENSIONS.has(path.extname(lowerName))) return null;
+  if (fileName.includes("명단") || lowerName.includes("roster")) return "roster";
   if (fileName.includes("지문")) return "fingerprint";
   if (lowerName.includes("xerp")) return "xerp";
   return null;
 }
 
 export function selectSourceFiles(candidates) {
-  const selected = { fingerprint: null, xerp: null };
+  const selected = { fingerprint: null, xerp: null, roster: null };
   for (const candidate of candidates) {
     const kind = classifyAttendanceFile(candidate.name);
     if (!kind) continue;
@@ -56,6 +57,9 @@ function versionFor(selection) {
     selection.xerp.name,
     selection.xerp.mtimeMs,
     selection.xerp.size,
+    selection.roster?.name ?? "",
+    selection.roster?.mtimeMs ?? "",
+    selection.roster?.size ?? "",
   ].join("|");
 }
 
@@ -75,6 +79,7 @@ async function scanWatchDir(watchDir) {
     watchDir,
     fingerprint: toPublicFile(selection.fingerprint),
     xerp: toPublicFile(selection.xerp),
+    roster: toPublicFile(selection.roster),
     version: versionFor(selection),
   };
 }
@@ -86,6 +91,7 @@ async function readSourcePayload(watchDir) {
     readFile(status.fingerprint.fullPath),
     readFile(status.xerp.fullPath),
   ]);
+  const rosterBuffer = status.roster ? await readFile(status.roster.fullPath) : null;
   return {
     ...status,
     fingerprint: {
@@ -96,6 +102,10 @@ async function readSourcePayload(watchDir) {
       ...status.xerp,
       base64: xerpBuffer.toString("base64"),
     },
+    roster: status.roster && rosterBuffer ? {
+      ...status.roster,
+      base64: rosterBuffer.toString("base64"),
+    } : null,
   };
 }
 

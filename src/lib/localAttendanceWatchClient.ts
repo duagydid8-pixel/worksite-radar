@@ -7,6 +7,7 @@ export interface LocalAttendanceWatchStatus {
   version: string | null;
   fingerprint?: LocalAttendanceWatchFileMeta | null;
   xerp?: LocalAttendanceWatchFileMeta | null;
+  roster?: LocalAttendanceWatchFileMeta | null;
 }
 
 export interface LocalAttendanceWatchFileMeta {
@@ -25,6 +26,7 @@ export interface LocalAttendanceWatchSourcePayload extends LocalAttendanceWatchS
   version: string;
   fingerprint: LocalAttendanceWatchSourceFile;
   xerp: LocalAttendanceWatchSourceFile;
+  roster?: LocalAttendanceWatchSourceFile | null;
 }
 
 export function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
