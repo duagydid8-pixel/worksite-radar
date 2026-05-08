@@ -521,19 +521,19 @@ const Index = () => {
     }
 
     try {
-      const { parseAttendanceSourceFiles } = await import("@/lib/attendanceSources");
-      const parsed = applyAttendancePresentationRules(
+      const { parseAttendanceSourceFiles, preserveAnnualLeaveData } = await import("@/lib/attendanceSources");
+      const sourceData = parseAttendanceSourceFiles(fingerprintBuffer, xerpSourceBuffer, attendanceRoster);
+      setData((current) => applyAttendancePresentationRules(
         applyManualAttendanceOverrides(
-          parseAttendanceSourceFiles(fingerprintBuffer, xerpSourceBuffer, attendanceRoster),
+          preserveAnnualLeaveData(sourceData, current),
           manualAttendanceOverrides,
           attendanceRoster
         ),
         attendanceRoster
-      );
-      setData(parsed);
+      ));
       setFileName(`${fingerprintFileName ?? "지문기록"} + ${xerpSourceFileName ?? "XERP기록"}`);
       setPendingBuffer(null);
-      toast.success(`${parsed.employees.length}명의 출퇴근 기록을 자동 반영했습니다.`);
+      toast.success(`${sourceData.employees.length}명의 출퇴근 기록을 자동 반영했습니다.`);
     } catch (err: unknown) {
       toast.error(getErrorMessage(err, "자동 반영 실패"));
     }
@@ -640,7 +640,7 @@ const Index = () => {
 
         const nextFingerprintBuffer = decodeBase64ToArrayBuffer(payload.fingerprint.base64);
         const nextXerpBuffer = decodeBase64ToArrayBuffer(payload.xerp.base64);
-        const { parseAttendanceRosterFile, parseAttendanceSourceFiles } = await import("@/lib/attendanceSources");
+        const { parseAttendanceRosterFile, parseAttendanceSourceFiles, preserveAnnualLeaveData } = await import("@/lib/attendanceSources");
         let nextRoster = attendanceRoster;
         if (payload.roster?.base64) {
           const nextRosterBuffer = decodeBase64ToArrayBuffer(payload.roster.base64);
@@ -653,21 +653,21 @@ const Index = () => {
             localStorage.setItem(ATTENDANCE_ROSTER_FILE_NAME_KEY, payload.roster.name);
           }
         }
-        const parsed = applyAttendancePresentationRules(
-          applyManualAttendanceOverrides(
-            parseAttendanceSourceFiles(nextFingerprintBuffer, nextXerpBuffer, nextRoster),
-            manualAttendanceOverrides,
-            nextRoster
-          ),
-          nextRoster
-        );
+        const sourceData = parseAttendanceSourceFiles(nextFingerprintBuffer, nextXerpBuffer, nextRoster);
 
         localWatchVersionRef.current = payload.version;
         setFingerprintBuffer(nextFingerprintBuffer);
         setXerpSourceBuffer(nextXerpBuffer);
         setFingerprintFileName(payload.fingerprint.name);
         setXerpSourceFileName(payload.xerp.name);
-        setData(parsed);
+        setData((current) => applyAttendancePresentationRules(
+          applyManualAttendanceOverrides(
+            preserveAnnualLeaveData(sourceData, current),
+            manualAttendanceOverrides,
+            nextRoster
+          ),
+          nextRoster
+        ));
         setFileName(`${payload.fingerprint.name} + ${payload.xerp.name}`);
         setPendingBuffer(null);
         const rosterAppliedStatus = payload.roster?.name ? ` / ${payload.roster.name}` : "";

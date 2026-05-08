@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import { parseAttendanceRosterFile, parseAttendanceSourceFiles } from "./attendanceSources";
+import { parseAttendanceRosterFile, parseAttendanceSourceFiles, preserveAnnualLeaveData } from "./attendanceSources";
 
 function writeWorkbook(sheets: Record<string, unknown[][]>): ArrayBuffer {
   const wb = XLSX.utils.book_new();
@@ -252,6 +252,36 @@ describe("parseAttendanceSourceFiles", () => {
       dailyRecords: {
         "2026-5-8": { punchIn: "06:20", punchOut: "17:10" },
       },
+    });
+  });
+
+  it("preserves annual leave records when attendance source files are re-parsed for the same month", () => {
+    const nextAttendanceData = parseAttendanceSourceFiles(
+      writeWorkbook({
+        "지문기록": [
+          ["근무일자", "", "이름", "", "", "", "", "출근시간", "퇴근시간"],
+          ["2026-05-08", "", "서재근", "", "", "", "", "06:20", "17:10"],
+        ],
+      }),
+      writeWorkbook({
+        "XERP 기록": [
+          ["현장명", "팀명", "성명", "직종", "생년월일", "전화번호", "출역로그", "1일", ""],
+          ["평택 P4-Ph4 초순수", "태화_F", "신향모", "공사관리자", "", "", 1, "06:09", "14:07"],
+        ],
+      }),
+      [{ team: "태화_F" as const, name: "신향모", jobTitle: "공사", rank: "" }]
+    );
+    const previousData = {
+      ...nextAttendanceData,
+      annualLeaveMap: { 신향모: { "2026|5|8": true } },
+      leaveEmployees: [{ name: "신향모", dept: "태화", hireDate: "2026-01-01", totalUsed: 1, remaining: 9 }],
+      leaveDetails: [{ year: 2026, month: 5, day: 8, name: "신향모", days: 1, reason: "연차" }],
+    };
+
+    expect(preserveAnnualLeaveData(nextAttendanceData, previousData)).toMatchObject({
+      annualLeaveMap: { 신향모: { "2026|5|8": true } },
+      leaveEmployees: [{ name: "신향모" }],
+      leaveDetails: [{ year: 2026, month: 5, day: 8, name: "신향모" }],
     });
   });
 });

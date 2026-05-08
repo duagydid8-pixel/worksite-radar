@@ -424,3 +424,17 @@ export function parseAttendanceSourceFiles(
     leaveDetails: [],
   };
 }
+
+export function preserveAnnualLeaveData(nextData: ParsedData, previousData: ParsedData | null | undefined): ParsedData {
+  if (!previousData) return nextData;
+  if (nextData.dataYear !== previousData.dataYear || nextData.dataMonth !== previousData.dataMonth) return nextData;
+
+  return {
+    ...nextData,
+    annualLeaveMap: Object.fromEntries(
+      Object.entries(previousData.annualLeaveMap).map(([name, dates]) => [name, { ...dates }])
+    ),
+    leaveEmployees: [...previousData.leaveEmployees],
+    leaveDetails: [...previousData.leaveDetails],
+  };
+}
