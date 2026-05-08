@@ -1,14 +1,19 @@
 import * as XLSX from "xlsx";
 
 export interface Employee {
-  team: "한성_F" | "태화_F";
+  team: "한성_F" | "태화_F" | "현채";
   name: string;
   jobTitle: string;
   rank: string;
   totalDays: number;
   dataYear: number;
   dataMonth: number;
-  dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null; status?: "결근" }>;
+  attendanceSource?: "fingerprint" | "xerp";
+  dailyRecords: Record<string, {
+    punchIn: string | null;
+    punchOut: string | null;
+    status?: "연차" | "오전반차" | "오후반차" | "결근";
+  }>;
 }
 
 export interface AnomalyRecord {
@@ -257,7 +262,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       const rank = team === "한성_F" ? (hanseongInfo?.rank || "") : "";
       const totalDays = typeof row[7] === "number" ? row[7] : parseInt(row[7]) || 0;
 
-      const dailyRecords: Record<string, { punchIn: string | null; punchOut: string | null; status?: "결근" }> = {};
+      const dailyRecords: Employee["dailyRecords"] = {};
 
       // Days 1~21
       for (let d = 1; d <= 21; d++) {

@@ -68,8 +68,8 @@ export function exportAttendanceExcel(
         return;
       }
       if (!rec || (!rec.punchIn && !rec.punchOut)) {
-        if (emp.team === "태화_F" && !isWeekend) {
-          cells.push("미출근", "");
+        if (emp.team !== "한성_F" && !isWeekend) {
+          cells.push("미체크", "");
         } else {
           cells.push("", "");
         }
@@ -79,7 +79,7 @@ export function exportAttendanceExcel(
       const pIn = rec.punchIn || "";
       const pOut = rec.punchOut || "";
       const lateFlag = pIn && isLate(pIn) ? `⏰ ${pIn}` : pIn;
-      const uncheckFlag = !pOut && emp.team === "태화_F" ? "↑미기록" : pOut;
+      const uncheckFlag = !pOut && emp.team !== "한성_F" ? "미타각" : pOut;
       cells.push(lateFlag, uncheckFlag);
     });
 
@@ -126,7 +126,8 @@ function buildMonthlySheet(
   anomalyMap: Map<string, AnomalyRecord>,
   dataYear: number,
   dataMonth: number,
-  isHanseong: boolean
+  isHanseong: boolean,
+  teamLabel = "태화"
 ): XLSX.WorkSheet {
   const daysInMonth = new Date(dataYear, dataMonth, 0).getDate();
   const today = new Date();
@@ -136,7 +137,8 @@ function buildMonthlySheet(
   const totalCols = dayStartCol + daysInMonth * 2 + 3; // +3: 빈칸2 + 비고1
   const bigoCol = dayStartCol + daysInMonth * 2 + 2;
 
-  const makeRow = (len = totalCols): any[] => new Array(len).fill(null);
+  type MonthlyCell = string | number | null;
+  const makeRow = (len = totalCols): MonthlyCell[] => new Array(len).fill(null);
 
   // Row 1: 제목
   const row1 = makeRow(80);
@@ -175,7 +177,7 @@ function buildMonthlySheet(
     row4[dayStartCol + (d - 1) * 2 + 1] = "퇴\n근";
   }
 
-  const aoa: any[][] = [row1, row2, row3, row4];
+  const aoa: MonthlyCell[][] = [row1, row2, row3, row4];
 
   employees.forEach((emp, idx) => {
     const anomaly = anomalyMap.get(emp.name);
@@ -212,7 +214,7 @@ function buildMonthlySheet(
       dataRow[4] = uncheckCount; dataRow[5] = lateCount; dataRow[6] = absentCount;
       dataRow[7] = 0; dataRow[8] = leaveCount; dataRow[9] = weekendCount;
     } else {
-      dataRow[0] = idx + 1; dataRow[1] = "태화"; dataRow[2] = emp.name; dataRow[3] = emp.jobTitle; dataRow[4] = "월급";
+      dataRow[0] = idx + 1; dataRow[1] = teamLabel; dataRow[2] = emp.name; dataRow[3] = emp.jobTitle; dataRow[4] = "월급";
       dataRow[5] = uncheckCount; dataRow[6] = anomaly?.지각 ?? lateCount;
       dataRow[7] = anomaly?.결근 ?? absentCount; dataRow[8] = anomaly?.반차 ?? 0;
       dataRow[9] = anomaly?.연차 ?? leaveCount; dataRow[10] = weekendCount;
@@ -270,6 +272,9 @@ export function exportMonthlyExcel(
   const taehwaEmps = allEmployees.filter(
     (e) => e.team === "태화_F" && e.dataYear === dataYear && e.dataMonth === dataMonth
   );
+  const hyunchaeEmps = allEmployees.filter(
+    (e) => e.team === "현채" && e.dataYear === dataYear && e.dataMonth === dataMonth
+  );
 
   const wb = XLSX.utils.book_new();
   const yearStr = String(dataYear).slice(2);
@@ -281,9 +286,17 @@ export function exportMonthlyExcel(
   );
   XLSX.utils.book_append_sheet(
     wb,
-    buildMonthlySheet(taehwaEmps, annualLeaveMap, anomalyMap, dataYear, dataMonth, false),
+    buildMonthlySheet(taehwaEmps, annualLeaveMap, anomalyMap, dataYear, dataMonth, false, "태화"),
     `${yearStr}년_P4협력사`
   );
+
+  if (hyunchaeEmps.length > 0) {
+    XLSX.utils.book_append_sheet(
+      wb,
+      buildMonthlySheet(hyunchaeEmps, annualLeaveMap, anomalyMap, dataYear, dataMonth, false, "현채"),
+      `${yearStr}년 P4현채`
+    );
+  }
 
   XLSX.writeFile(wb, `P4근태현황_${dataYear}${String(dataMonth).padStart(2, "0")}_${todayStr()}.xlsx`);
 }

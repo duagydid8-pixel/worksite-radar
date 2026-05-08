@@ -11,10 +11,28 @@ import PdfSplitter from "@/components/tabs/PdfSplitter";
 import ExpenseReportTab from "@/components/ExpenseReport";
 import HeadOfficeMailRequest from "@/components/HeadOfficeMailRequest";
 import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOfficeMail";
+import { formatUploadTime, formatWeekRange, getLocalDateKey, getMonday, isLate } from "@/lib/attendanceDateUtils";
+import {
+  parseAttendanceRosterFile,
+  parseAttendanceSourceFiles,
+  type AttendanceRosterEmployee,
+} from "@/lib/attendanceSources";
+import { getVisibleAttendanceEmployees } from "@/lib/attendanceVisibility";
+import {
+  applyManualAttendanceOverrides,
+  type ManualAttendanceOverride,
+  type ManualAttendanceStatus,
+} from "@/lib/manualAttendanceOverrides";
+import {
+  decodeBase64ToArrayBuffer,
+  fetchLocalAttendanceSourceFiles,
+  fetchLocalAttendanceWatchStatus,
+  shouldApplyLocalWatchVersion,
+} from "@/lib/localAttendanceWatchClient";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2 } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw } from "lucide-react";
 import { exportMonthlyExcel } from "@/lib/exportExcel";
 import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
@@ -49,29 +67,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
-
-function getMonday(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function formatWeekRange(monday: Date): string {
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const y1 = monday.getFullYear();
-  const m1 = monday.getMonth() + 1;
-  const d1 = monday.getDate();
-  const m2 = sunday.getMonth() + 1;
-  const d2 = sunday.getDate();
-  return `${y1}년 ${m1}월 ${d1}일(${DAY_NAMES[monday.getDay()]}) ~ ${m2}월 ${d2}일(${DAY_NAMES[sunday.getDay()]})`;
-}
-
-type TeamFilter = "전체" | "한성" | "태화";
+type TeamFilter = "전체" | "한성" | "태화" | "현채";
 type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔";
@@ -82,17 +78,7 @@ const PAYROLL_SUB_TABS: { value: PayrollSubTab; label: string; icon: React.React
   { value: "추가공수스캔", label: "추가공수 스캔추출", icon: <ScanText className="h-3.5 w-3.5" /> },
 ];
 
-function isLate(timeStr: string): boolean {
-  const [h, m] = timeStr.split(":").map(Number);
-  return h > 6 || (h === 6 && m > 30);
-}
-
-function formatUploadTime(isoStr: string): string {
-  const d = new Date(isoStr);
-  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-const ROW_ORDER_CONTEXTS = ["attendance_한성_F", "attendance_태화_F", "leave"];
+const ROW_ORDER_CONTEXTS = ["attendance_한성_F", "attendance_태화_F", "attendance_현채", "leave"];
 
 interface NavItem {
   key: ActiveTab;
@@ -126,16 +112,17 @@ const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN];
 const ADMIN_TOP_NAV_KEY = "__admin";
 const ADMIN_TODO_HIDE_PREFIX = "admin_todo_hidden_";
 const ADMIN_DAILY_TASKS_PREFIX = "admin_daily_tasks_";
+const MANUAL_ATTENDANCE_OVERRIDES_KEY = "attendance_manual_overrides";
+const ATTENDANCE_ROSTER_KEY = "attendance_roster";
+const ATTENDANCE_ROSTER_FILE_NAME_KEY = "attendance_roster_file_name";
+const LOCAL_ATTENDANCE_WATCH_ENABLED_KEY = "attendance_local_watch_enabled";
+const MANUAL_ATTENDANCE_STATUSES: ManualAttendanceStatus[] = ["연차", "오전반차", "오후반차", "결근"];
 
 interface AdminDailyTask {
   id: string;
   text: string;
   done: boolean;
   createdAt: string;
-}
-
-function getLocalDateKey(date = new Date()): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function readAdminDailyTasks(dateKey: string): AdminDailyTask[] {
@@ -158,12 +145,67 @@ function readAdminDailyTasks(dateKey: string): AdminDailyTask[] {
   }
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function requiresPunchOut(emp: ParsedData["employees"][number]): boolean {
+  if (emp.attendanceSource === "fingerprint") return false;
+  if (emp.attendanceSource === "xerp") return true;
+  return emp.team !== "한성_F";
+}
+
+function readManualAttendanceOverrides(): ManualAttendanceOverride[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MANUAL_ATTENDANCE_OVERRIDES_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is ManualAttendanceOverride => {
+      if (!item || typeof item !== "object") return false;
+      const record = item as Partial<ManualAttendanceOverride>;
+      return (
+        typeof record.id === "string" &&
+        typeof record.date === "string" &&
+        typeof record.name === "string" &&
+        typeof record.createdAt === "string" &&
+        !!record.status &&
+        MANUAL_ATTENDANCE_STATUSES.includes(record.status)
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+function readAttendanceRoster(): AttendanceRosterEmployee[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ATTENDANCE_ROSTER_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is AttendanceRosterEmployee => {
+      if (!item || typeof item !== "object") return false;
+      const record = item as Partial<AttendanceRosterEmployee>;
+      return (
+        (record.team === "한성_F" || record.team === "태화_F" || record.team === "현채") &&
+        typeof record.name === "string" &&
+        typeof record.jobTitle === "string" &&
+        typeof record.rank === "string"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
 const Index = () => {
   const topbarRef = useRef<HTMLElement | null>(null);
   const adminTodoShownRef = useRef(false);
   const publicGuideShownRef = useRef(false);
+  const localWatchVersionRef = useRef<string | null>(null);
   const [data, setData] = useState<ParsedData | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [rosterFileName, setRosterFileName] = useState<string | null>(() => localStorage.getItem(ATTENDANCE_ROSTER_FILE_NAME_KEY));
+  const [attendanceRoster, setAttendanceRoster] = useState<AttendanceRosterEmployee[]>(() => readAttendanceRoster());
+  const [fingerprintFileName, setFingerprintFileName] = useState<string | null>(null);
+  const [xerpSourceFileName, setXerpSourceFileName] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
     const saved = localStorage.getItem("attendance_selected_date");
     if (saved) return saved;
@@ -176,6 +218,8 @@ const Index = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingBuffer, setPendingBuffer] = useState<ArrayBuffer | null>(null);
+  const [fingerprintBuffer, setFingerprintBuffer] = useState<ArrayBuffer | null>(null);
+  const [xerpSourceBuffer, setXerpSourceBuffer] = useState<ArrayBuffer | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("홈");
   const [attendanceSubTab, setAttendanceSubTab] = useState<AttendanceSubTab>("근태현황");
   const [payrollSubTab, setPayrollSubTab] = useState<PayrollSubTab>("급여대장보정");
@@ -188,6 +232,14 @@ const Index = () => {
   const [loginPw, setLoginPw] = useState("");
   const [publicGuideDialogOpen, setPublicGuideDialogOpen] = useState(false);
   const [adminTodoDialogOpen, setAdminTodoDialogOpen] = useState(false);
+  const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] = useState(false);
+  const [manualAttendanceOverrides, setManualAttendanceOverrides] = useState<ManualAttendanceOverride[]>(() => readManualAttendanceOverrides());
+  const [manualAttendanceDate, setManualAttendanceDate] = useState(() => getLocalDateKey());
+  const [manualAttendanceName, setManualAttendanceName] = useState("");
+  const [manualAttendanceStatus, setManualAttendanceStatus] = useState<ManualAttendanceStatus>("연차");
+  const [manualAttendanceNote, setManualAttendanceNote] = useState("");
+  const [localWatchEnabled, setLocalWatchEnabled] = useState(() => localStorage.getItem(LOCAL_ATTENDANCE_WATCH_ENABLED_KEY) === "true");
+  const [localWatchStatus, setLocalWatchStatus] = useState("자동감시가 꺼져 있습니다.");
   const [hideAdminTodoToday, setHideAdminTodoToday] = useState(false);
   const [adminTodoDate, setAdminTodoDate] = useState(() => getLocalDateKey());
   const [adminTodoDraft, setAdminTodoDraft] = useState("");
@@ -289,29 +341,110 @@ const Index = () => {
 
   const handleFileLoaded = useCallback((buffer: ArrayBuffer) => {
     try {
-      const parsed = parseExcelFile(buffer);
+      const parsed = applyManualAttendanceOverrides(parseExcelFile(buffer), manualAttendanceOverrides, attendanceRoster);
       setData(parsed);
       setPendingBuffer(buffer);
       toast.success(`${parsed.employees.length}명의 데이터를 불러왔습니다. "업로드 & 저장" 버튼을 눌러 저장하세요.`);
-    } catch (err: any) {
-      toast.error(err.message || "파일 파싱 오류");
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "파일 파싱 오류"));
     }
+  }, [attendanceRoster, manualAttendanceOverrides]);
+
+  const handleRosterFileLoaded = useCallback((buffer: ArrayBuffer) => {
+    try {
+      const roster = parseAttendanceRosterFile(buffer);
+      if (roster.length === 0) {
+        setRosterFileName(null);
+        localStorage.removeItem(ATTENDANCE_ROSTER_FILE_NAME_KEY);
+        toast.error("명단 파일에서 직원을 찾지 못했습니다.");
+        return;
+      }
+      setAttendanceRoster(roster);
+      localStorage.setItem(ATTENDANCE_ROSTER_KEY, JSON.stringify(roster));
+      localWatchVersionRef.current = null;
+      setData((current) => current ? applyManualAttendanceOverrides(current, manualAttendanceOverrides, roster) : current);
+      toast.success(`${roster.length}명의 명단을 저장했습니다.`);
+    } catch (err: unknown) {
+      setRosterFileName(null);
+      localStorage.removeItem(ATTENDANCE_ROSTER_FILE_NAME_KEY);
+      toast.error(getErrorMessage(err, "명단 파일 파싱 오류"));
+    }
+  }, [manualAttendanceOverrides]);
+
+  const handleClearRosterFile = useCallback(() => {
+    setAttendanceRoster([]);
+    setRosterFileName(null);
+    localWatchVersionRef.current = null;
+    localStorage.removeItem(ATTENDANCE_ROSTER_KEY);
+    localStorage.removeItem(ATTENDANCE_ROSTER_FILE_NAME_KEY);
   }, []);
+
+  const handleRosterFileName = useCallback((name: string) => {
+    setRosterFileName(name);
+    localStorage.setItem(ATTENDANCE_ROSTER_FILE_NAME_KEY, name);
+  }, []);
+
+  const toggleLocalWatch = useCallback(() => {
+    setLocalWatchEnabled((enabled) => {
+      const next = !enabled;
+      localStorage.setItem(LOCAL_ATTENDANCE_WATCH_ENABLED_KEY, String(next));
+      if (!next) {
+        setLocalWatchStatus("자동감시가 꺼져 있습니다.");
+      } else {
+        setLocalWatchStatus("로컬 감시 프로그램 연결 확인 중...");
+        localWatchVersionRef.current = null;
+      }
+      return next;
+    });
+  }, []);
+
+  const handleFingerprintFileLoaded = useCallback((buffer: ArrayBuffer) => {
+    setFingerprintBuffer(buffer);
+    toast.success("지문기록 파일을 불러왔습니다.");
+  }, []);
+
+  const handleXerpSourceFileLoaded = useCallback((buffer: ArrayBuffer) => {
+    setXerpSourceBuffer(buffer);
+    toast.success("XERP기록 파일을 불러왔습니다.");
+  }, []);
+
+  const handleBuildFromSourceFiles = useCallback(() => {
+    if (!fingerprintBuffer || !xerpSourceBuffer) {
+      toast.error("지문기록과 XERP기록 파일을 모두 업로드하세요.");
+      return;
+    }
+
+    try {
+      const parsed = applyManualAttendanceOverrides(
+        parseAttendanceSourceFiles(fingerprintBuffer, xerpSourceBuffer, attendanceRoster),
+        manualAttendanceOverrides,
+        attendanceRoster
+      );
+      setData(parsed);
+      setFileName(`${fingerprintFileName ?? "지문기록"} + ${xerpSourceFileName ?? "XERP기록"}`);
+      setPendingBuffer(null);
+      toast.success(`${parsed.employees.length}명의 출퇴근 기록을 자동 반영했습니다.`);
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "자동 반영 실패"));
+    }
+  }, [attendanceRoster, fingerprintBuffer, fingerprintFileName, manualAttendanceOverrides, xerpSourceBuffer, xerpSourceFileName]);
 
   const handleSaveToCloud = useCallback(async () => {
     if (!data || !fileName) { toast.error("먼저 엑셀 파일을 업로드하세요."); return; }
     setIsSaving(true);
     try {
-      await saveAttendanceFS(data, fileName);
+      const dataToSave = applyManualAttendanceOverrides(data, manualAttendanceOverrides, attendanceRoster);
+      await saveAttendanceFS(dataToSave, fileName);
+      setData(dataToSave);
       setLastUploadedAt(new Date().toISOString());
       setPendingBuffer(null);
       toast.success("데이터가 클라우드에 저장되었습니다!");
-    } catch (err: any) {
-      toast.error(`저장 실패: ${err.message}`);
+    } catch (err: unknown) {
+      toast.error(`저장 실패: ${getErrorMessage(err, "알 수 없는 오류")}`);
     } finally {
       setIsSaving(false);
     }
-  }, [data, fileName]);
+  }, [attendanceRoster, data, fileName, manualAttendanceOverrides]);
 
   const handleOrderChange = useCallback(async (context: string, names: string[]) => {
     setRowOrders((prev) => ({ ...prev, [context]: names }));
@@ -321,6 +454,109 @@ const Index = () => {
       // silently fail
     }
   }, []);
+
+  const saveManualAttendanceOverrides = useCallback((nextOverrides: ManualAttendanceOverride[]) => {
+    setManualAttendanceOverrides(nextOverrides);
+    localStorage.setItem(MANUAL_ATTENDANCE_OVERRIDES_KEY, JSON.stringify(nextOverrides));
+    setData((current) => current ? applyManualAttendanceOverrides(current, nextOverrides, attendanceRoster) : current);
+  }, [attendanceRoster]);
+
+  const handleAddManualAttendanceOverride = useCallback((event: React.FormEvent) => {
+    event.preventDefault();
+    if (!manualAttendanceName) {
+      toast.error("직원을 선택하세요.");
+      return;
+    }
+
+    const nextOverride: ManualAttendanceOverride = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      date: manualAttendanceDate,
+      name: manualAttendanceName,
+      status: manualAttendanceStatus,
+      note: manualAttendanceNote.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+
+    const nextOverrides = [
+      nextOverride,
+      ...manualAttendanceOverrides.filter(
+        (override) => !(override.date === manualAttendanceDate && override.name === manualAttendanceName)
+      ),
+    ];
+    saveManualAttendanceOverrides(nextOverrides);
+    setManualAttendanceNote("");
+    toast.success("수동 근태 입력을 반영했습니다.");
+  }, [
+    manualAttendanceDate,
+    manualAttendanceName,
+    manualAttendanceNote,
+    manualAttendanceOverrides,
+    manualAttendanceStatus,
+    saveManualAttendanceOverrides,
+  ]);
+
+  const handleDeleteManualAttendanceOverride = useCallback((id: string) => {
+    saveManualAttendanceOverrides(manualAttendanceOverrides.filter((override) => override.id !== id));
+  }, [manualAttendanceOverrides, saveManualAttendanceOverrides]);
+
+  useEffect(() => {
+    if (!localWatchEnabled) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const status = await fetchLocalAttendanceWatchStatus();
+        if (cancelled) return;
+
+        if (!status.ready) {
+          setLocalWatchStatus(`대기 중: ${status.missing.join(", ")} 파일이 필요합니다.`);
+          return;
+        }
+
+        setLocalWatchStatus(`감시 중: ${status.fingerprint?.name ?? "지문기록"} / ${status.xerp?.name ?? "XERP기록"}`);
+        if (!shouldApplyLocalWatchVersion(status, localWatchVersionRef.current)) return;
+
+        const payload = await fetchLocalAttendanceSourceFiles();
+        if (cancelled) return;
+
+        const nextFingerprintBuffer = decodeBase64ToArrayBuffer(payload.fingerprint.base64);
+        const nextXerpBuffer = decodeBase64ToArrayBuffer(payload.xerp.base64);
+        const parsed = applyManualAttendanceOverrides(
+          parseAttendanceSourceFiles(nextFingerprintBuffer, nextXerpBuffer, attendanceRoster),
+          manualAttendanceOverrides,
+          attendanceRoster
+        );
+
+        localWatchVersionRef.current = payload.version;
+        setFingerprintBuffer(nextFingerprintBuffer);
+        setXerpSourceBuffer(nextXerpBuffer);
+        setFingerprintFileName(payload.fingerprint.name);
+        setXerpSourceFileName(payload.xerp.name);
+        setData(parsed);
+        setFileName(`${payload.fingerprint.name} + ${payload.xerp.name}`);
+        setPendingBuffer(null);
+        setLocalWatchStatus(`자동 반영됨: ${payload.fingerprint.name} / ${payload.xerp.name}`);
+        toast.success("로컬 폴더 변경을 자동 반영했습니다.");
+      } catch {
+        if (!cancelled) {
+          setLocalWatchStatus("로컬 감시 프로그램에 연결되지 않았습니다. npm run attendance:watch를 실행하세요.");
+        }
+      } finally {
+        if (!cancelled) {
+          timer = setTimeout(poll, 5000);
+        }
+      }
+    };
+
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [attendanceRoster, localWatchEnabled, manualAttendanceOverrides]);
 
   const handleNavClick = (key: ActiveTab, adminOnly: boolean) => {
     if (adminOnly && !isAdmin) {
@@ -344,33 +580,24 @@ const Index = () => {
     setPublicGuideDialogOpen(false);
   };
 
-  const filteredEmployees = useMemo(() => {
+  const visibleEmployees = useMemo(() => {
     if (!data) return [];
-    const [weekYear, weekMonth] = selectedDate.split("-").map(Number);
-    let emps = data.employees.filter((e) => e.dataYear === weekYear && e.dataMonth === weekMonth);
-    if (emps.length === 0) emps = data.employees;
+    return getVisibleAttendanceEmployees(data, { selectedDate, monday, manualAttendanceOverrides, attendanceRoster });
+  }, [attendanceRoster, data, manualAttendanceOverrides, monday, selectedDate]);
 
-    const mondayYear = monday.getFullYear();
-    const mondayMonth = monday.getMonth() + 1;
-    if (mondayYear !== weekYear || mondayMonth !== weekMonth) {
-      const prevEmps = data.employees.filter(
-        (e) => e.dataYear === mondayYear && e.dataMonth === mondayMonth
-      );
-      if (prevEmps.length > 0) {
-        emps = emps.map((emp) => {
-          const prev = prevEmps.find((p) => p.name === emp.name && p.team === emp.team);
-          if (!prev) return emp;
-          return { ...emp, dailyRecords: { ...prev.dailyRecords, ...emp.dailyRecords } };
-        });
-      }
-    }
-
+  const filteredEmployees = useMemo(() => {
+    const emps = visibleEmployees;
     if (teamFilter === "한성") return emps.filter((e) => e.team === "한성_F");
     if (teamFilter === "태화") return emps.filter((e) => e.team === "태화_F");
-    const sorted = [...emps.filter((e) => e.team === "한성_F"), ...emps.filter((e) => e.team === "태화_F")];
+    if (teamFilter === "현채") return emps.filter((e) => e.team === "현채");
+    const sorted = [
+      ...emps.filter((e) => e.team === "한성_F"),
+      ...emps.filter((e) => e.team === "태화_F"),
+      ...emps.filter((e) => e.team === "현채"),
+    ];
     if (!searchQuery.trim()) return sorted;
     return sorted.filter((e) => e.name.includes(searchQuery.trim()));
-  }, [data, teamFilter, monday, searchQuery, selectedDate]);
+  }, [searchQuery, teamFilter, visibleEmployees]);
 
   const anomalyMap = useMemo(() => {
     if (!data) return new Map();
@@ -378,6 +605,25 @@ const Index = () => {
     for (const a of data.anomalies) map.set(a.name, a);
     return map;
   }, [data]);
+
+  const manualAttendanceEmployeeNames = useMemo(() => {
+    const names = new Set<string>();
+    if (attendanceRoster.length > 0) {
+      for (const employee of attendanceRoster) names.add(employee.name);
+    } else {
+      for (const employee of data?.employees ?? []) names.add(employee.name);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [attendanceRoster, data]);
+
+  useEffect(() => {
+    if (
+      manualAttendanceEmployeeNames.length > 0 &&
+      (!manualAttendanceName || !manualAttendanceEmployeeNames.includes(manualAttendanceName))
+    ) {
+      setManualAttendanceName(manualAttendanceEmployeeNames[0]);
+    }
+  }, [manualAttendanceEmployeeNames, manualAttendanceName]);
 
   const weekStats = useMemo(() => {
     const today = new Date();
@@ -399,7 +645,7 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) empLate = true;
         const isToday = cellDate.getTime() === today.getTime();
-        if (!isToday && emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) empUncheck = true;
+        if (!isToday && requiresPunchOut(emp) && rec?.punchIn && !rec.punchOut) empUncheck = true;
       }
       if (empLate) lateEmps++;
       if (empUncheck) uncheckEmps++;
@@ -427,11 +673,11 @@ const Index = () => {
         const rec = emp.dailyRecords[key];
         if (rec?.punchIn && isLate(rec.punchIn)) lateTotal++;
         const isToday = dateObj.getTime() === today.getTime();
-        if (!isToday && emp.team === "태화_F" && rec?.punchIn && !rec.punchOut) uncheckTotal++;
+        if (!isToday && requiresPunchOut(emp) && rec?.punchIn && !rec.punchOut) uncheckTotal++;
       }
     }
     return { total: filteredEmployees.length, late: lateTotal, uncheck: uncheckTotal, leave: leaveTotal };
-  }, [filteredEmployees, data, monday, selectedDate]);
+  }, [filteredEmployees, data, selectedDate]);
 
   const adminTodoItems = useMemo(() => [
     {
@@ -492,7 +738,7 @@ const Index = () => {
       setAdminTodoDate(adminTodoTodayKey);
       setAdminTodoDialogOpen(true);
     }
-  }, [adminTodoHideStorageKey, isAdmin]);
+  }, [adminTodoHideStorageKey, adminTodoTodayKey, isAdmin]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -618,6 +864,92 @@ const Index = () => {
               로그인
             </button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={manualAttendanceDialogOpen} onOpenChange={setManualAttendanceDialogOpen}>
+        <DialogContent className="sm:max-w-[680px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ClipboardList className="h-4 w-4 text-primary" />
+              수동 근태 입력
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleAddManualAttendanceOverride} className="grid gap-3 pt-2 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">날짜</label>
+              <input
+                type="date"
+                value={manualAttendanceDate}
+                onChange={(event) => setManualAttendanceDate(event.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-bold outline-none focus:border-slate-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">직원</label>
+              <select
+                value={manualAttendanceName}
+                onChange={(event) => setManualAttendanceName(event.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-bold outline-none focus:border-slate-400"
+              >
+                <option value="">직원 선택</option>
+                {manualAttendanceEmployeeNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">상태</label>
+              <select
+                value={manualAttendanceStatus}
+                onChange={(event) => setManualAttendanceStatus(event.target.value as ManualAttendanceStatus)}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-bold outline-none focus:border-slate-400"
+              >
+                {MANUAL_ATTENDANCE_STATUSES.map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">메모</label>
+              <input
+                value={manualAttendanceNote}
+                onChange={(event) => setManualAttendanceNote(event.target.value)}
+                placeholder="선택 입력"
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold outline-none focus:border-slate-400"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <button
+                type="submit"
+                className="h-10 w-full rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white transition-colors hover:bg-slate-700"
+              >
+                입력 반영
+              </button>
+            </div>
+          </form>
+
+          <div className="max-h-56 space-y-2 overflow-auto border-t border-slate-100 pt-3">
+            {manualAttendanceOverrides.length === 0 ? (
+              <p className="py-6 text-center text-sm font-semibold text-slate-400">등록된 수동 근태가 없습니다.</p>
+            ) : (
+              manualAttendanceOverrides.map((override) => (
+                <div key={override.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                  <span className="font-bold text-slate-900">{override.date}</span>
+                  <span className="font-bold text-slate-700">{override.name}</span>
+                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">{override.status}</span>
+                  {override.note && <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-400">{override.note}</span>}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteManualAttendanceOverride(override.id)}
+                    className="ml-auto rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1130,6 +1462,69 @@ const Index = () => {
             <>
               {/* File upload + save (admin only) */}
                 {isAdmin && (
+                  <>
+                  <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:grid-cols-[1fr_1fr_1fr_auto_auto_auto] lg:items-end">
+                    <div>
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <p className="text-[11px] font-extrabold text-slate-400">명단</p>
+                        {attendanceRoster.length > 0 && (
+                          <span className="text-[11px] font-bold text-slate-400">{attendanceRoster.length}명</span>
+                        )}
+                      </div>
+                      <FileUploadZone
+                        onFileLoaded={handleRosterFileLoaded}
+                        fileName={rosterFileName}
+                        onClear={handleClearRosterFile}
+                        onFileName={handleRosterFileName}
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-extrabold text-slate-400">지문기록</p>
+                      <FileUploadZone
+                        onFileLoaded={handleFingerprintFileLoaded}
+                        fileName={fingerprintFileName}
+                        onClear={() => { setFingerprintBuffer(null); setFingerprintFileName(null); }}
+                        onFileName={setFingerprintFileName}
+                      />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-extrabold text-slate-400">XERP기록</p>
+                      <FileUploadZone
+                        onFileLoaded={handleXerpSourceFileLoaded}
+                        fileName={xerpSourceFileName}
+                        onClear={() => { setXerpSourceBuffer(null); setXerpSourceFileName(null); }}
+                        onFileName={setXerpSourceFileName}
+                      />
+                    </div>
+                    <button
+                      onClick={handleBuildFromSourceFiles}
+                      className="flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 transition-colors hover:bg-slate-50"
+                    >
+                      <Database className="h-4 w-4 text-slate-400" />
+                      자동 반영
+                    </button>
+                    <button
+                      onClick={() => setManualAttendanceDialogOpen(true)}
+                      className="flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 transition-colors hover:bg-slate-50"
+                    >
+                      <ClipboardList className="h-4 w-4 text-slate-400" />
+                      수동 입력
+                    </button>
+                    <button
+                      onClick={toggleLocalWatch}
+                      className={`flex h-11 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-extrabold transition-colors ${
+                        localWatchEnabled
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                          : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+                      }`}
+                    >
+                      <RefreshCw className={`h-4 w-4 ${localWatchEnabled ? "text-emerald-600" : "text-slate-400"}`} />
+                      {localWatchEnabled ? "자동감시 중" : "자동감시"}
+                    </button>
+                    <p className={`text-[11px] font-bold lg:col-span-6 ${localWatchEnabled ? "text-emerald-700" : "text-slate-400"}`}>
+                      {localWatchStatus}
+                    </p>
+                  </div>
                   <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
                     <div className="flex-1">
                       <FileUploadZone
@@ -1150,6 +1545,7 @@ const Index = () => {
                       </button>
                     )}
                   </div>
+                  </>
                 )}
 
                 {data && (
@@ -1179,7 +1575,7 @@ const Index = () => {
                           </button>
                         </div>
                         <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
-                          {(["전체", "한성", "태화"] as TeamFilter[]).map((v) => (
+                          {(["전체", "한성", "태화", "현채"] as TeamFilter[]).map((v) => (
                             <button
                               key={v}
                               onClick={() => setTeamFilter(v)}
@@ -1216,7 +1612,7 @@ const Index = () => {
                           )}
                         </div>
                         <button
-                          onClick={() => exportMonthlyExcel(data.employees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth)}
+                          onClick={() => exportMonthlyExcel(visibleEmployees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth)}
                           className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition-colors hover:bg-slate-50"
                         >
                           <Download className="h-4 w-4 text-slate-400" />

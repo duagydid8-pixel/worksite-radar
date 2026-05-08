@@ -4,6 +4,7 @@ import { isKoreanHoliday } from "./koreanHolidays";
 import type { ScheduleData } from "./scheduleTypes";
 import type { LeaveDetail, Employee } from "./parseExcel";
 import type { ManualAbsence } from "./manualAbsences";
+import { removeTransientNoOpChanges, type PayrollCellChange } from "./payrollChangeTracking";
 
 export function isMonthlyWorker(jobTitle: string): boolean {
   return jobTitle.includes("관리자") || jobTitle === "차량운행";
@@ -315,7 +316,7 @@ export interface PayrollCorrection {
   name: string;
   jobTitle: string;
   sheetName: string;
-  changes: { day: number; before: number; after: number; reason: string }[];
+  changes: PayrollCellChange[];
   totalBefore: number;
   totalAfter: number;
 }
@@ -392,7 +393,7 @@ export async function processPayroll(
         dayValues.push(day <= daysInMonth ? getCellNumber(ws, r, layout.colDayStart + (day - 1)) : 0);
       }
 
-      const changes: { day: number; before: number; after: number; reason: string }[] = [];
+      const changes: PayrollCellChange[] = [];
       const newValues = [...dayValues];
       const employee = employeeLookup.get(normName);
       const unpaidDays = new Set<number>();
@@ -560,17 +561,19 @@ export async function processPayroll(
       }
 
       // 변경된 셀 기록
-      for (const { day, after } of changes) {
+      const effectiveChanges = removeTransientNoOpChanges(changes, dayValues);
+
+      for (const { day, after } of effectiveChanges) {
         const addr = XLSX.utils.encode_cell({ r, c: layout.colDayStart + (day - 1) });
         sheetCellChanges.set(addr, after);
       }
 
-      if (changes.length > 0) {
+      if (effectiveChanges.length > 0) {
         corrections.push({
           name,
           jobTitle,
           sheetName,
-          changes,
+          changes: effectiveChanges,
           totalBefore: dayValues.reduce((s, v) => s + v, 0),
           totalAfter: newValues.reduce((s, v) => s + v, 0),
         });

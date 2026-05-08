@@ -1,6 +1,7 @@
 import { Fragment, useState, useRef } from "react";
 import { GripVertical, Users } from "lucide-react";
 import type { Employee, AnomalyRecord } from "@/lib/parseExcel";
+import { formatAttendanceIssueLabel, getAttendanceIssuePresentation } from "@/lib/attendanceIssueDisplay";
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -38,6 +39,26 @@ function applyOrder(emps: Employee[], order: string[]): Employee[] {
   return result;
 }
 
+function getManualStatusClass(status: NonNullable<Employee["dailyRecords"][string]["status"]>): string {
+  if (status === "결근") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (status === "연차") return "border-blue-200 bg-blue-50 text-blue-700";
+  return "border-violet-200 bg-violet-50 text-violet-700";
+}
+
+function issueBadgeClass(type: "late" | "missingCheck" | "missingPunchOut"): string {
+  return getAttendanceIssuePresentation(type).className;
+}
+
+function summaryIssueBadgeClass(type: "late" | "missingCheck" | "missingPunchOut"): string {
+  return getAttendanceIssuePresentation(type).summaryClassName;
+}
+
+function requiresPunchOut(emp: Employee): boolean {
+  if (emp.attendanceSource === "fingerprint") return false;
+  if (emp.attendanceSource === "xerp") return true;
+  return emp.team !== "한성_F";
+}
+
 export default function AttendanceTable({
   employees,
   anomalyMap,
@@ -59,7 +80,7 @@ export default function AttendanceTable({
 
   const [localOrders, setLocalOrders] = useState<Record<string, string[]>>(() => {
     const init: Record<string, string[]> = {};
-    for (const team of ["한성_F", "태화_F"] as const) {
+    for (const team of ["한성_F", "태화_F", "현채"] as const) {
       const ctx = `attendance_${team}`;
       init[ctx] = rowOrders[ctx] || [];
     }
@@ -127,6 +148,25 @@ export default function AttendanceTable({
     const record = emp.dailyRecords[key];
     const hasLeave = annualLeaveMap[emp.name]?.[leaveKey];
 
+    if (record?.status) {
+      const status = record.status;
+      return (
+        <td key={dayIndex} className={baseTd}>
+          <div className="flex flex-col items-center gap-1 text-[10px] leading-tight">
+            <span className={`inline-flex min-w-9 justify-center rounded-md border px-1.5 py-0.5 font-extrabold ${getManualStatusClass(status)}`}>
+              {status}
+            </span>
+            {(status === "오전반차" || status === "오후반차") && (
+              <>
+                {record.punchIn && <span className="font-bold tabular-nums text-slate-900">{record.punchIn}</span>}
+                {record.punchOut && <span className="font-medium tabular-nums text-slate-400">{record.punchOut}</span>}
+              </>
+            )}
+          </div>
+        </td>
+      );
+    }
+
     if (isWeekend) {
       if (record && (record.punchIn || record.punchOut)) {
         return (
@@ -149,19 +189,13 @@ export default function AttendanceTable({
       );
     }
 
-    if (record?.status === "결근") {
-      return (
-        <td key={dayIndex} className={baseTd}>
-          <span className="inline-flex min-w-9 justify-center rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-700">결근</span>
-        </td>
-      );
-    }
-
     if (!record || (!record.punchIn && !record.punchOut)) {
       if (isToday || isWeekend) return <td key={dayIndex} className={baseTd} />;
       return (
         <td key={dayIndex} className={baseTd}>
-          <span className="inline-flex min-w-9 justify-center rounded-md border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-700">미타각</span>
+          <span className={`inline-flex min-w-11 justify-center rounded-md border px-1.5 py-0.5 text-[10px] font-extrabold ${issueBadgeClass("missingCheck")}`}>
+            {formatAttendanceIssueLabel("missingCheck")}
+          </span>
         </td>
       );
     }
@@ -174,16 +208,18 @@ export default function AttendanceTable({
       <td key={dayIndex} className={baseTd}>
         <div className="flex flex-col items-center gap-1 text-[10px] leading-tight">
           {late ? (
-            <span className="inline-flex rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-extrabold text-amber-800">
-              지각 {pIn}
+            <span className={`inline-flex rounded-md border px-1.5 py-0.5 font-extrabold ${issueBadgeClass("late")}`}>
+              {formatAttendanceIssueLabel("late", pIn)}
             </span>
           ) : (
             <span className="font-bold tabular-nums text-slate-900">{pIn || ""}</span>
           )}
           {pOut ? (
             <span className="font-medium tabular-nums text-slate-400">{pOut}</span>
-          ) : emp.team === "태화_F" && !isToday ? (
-            <span className="rounded-md border border-orange-200 bg-orange-50 px-1.5 py-0.5 font-extrabold text-orange-700">미체크</span>
+          ) : requiresPunchOut(emp) && !isToday ? (
+            <span className={`rounded-md border px-1.5 py-0.5 font-extrabold ${issueBadgeClass("missingPunchOut")}`}>
+              {formatAttendanceIssueLabel("missingPunchOut")}
+            </span>
           ) : null}
         </div>
       </td>
@@ -193,7 +229,7 @@ export default function AttendanceTable({
   const renderAnomalyBadges = (emp: Employee) => {
     const today2 = new Date();
     today2.setHours(0, 0, 0, 0);
-    let lateCount = 0, uncheckCount = 0, leaveCount = 0, absentCount = 0;
+    let lateCount = 0, missingCheckCount = 0, missingPunchOutCount = 0, leaveCount = 0, absentCount = 0;
 
     weekDates.forEach((wd) => {
       const dow = wd.getDay();
@@ -219,23 +255,36 @@ export default function AttendanceTable({
 
       if (!rec || (!rec.punchIn && !rec.punchOut)) {
         const isToday2 = cellDate.getTime() === today2.getTime();
-        if (!isToday2 && emp.name !== "이형우") uncheckCount++;
+        if (!isToday2 && emp.name !== "이형우") missingCheckCount++;
         return;
       }
       if (rec?.punchIn && isLate(rec.punchIn) && emp.name !== "이형우") lateCount++;
       const isToday = cellDate.getTime() === today2.getTime();
-      if (!isToday && rec?.punchIn && !rec.punchOut && emp.team !== "한성_F") uncheckCount++;
+      if (!isToday && rec?.punchIn && !rec.punchOut && requiresPunchOut(emp)) missingPunchOutCount++;
     });
 
-    if (lateCount === 0 && uncheckCount === 0 && leaveCount === 0 && absentCount === 0) {
+    if (lateCount === 0 && missingCheckCount === 0 && missingPunchOutCount === 0 && leaveCount === 0 && absentCount === 0) {
       return <span className="inline-flex rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold text-emerald-700">정상</span>;
     }
 
     return (
       <div className="flex flex-wrap justify-center gap-1">
         {absentCount > 0 && <span className="rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-700">결근 {absentCount}</span>}
-        {lateCount   > 0 && <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-800">지각 {lateCount}</span>}
-        {uncheckCount > 0 && <span className="rounded-md border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-700">미타각 {uncheckCount}</span>}
+        {lateCount > 0 && (
+          <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-extrabold ${summaryIssueBadgeClass("late")}`}>
+            {formatAttendanceIssueLabel("late", lateCount)}
+          </span>
+        )}
+        {missingCheckCount > 0 && (
+          <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-extrabold ${summaryIssueBadgeClass("missingCheck")}`}>
+            {formatAttendanceIssueLabel("missingCheck", missingCheckCount)}
+          </span>
+        )}
+        {missingPunchOutCount > 0 && (
+          <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-extrabold ${summaryIssueBadgeClass("missingPunchOut")}`}>
+            {formatAttendanceIssueLabel("missingPunchOut", missingPunchOutCount)}
+          </span>
+        )}
         {leaveCount  > 0 && <span className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-extrabold text-blue-700">연차 {leaveCount}</span>}
       </div>
     );
@@ -253,10 +302,11 @@ export default function AttendanceTable({
     return idx === -1 ? JOB_ORDER.length : idx;
   }
 
-  const teamOrder: ("한성_F" | "태화_F")[] = ["한성_F", "태화_F"];
+  const teamOrder: Employee["team"][] = ["한성_F", "태화_F", "현채"];
   const teamMeta = {
     "한성_F": { accent: "bg-slate-900", label: "한성크린텍", sub: "관리자 (F)" },
     "태화_F": { accent: "bg-sky-600", label: "태화", sub: "협력사 관리자 (F)" },
+    "현채": { accent: "bg-emerald-600", label: "현채", sub: "현장 채용 인원" },
   };
 
   return (
