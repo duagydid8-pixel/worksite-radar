@@ -17,6 +17,28 @@ const COL = "attendance";
 const COL_META = "upload_meta";
 const COL_ORDER = "row_order";
 const TIMEOUT_MS = 30_000;
+type AttendanceMainDoc = Partial<Pick<ParsedData, "dataYear" | "dataMonth" | "employees" | "anomalies">>;
+type AttendanceLeaveDoc = Partial<Pick<ParsedData, "annualLeaveMap" | "leaveEmployees" | "leaveDetails">>;
+
+export function removeUndefinedFields(value: unknown): unknown {
+  if (value === undefined) return undefined;
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => removeUndefinedFields(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([key, entry]) => [key, removeUndefinedFields(entry)] as const)
+        .filter(([, entry]) => entry !== undefined)
+    );
+  }
+
+  return value;
+}
 
 /** Promise에 타임아웃을 걸어 무한 대기 방지 */
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -37,25 +59,25 @@ export async function saveAttendanceFS(data: ParsedData, fileName: string): Prom
 
   // 문서1: 근태 + 이상 데이터 (직원 dailyRecords 포함)
   await withTimeout(
-    setDoc(doc(db, COL, `${base}_main`), {
+    setDoc(doc(db, COL, `${base}_main`), removeUndefinedFields({
       dataYear: data.dataYear,
       dataMonth: data.dataMonth,
       fileName,
       uploadedAt,
       employees: data.employees,
       anomalies: data.anomalies,
-    }),
+    }) as Record<string, unknown>),
     TIMEOUT_MS,
     "근태 데이터 저장"
   );
 
   // 문서2: 연차 관련 데이터
   await withTimeout(
-    setDoc(doc(db, COL, `${base}_leave`), {
+    setDoc(doc(db, COL, `${base}_leave`), removeUndefinedFields({
       annualLeaveMap: data.annualLeaveMap,
       leaveEmployees: data.leaveEmployees,
       leaveDetails: data.leaveDetails,
-    }),
+    }) as Record<string, unknown>),
     TIMEOUT_MS,
     "연차 데이터 저장"
   );
@@ -98,8 +120,8 @@ export async function fetchAttendanceFS(): Promise<{ data: ParsedData; uploadedA
 
     if (!mainSnap.exists()) return null;
 
-    const main = mainSnap.data() as any;
-    const leave = leaveSnap.exists() ? (leaveSnap.data() as any) : {};
+    const main = mainSnap.data() as AttendanceMainDoc;
+    const leave: AttendanceLeaveDoc = leaveSnap.exists() ? (leaveSnap.data() as AttendanceLeaveDoc) : {};
 
     return {
       data: {
