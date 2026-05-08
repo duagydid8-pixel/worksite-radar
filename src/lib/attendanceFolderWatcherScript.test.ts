@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { classifyAttendanceFile, selectSourceFiles } from "../../scripts/attendance-folder-watcher.mjs";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { classifyAttendanceFile, scanWatchDir, selectSourceFiles } from "../../scripts/attendance-folder-watcher.mjs";
 
 describe("attendance folder watcher file selection", () => {
   it("classifies fingerprint and XERP Excel files", () => {
@@ -23,5 +26,30 @@ describe("attendance folder watcher file selection", () => {
     expect(selected.xerp?.name).toBe("new XERP기록.xlsx");
     expect(selected.roster?.name).toBe("new 명단.xlsx");
     expect(selected.ready).toBe(true);
+  });
+
+  it("classifies monthly files by their parent folder names", () => {
+    expect(classifyAttendanceFile("5월.xlsx", "C:\\근태\\지문기록\\5월.xlsx")).toBe("fingerprint");
+    expect(classifyAttendanceFile("4월.xlsx", "C:\\근태\\XERP기록\\4월.xlsx")).toBe("xerp");
+  });
+
+  it("scans nested fingerprint and XERP folders", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "attendance-watch-"));
+    try {
+      await mkdir(path.join(dir, "지문기록"));
+      await mkdir(path.join(dir, "XERP기록"));
+      await writeFile(path.join(dir, "근태 명단.xlsx"), "");
+      await writeFile(path.join(dir, "지문기록", "5월.xlsx"), "");
+      await writeFile(path.join(dir, "XERP기록", "4월.xlsx"), "");
+
+      const status = await scanWatchDir(dir);
+
+      expect(status.ready).toBe(true);
+      expect(status.fingerprint?.fullPath).toContain("지문기록");
+      expect(status.xerp?.fullPath).toContain("XERP기록");
+      expect(status.roster?.name).toBe("근태 명단.xlsx");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

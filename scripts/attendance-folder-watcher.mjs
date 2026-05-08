@@ -9,20 +9,23 @@ export const DEFAULT_PORT = 8787;
 
 const EXCEL_EXTENSIONS = new Set([".xlsx", ".xls"]);
 
-export function classifyAttendanceFile(fileName) {
+export function classifyAttendanceFile(fileName, filePath = fileName) {
   const lowerName = fileName.toLowerCase();
+  const lowerPath = filePath.toLowerCase();
+  const searchText = `${fileName} ${filePath}`;
+  const lowerSearchText = searchText.toLowerCase();
   if (fileName.startsWith("~$")) return null;
   if (!EXCEL_EXTENSIONS.has(path.extname(lowerName))) return null;
-  if (fileName.includes("명단") || lowerName.includes("roster")) return "roster";
-  if (fileName.includes("지문")) return "fingerprint";
-  if (lowerName.includes("xerp")) return "xerp";
+  if (searchText.includes("명단") || lowerPath.includes("roster")) return "roster";
+  if (searchText.includes("지문")) return "fingerprint";
+  if (lowerSearchText.includes("xerp")) return "xerp";
   return null;
 }
 
 export function selectSourceFiles(candidates) {
   const selected = { fingerprint: null, xerp: null, roster: null };
   for (const candidate of candidates) {
-    const kind = classifyAttendanceFile(candidate.name);
+    const kind = classifyAttendanceFile(candidate.name, candidate.fullPath);
     if (!kind) continue;
     if (!selected[kind] || candidate.mtimeMs > selected[kind].mtimeMs) {
       selected[kind] = candidate;
@@ -63,15 +66,26 @@ function versionFor(selection) {
   ].join("|");
 }
 
-async function scanWatchDir(watchDir) {
-  const entries = await readdir(watchDir);
+async function collectExcelCandidates(dir) {
+  const entries = await readdir(dir);
   const candidates = [];
   for (const name of entries) {
-    const fullPath = path.join(watchDir, name);
+    const fullPath = path.join(dir, name);
     const info = await stat(fullPath);
+    if (info.isDirectory()) {
+      candidates.push(...await collectExcelCandidates(fullPath));
+      continue;
+    }
     if (!info.isFile()) continue;
+    if (name.startsWith("~$")) continue;
+    if (!EXCEL_EXTENSIONS.has(path.extname(name.toLowerCase()))) continue;
     candidates.push({ name, fullPath, mtimeMs: info.mtimeMs, size: info.size });
   }
+  return candidates;
+}
+
+export async function scanWatchDir(watchDir) {
+  const candidates = await collectExcelCandidates(watchDir);
   const selection = selectSourceFiles(candidates);
   return {
     ready: selection.ready,
