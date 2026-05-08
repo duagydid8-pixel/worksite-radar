@@ -1,5 +1,14 @@
 import * as XLSX from "xlsx";
 import { parseAnnualLeaveWorkbookFromWorkbook } from "./annualLeaveWorkbook";
+type SheetCell = string | number | boolean | null | undefined;
+type SheetRow = SheetCell[];
+function excelSerialToUtcDate(serial: number): Date {
+  return new Date(Math.round((serial - 25569) * 86400 * 1000));
+}
+function normalizeExcelTimeSerial(serial: number): number {
+  const fractional = serial % 1;
+  return fractional >= 0 ? fractional : fractional + 1;
+}
 
 export interface Employee {
   team: "한성_F" | "태화_F" | "현채";
@@ -52,7 +61,7 @@ export interface ParsedData {
   leaveDetails: LeaveDetail[];
 }
 
-function extractTime(val: any): string | null {
+function extractTime(val: unknown): string | null {
   if (val === undefined || val === null || val === "") return null;
   const s = String(val).trim();
   if (!s) return null;
@@ -62,8 +71,9 @@ function extractTime(val: any): string | null {
   // "HH:MM"
   if (/^\d{1,2}:\d{2}$/.test(s)) return s;
   // Excel serial time
-  if (typeof val === "number" && val < 1) {
-    const totalMin = Math.round(val * 24 * 60);
+  if (typeof val === "number") {
+    const timeOnly = normalizeExcelTimeSerial(val);
+    const totalMin = Math.round(timeOnly * 24 * 60);
     const h = Math.floor(totalMin / 60);
     const m = totalMin % 60;
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
@@ -71,7 +81,7 @@ function extractTime(val: any): string | null {
   return null;
 }
 
-function excelTimeToString(val: any): string | null {
+function excelTimeToString(val: unknown): string | null {
   if (val === undefined || val === null || val === "") return null;
   if (typeof val === "string") {
     const trimmed = val.trim();
@@ -80,7 +90,8 @@ function excelTimeToString(val: any): string | null {
     return trimmed;
   }
   if (typeof val === "number") {
-    const totalMinutes = Math.round(val * 24 * 60);
+    const timeOnly = normalizeExcelTimeSerial(val);
+    const totalMinutes = Math.round(timeOnly * 24 * 60);
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
     return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
@@ -103,6 +114,7 @@ function pickLatestSheet(wb: XLSX.WorkBook, keyword: string, exclude?: string): 
 
 export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   const wb = XLSX.read(buffer, { type: "array" });
+  const now = new Date();
 
   // === 1. Parse 한성 sheet (name list + job titles) ===
   let hSheetName = pickLatestSheet(wb, "P4한성", "누계");
@@ -110,7 +122,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
 
   const hanseongNames = new Map<string, { jobTitle: string; rank: string }>(); // name -> {jobTitle, rank}
   if (hSheetName) {
-    const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[hSheetName], { header: 1, defval: "" });
+    const rows = XLSX.utils.sheet_to_json<SheetRow>(wb.Sheets[hSheetName], { header: 1, defval: "" });
     for (let i = 3; i < rows.length; i++) {
       const r = rows[i];
       const name = String(r[1] || "").trim();
@@ -125,7 +137,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   const annualLeaveMap: Record<string, Record<string, boolean>> = {};
   const alSheet = wb.Sheets["연차"];
   if (alSheet) {
-    const rows: any[][] = XLSX.utils.sheet_to_json(alSheet, { header: 1, defval: "" });
+    const rows = XLSX.utils.sheet_to_json<SheetRow>(alSheet, { header: 1, defval: "" });
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
       const name = String(r[3] || "").trim();
@@ -133,12 +145,12 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       const dateVal = r[4];
       let y: number, m: number, d: number;
       if (typeof dateVal === "number") {
-        const dt = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+        const dt = excelSerialToUtcDate(dateVal);
         y = dt.getUTCFullYear();
         m = dt.getUTCMonth() + 1;
         d = dt.getUTCDate();
       } else if (typeof dateVal === "string") {
-        const match = dateVal.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+        const match = dateVal.match(/(\d{4})[.\-/년](\d{1,2})[.\-/월](\d{1,2})/);
         if (!match) continue;
         y = parseInt(match[1]);
         m = parseInt(match[2]);
@@ -156,7 +168,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   const hanseongEmployees: Employee[] = [];
   const fingerSheet = wb.Sheets["지문 기록"];
   if (fingerSheet) {
-    const rows: any[][] = XLSX.utils.sheet_to_json(fingerSheet, { header: 1, defval: "" });
+    const rows = XLSX.utils.sheet_to_json<SheetRow>(fingerSheet, { header: 1, defval: "" });
     // Group by name, aggregate daily records
     const empMap = new Map<string, Employee>();
 
@@ -220,13 +232,13 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   // === 4. Parse XERP 기록 sheet (한성_F + 태화_F) ===
   const xerpHanseongEmployees: Employee[] = [];
   const taehwaEmployees: Employee[] = [];
-  let dataYear = 2026;
-  let dataMonth = 3;
+  let dataYear = now.getFullYear();
+  let dataMonth = now.getMonth() + 1;
   const xerpHanseongNames = new Set<string>(); // track 한성_F names from XERP
 
   const xerpSheet = wb.Sheets["XERP 기록"];
   if (xerpSheet) {
-    const xerpData: any[][] = XLSX.utils.sheet_to_json(xerpSheet, { header: 1, defval: "" });
+    const xerpData = XLSX.utils.sheet_to_json<SheetRow>(xerpSheet, { header: 1, defval: "" });
 
     for (let r = 2; r < xerpData.length; r++) {
       const row = xerpData[r];
@@ -244,11 +256,11 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
       let empMonth = dataMonth;
       const dateVal = row[0];
       if (typeof dateVal === "number") {
-        const utc = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+        const utc = excelSerialToUtcDate(dateVal);
         empYear = utc.getUTCFullYear();
         empMonth = utc.getUTCMonth() + 1;
       } else if (typeof dateVal === "string") {
-        const match = String(dateVal).match(/(\d{4})-(\d{1,2})/);
+        const match = String(dateVal).match(/(\d{4})[.\-/년](\d{1,2})/);
         if (match) {
           empYear = parseInt(match[1]);
           empMonth = parseInt(match[2]);
@@ -344,7 +356,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
   const anomalies: AnomalyRecord[] = [];
   const cSheetName = pickLatestSheet(wb, "협력사");
   if (cSheetName) {
-    const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[cSheetName], { header: 1, defval: "" });
+    const rows = XLSX.utils.sheet_to_json<SheetRow>(wb.Sheets[cSheetName], { header: 1, defval: "" });
     for (let i = 3; i < rows.length; i++) {
       const r = rows[i];
       const name = String(r[2] || "").trim();

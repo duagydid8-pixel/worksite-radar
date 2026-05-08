@@ -17,6 +17,10 @@ const COL = "attendance";
 const COL_META = "upload_meta";
 const COL_ORDER = "row_order";
 const TIMEOUT_MS = 30_000;
+interface AttendanceMetaDoc {
+  base: string;
+  uploadedAt: string;
+}
 type AttendanceMainDoc = Partial<Pick<ParsedData, "dataYear" | "dataMonth" | "employees" | "anomalies">>;
 type AttendanceLeaveDoc = Partial<Pick<ParsedData, "annualLeaveMap" | "leaveEmployees" | "leaveDetails">>;
 
@@ -107,7 +111,7 @@ export async function fetchAttendanceFS(): Promise<{ data: ParsedData; uploadedA
     );
     if (!metaSnap.exists()) return null;
 
-    const meta = metaSnap.data() as { base: string; uploadedAt: string };
+    const meta = metaSnap.data() as AttendanceMetaDoc;
 
     const [mainSnap, leaveSnap] = await withTimeout(
       Promise.all([

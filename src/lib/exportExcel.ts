@@ -1,5 +1,7 @@
 import * as XLSX from "xlsx";
 import type { Employee, LeaveEmployee, LeaveDetail, AnomalyRecord } from "./parseExcel";
+type SheetCell = string | number | null;
+type SheetRow = SheetCell[];
 
 const DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -137,8 +139,7 @@ function buildMonthlySheet(
   const totalCols = dayStartCol + daysInMonth * 2 + 3; // +3: 빈칸2 + 비고1
   const bigoCol = dayStartCol + daysInMonth * 2 + 2;
 
-  type MonthlyCell = string | number | null;
-  const makeRow = (len = totalCols): MonthlyCell[] => new Array(len).fill(null);
+  const makeRow = (len = totalCols): SheetRow => new Array(len).fill(null);
 
   // Row 1: 제목
   const row1 = makeRow(80);
@@ -177,7 +178,7 @@ function buildMonthlySheet(
     row4[dayStartCol + (d - 1) * 2 + 1] = "퇴\n근";
   }
 
-  const aoa: MonthlyCell[][] = [row1, row2, row3, row4];
+  const aoa: SheetRow[] = [row1, row2, row3, row4];
 
   employees.forEach((emp, idx) => {
     const anomaly = anomalyMap.get(emp.name);
