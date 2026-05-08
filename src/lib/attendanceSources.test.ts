@@ -44,6 +44,29 @@ describe("parseAttendanceSourceFiles", () => {
     ]);
   });
 
+  it("parses the current roster shape with 현장명, 성명, 직종, and 직급 columns", () => {
+    const roster = writeWorkbook({
+      "태화&현채": [
+        ["NO", "현장명", "성명", "직종", "직급"],
+        ["", "", "", "", ""],
+        [1, "태화", "신향모", "공사", "수석"],
+        [8, "현채", "소영성", "설계", "책임"],
+      ],
+      "한성 직원": [
+        ["", "", "", "", ""],
+        ["NO", "현장명", "성명", "직종", "구분"],
+        ["", "", "", "", ""],
+        [1, "한성", "서재근", "소장", "수석"],
+      ],
+    });
+
+    expect(parseAttendanceRosterFile(roster)).toEqual([
+      { team: "태화_F", name: "신향모", jobTitle: "공사", rank: "수석" },
+      { team: "현채", name: "소영성", jobTitle: "설계", rank: "책임" },
+      { team: "한성_F", name: "서재근", jobTitle: "소장", rank: "수석" },
+    ]);
+  });
+
   it("uses 현채명단 sheet name as separate 현채 roster employees", () => {
     const roster = writeWorkbook({
       "현채명단": [

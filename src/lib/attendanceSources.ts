@@ -123,15 +123,15 @@ function addRosterEmployee(
   roster.set(key, employee);
 }
 
-function parseHeaderRosterRows(sheetName: string, rows: SheetRow[], roster: Map<string, AttendanceRosterEmployee>): void {
+function parseHeaderRosterRows(sheetName: string, rows: SheetRow[], roster: Map<string, AttendanceRosterEmployee>): boolean {
   for (let headerRow = 0; headerRow < Math.min(rows.length, 10); headerRow++) {
     const headers = rows[headerRow].map(normalizeHeader);
     const nameIndex = findHeaderIndex(headers, ["이름", "성명", "직원명", "사원명", "name"]);
     if (nameIndex === -1) continue;
 
-    const teamIndex = findHeaderIndex(headers, ["팀", "소속", "구분", "team"]);
+    const teamIndex = findHeaderIndex(headers, ["팀", "소속", "현장명", "현장", "회사", "구분", "team"]);
     const jobTitleIndex = findHeaderIndex(headers, ["직책", "직종", "직무", "직위", "job"]);
-    const rankIndex = findHeaderIndex(headers, ["직급", "rank"]);
+    const rankIndex = findHeaderIndex(headers, ["직급", "구분", "rank"]);
     const sourceIndex = findHeaderIndex(headers, ["근태방식", "관리방식", "source"]);
 
     for (let i = headerRow + 1; i < rows.length; i++) {
@@ -149,8 +149,9 @@ function parseHeaderRosterRows(sheetName: string, rows: SheetRow[], roster: Map<
         ...(attendanceSource ? { attendanceSource } : {}),
       });
     }
-    return;
+    return true;
   }
+  return false;
 }
 
 function parseKnownRosterRows(sheetName: string, rows: SheetRow[], roster: Map<string, AttendanceRosterEmployee>): void {
@@ -185,8 +186,10 @@ function parseKnownRosterRows(sheetName: string, rows: SheetRow[], roster: Map<s
 export function parseAttendanceRosterFile(buffer: ArrayBuffer): AttendanceRosterEmployee[] {
   const roster = new Map<string, AttendanceRosterEmployee>();
   for (const { sheetName, rows } of getWorkbookRows(buffer)) {
-    parseHeaderRosterRows(sheetName, rows, roster);
-    parseKnownRosterRows(sheetName, rows, roster);
+    const parsedByHeader = parseHeaderRosterRows(sheetName, rows, roster);
+    if (!parsedByHeader) {
+      parseKnownRosterRows(sheetName, rows, roster);
+    }
   }
   return [...roster.values()];
 }
