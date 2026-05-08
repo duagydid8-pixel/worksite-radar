@@ -405,7 +405,12 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     annualLeaveMap[detail.name][key] = true;
   }
 
-  for (const name of fingerOnlyNames) {
+  const annualLeaveExcludedNames = new Set([
+    ...fingerOnlyNames,
+    ...employees.filter((employee) => employee.team === "한성_F").map((employee) => employee.name),
+  ]);
+
+  for (const name of annualLeaveExcludedNames) {
     delete annualLeaveMap[name];
   }
 
@@ -415,7 +420,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     annualLeaveMap,
     dataMonth,
     dataYear,
-    leaveEmployees: leaveEmployees.filter((emp) => !fingerOnlyNames.has(emp.name)),
-    leaveDetails: leaveDetails.filter((detail) => !fingerOnlyNames.has(detail.name)),
+    leaveEmployees: leaveEmployees.filter((emp) => !annualLeaveExcludedNames.has(emp.name)),
+    leaveDetails: leaveDetails.filter((detail) => !annualLeaveExcludedNames.has(detail.name)),
   };
 }

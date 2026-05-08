@@ -155,27 +155,51 @@ export function parseAnnualLeaveWorkbook(buffer: ArrayBuffer, defaultYear = new 
   return parseAnnualLeaveWorkbookFromWorkbook(XLSX.read(buffer, { type: "array" }), defaultYear);
 }
 
-export function mergeAnnualLeaveData(data: ParsedData, leaveData: AnnualLeaveWorkbookData): ParsedData {
+function normalizeName(name: string): string {
+  return name.replace(/\s+/g, "").trim();
+}
+
+export function filterAnnualLeaveData(
+  leaveData: AnnualLeaveWorkbookData,
+  excludedNames: Set<string> = new Set()
+): AnnualLeaveWorkbookData {
+  const normalizedExcludedNames = new Set([...excludedNames].map(normalizeName));
+  const keepName = (name: string) => !normalizedExcludedNames.has(normalizeName(name));
+  return {
+    annualLeaveMap: Object.fromEntries(
+      Object.entries(leaveData.annualLeaveMap).filter(([name]) => keepName(name))
+    ),
+    leaveEmployees: leaveData.leaveEmployees.filter((employee) => keepName(employee.name)),
+    leaveDetails: leaveData.leaveDetails.filter((detail) => keepName(detail.name)),
+  };
+}
+
+export function mergeAnnualLeaveData(
+  data: ParsedData,
+  leaveData: AnnualLeaveWorkbookData,
+  excludedNames: Set<string> = new Set()
+): ParsedData {
+  const filteredLeaveData = filterAnnualLeaveData(leaveData, excludedNames);
   const namesToReplace = new Set([
     ...data.leaveEmployees.map((employee) => employee.name),
     ...data.leaveDetails.map((detail) => detail.name),
-    ...leaveData.leaveEmployees.map((employee) => employee.name),
-    ...leaveData.leaveDetails.map((detail) => detail.name),
-    ...Object.keys(leaveData.annualLeaveMap),
+    ...filteredLeaveData.leaveEmployees.map((employee) => employee.name),
+    ...filteredLeaveData.leaveDetails.map((detail) => detail.name),
+    ...Object.keys(filteredLeaveData.annualLeaveMap),
   ]);
 
   const annualLeaveMap: ParsedData["annualLeaveMap"] = {};
   for (const [name, dates] of Object.entries(data.annualLeaveMap)) {
     if (!namesToReplace.has(name)) annualLeaveMap[name] = { ...dates };
   }
-  for (const [name, dates] of Object.entries(leaveData.annualLeaveMap)) {
+  for (const [name, dates] of Object.entries(filteredLeaveData.annualLeaveMap)) {
     annualLeaveMap[name] = { ...dates };
   }
 
   return {
     ...data,
     annualLeaveMap,
-    leaveEmployees: leaveData.leaveEmployees,
-    leaveDetails: leaveData.leaveDetails,
+    leaveEmployees: filteredLeaveData.leaveEmployees,
+    leaveDetails: filteredLeaveData.leaveDetails,
   };
 }

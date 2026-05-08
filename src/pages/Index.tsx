@@ -1,22 +1,10 @@
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { lazy, Suspense, useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import FileUploadZone from "@/components/FileUploadZone";
 import StatCard from "@/components/StatCard";
 import AttendanceTable from "@/components/AttendanceTable";
-import AnnualLeavePanel from "@/components/AnnualLeavePanel";
-import NewEmployeeList from "@/components/NewEmployeeList";
-import XerpPmisTable from "@/components/XerpPmisTable";
-import XerpWorkReflection from "@/components/XerpWorkReflection";
-import { WeeklySchedule } from "@/components/WeeklySchedule";
-import PdfSplitter from "@/components/tabs/PdfSplitter";
-import ExpenseReportTab from "@/components/ExpenseReport";
-import HeadOfficeMailRequest from "@/components/HeadOfficeMailRequest";
 import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOfficeMail";
 import { formatUploadTime, formatWeekRange, getLocalDateKey, getMonday, isLate } from "@/lib/attendanceDateUtils";
-import {
-  parseAttendanceRosterFile,
-  parseAttendanceSourceFiles,
-  type AttendanceRosterEmployee,
-} from "@/lib/attendanceSources";
+import type { AttendanceRosterEmployee } from "@/lib/attendanceSources";
 import { getVisibleAttendanceEmployees } from "@/lib/attendanceVisibility";
 import {
   applyManualAttendanceOverrides,
@@ -29,19 +17,34 @@ import {
   fetchLocalAttendanceWatchStatus,
   shouldApplyLocalWatchVersion,
 } from "@/lib/localAttendanceWatchClient";
-import { mergeAnnualLeaveData, parseAnnualLeaveWorkbook } from "@/lib/annualLeaveWorkbook";
-import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
+import type { ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
 import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw } from "lucide-react";
-import { exportMonthlyExcel } from "@/lib/exportExcel";
-import OrgChart from "@/components/OrgChart";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
-import HomePage from "@/components/HomePage";
-import PayrollPage from "@/components/PayrollPage";
-import AdditionalWorkScanPage from "@/components/AdditionalWorkScanPage";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
+
+const LazyHomePage = lazy(() => import("@/components/HomePage"));
+const LazyNewEmployeeList = lazy(() => import("@/components/NewEmployeeList"));
+const LazyAnnualLeavePanel = lazy(() => import("@/components/AnnualLeavePanel"));
+const LazyXerpPmisTable = lazy(() => import("@/components/XerpPmisTable"));
+const LazyXerpWorkReflection = lazy(() => import("@/components/XerpWorkReflection"));
+const LazyWeeklySchedule = lazy(() => import("@/components/WeeklySchedule").then((module) => ({ default: module.WeeklySchedule })));
+const LazyPdfSplitter = lazy(() => import("@/components/tabs/PdfSplitter"));
+const LazyExpenseReportTab = lazy(() => import("@/components/ExpenseReport"));
+const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMailRequest"));
+const LazyOrgChart = lazy(() => import("@/components/OrgChart"));
+const LazyPayrollPage = lazy(() => import("@/components/PayrollPage"));
+const LazyAdditionalWorkScanPage = lazy(() => import("@/components/AdditionalWorkScanPage"));
+
+function LazyPanel({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<div className="p-6 text-center text-sm font-bold text-slate-400">불러오는 중...</div>}>
+      {children}
+    </Suspense>
+  );
+}
 
 function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
   const [xerpSite, setXerpSite] = useState<"PH4" | "PH2">("PH4");
@@ -63,7 +66,9 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
           </button>
         ))}
       </div>
-      <XerpPmisTable isAdmin={isAdmin} site={xerpSite} key={xerpSite} />
+      <LazyPanel>
+        <LazyXerpPmisTable isAdmin={isAdmin} site={xerpSite} key={xerpSite} />
+      </LazyPanel>
     </div>
   );
 }
@@ -208,6 +213,39 @@ function createEmptyAttendanceData(year: number, month: number): ParsedData {
   };
 }
 
+function normalizeEmployeeName(name: string): string {
+  return name.replace(/\s+/g, "").trim();
+}
+
+function getHanseongLeaveExcludedNames(data: ParsedData, roster: AttendanceRosterEmployee[]): Set<string> {
+  const names = new Set<string>();
+  for (const employee of roster) {
+    if (employee.team === "한성_F") names.add(employee.name);
+  }
+  for (const employee of data.employees) {
+    if (employee.team === "한성_F") names.add(employee.name);
+  }
+  return names;
+}
+
+function removeAnnualLeaveForNames(data: ParsedData, excludedNames: Set<string>): ParsedData {
+  if (excludedNames.size === 0) return data;
+  const normalizedExcludedNames = new Set([...excludedNames].map(normalizeEmployeeName));
+  const keepName = (name: string) => !normalizedExcludedNames.has(normalizeEmployeeName(name));
+  return {
+    ...data,
+    annualLeaveMap: Object.fromEntries(
+      Object.entries(data.annualLeaveMap).filter(([name]) => keepName(name))
+    ),
+    leaveEmployees: data.leaveEmployees.filter((employee) => keepName(employee.name)),
+    leaveDetails: data.leaveDetails.filter((detail) => keepName(detail.name)),
+  };
+}
+
+function applyAttendancePresentationRules(data: ParsedData, roster: AttendanceRosterEmployee[]): ParsedData {
+  return removeAnnualLeaveForNames(data, getHanseongLeaveExcludedNames(data, roster));
+}
+
 const Index = () => {
   const topbarRef = useRef<HTMLElement | null>(null);
   const adminTodoShownRef = useRef(false);
@@ -322,7 +360,11 @@ const Index = () => {
           ...ROW_ORDER_CONTEXTS.map((ctx) => fetchRowOrderFS(ctx).then((names) => ({ ctx, names }))),
         ]);
         if (result) {
-          setData(applyManualAttendanceOverrides(result.data, readManualAttendanceOverrides(), readAttendanceRoster()));
+          const roster = readAttendanceRoster();
+          setData(applyAttendancePresentationRules(
+            applyManualAttendanceOverrides(result.data, readManualAttendanceOverrides(), roster),
+            roster
+          ));
           setLastUploadedAt(result.uploadedAt);
         }
         const orderMap: Record<string, string[]> = {};
@@ -353,9 +395,13 @@ const Index = () => {
     }),
   [monday]);
 
-  const handleFileLoaded = useCallback((buffer: ArrayBuffer) => {
+  const handleFileLoaded = useCallback(async (buffer: ArrayBuffer) => {
     try {
-      const parsed = applyManualAttendanceOverrides(parseExcelFile(buffer), manualAttendanceOverrides, attendanceRoster);
+      const { parseExcelFile } = await import("@/lib/parseExcel");
+      const parsed = applyAttendancePresentationRules(
+        applyManualAttendanceOverrides(parseExcelFile(buffer), manualAttendanceOverrides, attendanceRoster),
+        attendanceRoster
+      );
       setData(parsed);
       setPendingBuffer(buffer);
       toast.success(`${parsed.employees.length}명의 데이터를 불러왔습니다. "업로드 & 저장" 버튼을 눌러 저장하세요.`);
@@ -364,8 +410,9 @@ const Index = () => {
     }
   }, [attendanceRoster, manualAttendanceOverrides]);
 
-  const handleRosterFileLoaded = useCallback((buffer: ArrayBuffer) => {
+  const handleRosterFileLoaded = useCallback(async (buffer: ArrayBuffer) => {
     try {
+      const { parseAttendanceRosterFile } = await import("@/lib/attendanceSources");
       const roster = parseAttendanceRosterFile(buffer);
       if (roster.length === 0) {
         setRosterFileName(null);
@@ -376,7 +423,10 @@ const Index = () => {
       setAttendanceRoster(roster);
       localStorage.setItem(ATTENDANCE_ROSTER_KEY, JSON.stringify(roster));
       localWatchVersionRef.current = null;
-      setData((current) => current ? applyManualAttendanceOverrides(current, manualAttendanceOverrides, roster) : current);
+      setData((current) => current ? applyAttendancePresentationRules(
+        applyManualAttendanceOverrides(current, manualAttendanceOverrides, roster),
+        roster
+      ) : current);
       toast.success(`${roster.length}명의 명단을 저장했습니다.`);
     } catch (err: unknown) {
       setRosterFileName(null);
@@ -422,51 +472,62 @@ const Index = () => {
     toast.success("XERP기록 파일을 불러왔습니다.");
   }, []);
 
-  const handleLeaveFileLoaded = useCallback((buffer: ArrayBuffer) => {
+  const handleLeaveFileLoaded = useCallback(async (buffer: ArrayBuffer) => {
     const selectedYear = Number(selectedDate.slice(0, 4)) || new Date().getFullYear();
     const selectedMonth = Number(selectedDate.slice(5, 7)) || new Date().getMonth() + 1;
     const dataYear = data?.dataYear ?? selectedYear;
     const dataMonth = data?.dataMonth ?? selectedMonth;
 
     try {
+      const { filterAnnualLeaveData, mergeAnnualLeaveData, parseAnnualLeaveWorkbook } = await import("@/lib/annualLeaveWorkbook");
       const leaveData = parseAnnualLeaveWorkbook(buffer, dataYear);
-      if (leaveData.leaveEmployees.length === 0 && leaveData.leaveDetails.length === 0) {
+      const baseForFilter = data ?? createEmptyAttendanceData(dataYear, dataMonth);
+      const excludedNames = getHanseongLeaveExcludedNames(baseForFilter, attendanceRoster);
+      const visibleLeaveData = filterAnnualLeaveData(leaveData, excludedNames);
+      if (visibleLeaveData.leaveEmployees.length === 0 && visibleLeaveData.leaveDetails.length === 0) {
         setLeaveFileName(null);
-        toast.error("연차 파일에서 데이터를 찾지 못했습니다.");
+        toast.error("한성 직원 제외 후 반영할 연차 데이터를 찾지 못했습니다.");
         return;
       }
 
       setData((current) => {
         const base = current ?? createEmptyAttendanceData(dataYear, dataMonth);
-        return applyManualAttendanceOverrides(
-          mergeAnnualLeaveData(base, leaveData),
-          manualAttendanceOverrides,
+        return applyAttendancePresentationRules(
+          applyManualAttendanceOverrides(
+            mergeAnnualLeaveData(base, leaveData, getHanseongLeaveExcludedNames(base, attendanceRoster)),
+            manualAttendanceOverrides,
+            attendanceRoster
+          ),
           attendanceRoster
         );
       });
       setPendingBuffer(null);
-      toast.success(`${leaveData.leaveEmployees.length}명의 연차현황을 반영했습니다.`);
+      toast.success(`${visibleLeaveData.leaveEmployees.length}명의 연차현황을 반영했습니다.`);
     } catch (err: unknown) {
       setLeaveFileName(null);
       toast.error(getErrorMessage(err, "연차 파일 파싱 오류"));
     }
-  }, [attendanceRoster, data?.dataMonth, data?.dataYear, manualAttendanceOverrides, selectedDate]);
+  }, [attendanceRoster, data, manualAttendanceOverrides, selectedDate]);
 
   const handleLeaveFileName = useCallback((name: string) => {
     setLeaveFileName(name);
     setFileName((current) => current ?? name);
   }, []);
 
-  const handleBuildFromSourceFiles = useCallback(() => {
+  const handleBuildFromSourceFiles = useCallback(async () => {
     if (!fingerprintBuffer || !xerpSourceBuffer) {
       toast.error("지문기록과 XERP기록 파일을 모두 업로드하세요.");
       return;
     }
 
     try {
-      const parsed = applyManualAttendanceOverrides(
-        parseAttendanceSourceFiles(fingerprintBuffer, xerpSourceBuffer, attendanceRoster),
-        manualAttendanceOverrides,
+      const { parseAttendanceSourceFiles } = await import("@/lib/attendanceSources");
+      const parsed = applyAttendancePresentationRules(
+        applyManualAttendanceOverrides(
+          parseAttendanceSourceFiles(fingerprintBuffer, xerpSourceBuffer, attendanceRoster),
+          manualAttendanceOverrides,
+          attendanceRoster
+        ),
         attendanceRoster
       );
       setData(parsed);
@@ -482,7 +543,10 @@ const Index = () => {
     if (!data || !fileName) { toast.error("먼저 엑셀 파일을 업로드하세요."); return; }
     setIsSaving(true);
     try {
-      const dataToSave = applyManualAttendanceOverrides(data, manualAttendanceOverrides, attendanceRoster);
+      const dataToSave = applyAttendancePresentationRules(
+        applyManualAttendanceOverrides(data, manualAttendanceOverrides, attendanceRoster),
+        attendanceRoster
+      );
       await saveAttendanceFS(dataToSave, fileName);
       setData(dataToSave);
       setLastUploadedAt(new Date().toISOString());
@@ -507,7 +571,10 @@ const Index = () => {
   const saveManualAttendanceOverrides = useCallback((nextOverrides: ManualAttendanceOverride[]) => {
     setManualAttendanceOverrides(nextOverrides);
     localStorage.setItem(MANUAL_ATTENDANCE_OVERRIDES_KEY, JSON.stringify(nextOverrides));
-    setData((current) => current ? applyManualAttendanceOverrides(current, nextOverrides, attendanceRoster) : current);
+    setData((current) => current ? applyAttendancePresentationRules(
+      applyManualAttendanceOverrides(current, nextOverrides, attendanceRoster),
+      attendanceRoster
+    ) : current);
   }, [attendanceRoster]);
 
   const handleAddManualAttendanceOverride = useCallback((event: React.FormEvent) => {
@@ -573,6 +640,7 @@ const Index = () => {
 
         const nextFingerprintBuffer = decodeBase64ToArrayBuffer(payload.fingerprint.base64);
         const nextXerpBuffer = decodeBase64ToArrayBuffer(payload.xerp.base64);
+        const { parseAttendanceRosterFile, parseAttendanceSourceFiles } = await import("@/lib/attendanceSources");
         let nextRoster = attendanceRoster;
         if (payload.roster?.base64) {
           const nextRosterBuffer = decodeBase64ToArrayBuffer(payload.roster.base64);
@@ -585,9 +653,12 @@ const Index = () => {
             localStorage.setItem(ATTENDANCE_ROSTER_FILE_NAME_KEY, payload.roster.name);
           }
         }
-        const parsed = applyManualAttendanceOverrides(
-          parseAttendanceSourceFiles(nextFingerprintBuffer, nextXerpBuffer, nextRoster),
-          manualAttendanceOverrides,
+        const parsed = applyAttendancePresentationRules(
+          applyManualAttendanceOverrides(
+            parseAttendanceSourceFiles(nextFingerprintBuffer, nextXerpBuffer, nextRoster),
+            manualAttendanceOverrides,
+            nextRoster
+          ),
           nextRoster
         );
 
@@ -668,6 +739,12 @@ const Index = () => {
     for (const a of data.anomalies) map.set(a.name, a);
     return map;
   }, [data]);
+
+  const handleMonthlyExcelDownload = useCallback(async () => {
+    if (!data) return;
+    const { exportMonthlyExcel } = await import("@/lib/exportExcel");
+    exportMonthlyExcel(visibleEmployees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth);
+  }, [anomalyMap, data, visibleEmployees]);
 
   const manualAttendanceEmployeeNames = useMemo(() => {
     const names = new Set<string>();
@@ -1490,13 +1567,17 @@ const Index = () => {
 
           {/* 홈 */}
           {activeTab === "홈" && (
-            <HomePage lastUploadedAt={lastUploadedAt ? formatUploadTime(lastUploadedAt) : null} selectedDate={selectedDate} isAdmin={isAdmin} leaveDetails={data?.leaveDetails ?? []} />
+            <LazyPanel>
+              <LazyHomePage lastUploadedAt={lastUploadedAt ? formatUploadTime(lastUploadedAt) : null} selectedDate={selectedDate} isAdmin={isAdmin} leaveDetails={data?.leaveDetails ?? []} />
+            </LazyPanel>
           )}
 
         {/* 신규자 명단 (관리자 전용) */}
         {activeTab === "신규자명단" && isAdmin && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-            <NewEmployeeList />
+            <LazyPanel>
+              <LazyNewEmployeeList />
+            </LazyPanel>
           </div>
         )}
 
@@ -1675,7 +1756,7 @@ const Index = () => {
                           )}
                         </div>
                         <button
-                          onClick={() => exportMonthlyExcel(visibleEmployees, data.annualLeaveMap, anomalyMap, data.dataYear, data.dataMonth)}
+                          onClick={handleMonthlyExcelDownload}
                           className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-800 shadow-sm transition-colors hover:bg-slate-50"
                         >
                           <Download className="h-4 w-4 text-slate-400" />
@@ -1746,12 +1827,14 @@ const Index = () => {
                   </div>
                 )}
                 {data ? (
-                  <AnnualLeavePanel
-                    leaveEmployees={data.leaveEmployees}
-                    leaveDetails={data.leaveDetails}
-                    rowOrder={rowOrders["leave"] || []}
-                    onOrderChange={handleOrderChange}
-                  />
+                  <LazyPanel>
+                    <LazyAnnualLeavePanel
+                      leaveEmployees={data.leaveEmployees}
+                      leaveDetails={data.leaveDetails}
+                      rowOrder={rowOrders["leave"] || []}
+                      onOrderChange={handleOrderChange}
+                    />
+                  </LazyPanel>
                 ) : (
                   <div className="py-16 text-center">
                     <div className="text-5xl mb-4">⬆️</div>
@@ -1768,14 +1851,18 @@ const Index = () => {
         {/* 조직도 */}
         {activeTab === "조직도" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-            <OrgChart />
+            <LazyPanel>
+              <LazyOrgChart />
+            </LazyPanel>
           </div>
         )}
 
         {/* 주간일정 */}
         {activeTab === "주간일정" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-            <WeeklySchedule />
+            <LazyPanel>
+              <LazyWeeklySchedule />
+            </LazyPanel>
           </div>
         )}
 
@@ -1857,7 +1944,9 @@ const Index = () => {
           {/* XERP 공수 반영 */}
           {activeTab === "XERP공수반영" && (
             <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-              <XerpWorkReflection isAdmin={isAdmin} />
+              <LazyPanel>
+                <LazyXerpWorkReflection isAdmin={isAdmin} />
+              </LazyPanel>
             </div>
           )}
 
@@ -1881,18 +1970,24 @@ const Index = () => {
                   ))}
                 </div>
               </div>
-              <HeadOfficeMailRequest activeMenu={mailSubTab} onMenuChange={setMailSubTab} />
+              <LazyPanel>
+                <LazyHeadOfficeMailRequest activeMenu={mailSubTab} onMenuChange={setMailSubTab} />
+              </LazyPanel>
             </div>
           )}
 
           {/* PDF 분리 도구 */}
           {activeTab === "PDF분리" && isAdmin && (
-            <PdfSplitter />
+            <LazyPanel>
+              <LazyPdfSplitter />
+            </LazyPanel>
           )}
 
           {/* 지출결의서 */}
           {activeTab === "지출결의서" && isAdmin && (
-            <ExpenseReportTab isAdmin={isAdmin} />
+            <LazyPanel>
+              <LazyExpenseReportTab isAdmin={isAdmin} />
+            </LazyPanel>
           )}
 
           {/* 급여대장 */}
@@ -1918,7 +2013,9 @@ const Index = () => {
                   </div>
                 </div>
               </div>
-              {payrollSubTab === "급여대장보정" ? <PayrollPage /> : <AdditionalWorkScanPage />}
+              <LazyPanel>
+                {payrollSubTab === "급여대장보정" ? <LazyPayrollPage /> : <LazyAdditionalWorkScanPage />}
+              </LazyPanel>
             </div>
           )}
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import { mergeAnnualLeaveData, parseAnnualLeaveWorkbook } from "./annualLeaveWorkbook";
+import { filterAnnualLeaveData, mergeAnnualLeaveData, parseAnnualLeaveWorkbook } from "./annualLeaveWorkbook";
 import type { ParsedData } from "./parseExcel";
 
 function sparseRow(values: Record<number, unknown>): unknown[] {
@@ -80,6 +80,35 @@ describe("annual leave workbook", () => {
     expect(result.annualLeaveMap).toEqual({
       보존자: { "2026|5|9": true },
       홍길동: { "2026|5|10": true },
+    });
+  });
+
+  it("excludes separately managed Hanseong employees from annual leave data", () => {
+    const leaveData = {
+      annualLeaveMap: {
+        한성직원: { "2026|5|8": true },
+        현채직원: { "2026|5|9": true },
+      },
+      leaveEmployees: [
+        { name: "한성직원", dept: "한성", hireDate: "2026-01-01", totalUsed: 1, remaining: 9 },
+        { name: "현채직원", dept: "현채", hireDate: "2026-01-01", totalUsed: 2, remaining: 8 },
+      ],
+      leaveDetails: [
+        { year: 2026, month: 5, day: 8, name: "한성직원", days: 1, reason: "별도관리" },
+        { year: 2026, month: 5, day: 9, name: "현채직원", days: 1, reason: "연차" },
+      ],
+    };
+
+    expect(filterAnnualLeaveData(leaveData, new Set(["한성직원"]))).toEqual({
+      annualLeaveMap: {
+        현채직원: { "2026|5|9": true },
+      },
+      leaveEmployees: [
+        { name: "현채직원", dept: "현채", hireDate: "2026-01-01", totalUsed: 2, remaining: 8 },
+      ],
+      leaveDetails: [
+        { year: 2026, month: 5, day: 9, name: "현채직원", days: 1, reason: "연차" },
+      ],
     });
   });
 });

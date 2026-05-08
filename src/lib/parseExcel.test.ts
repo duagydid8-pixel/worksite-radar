@@ -99,8 +99,9 @@ describe("parseExcelFile annual leave visibility", () => {
     expect(parsed.employees.map((employee) => employee.name)).toEqual(
       expect.arrayContaining(["지문자", "엑셀자"]),
     );
-    expect(parsed.leaveEmployees.map((employee) => employee.name)).toEqual(["엑셀자"]);
-    expect(parsed.leaveDetails.map((detail) => detail.name)).toEqual(["엑셀자"]);
+    expect(parsed.leaveEmployees.map((employee) => employee.name)).toEqual([]);
+    expect(parsed.leaveDetails.map((detail) => detail.name)).toEqual([]);
     expect(parsed.annualLeaveMap["지문자"]).toBeUndefined();
+    expect(parsed.annualLeaveMap["엑셀자"]).toBeUndefined();
   });
 });
