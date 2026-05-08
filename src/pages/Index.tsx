@@ -29,6 +29,7 @@ import {
   fetchLocalAttendanceWatchStatus,
   shouldApplyLocalWatchVersion,
 } from "@/lib/localAttendanceWatchClient";
+import { mergeAnnualLeaveData, parseAnnualLeaveWorkbook } from "@/lib/annualLeaveWorkbook";
 import { parseExcelFile, type ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { toast } from "sonner";
@@ -195,6 +196,18 @@ function readAttendanceRoster(): AttendanceRosterEmployee[] {
   }
 }
 
+function createEmptyAttendanceData(year: number, month: number): ParsedData {
+  return {
+    employees: [],
+    anomalies: [],
+    annualLeaveMap: {},
+    dataYear: year,
+    dataMonth: month,
+    leaveEmployees: [],
+    leaveDetails: [],
+  };
+}
+
 const Index = () => {
   const topbarRef = useRef<HTMLElement | null>(null);
   const adminTodoShownRef = useRef(false);
@@ -206,6 +219,7 @@ const Index = () => {
   const [attendanceRoster, setAttendanceRoster] = useState<AttendanceRosterEmployee[]>(() => readAttendanceRoster());
   const [fingerprintFileName, setFingerprintFileName] = useState<string | null>(null);
   const [xerpSourceFileName, setXerpSourceFileName] = useState<string | null>(null);
+  const [leaveFileName, setLeaveFileName] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => {
     const saved = localStorage.getItem("attendance_selected_date");
     if (saved) return saved;
@@ -406,6 +420,41 @@ const Index = () => {
   const handleXerpSourceFileLoaded = useCallback((buffer: ArrayBuffer) => {
     setXerpSourceBuffer(buffer);
     toast.success("XERP기록 파일을 불러왔습니다.");
+  }, []);
+
+  const handleLeaveFileLoaded = useCallback((buffer: ArrayBuffer) => {
+    const selectedYear = Number(selectedDate.slice(0, 4)) || new Date().getFullYear();
+    const selectedMonth = Number(selectedDate.slice(5, 7)) || new Date().getMonth() + 1;
+    const dataYear = data?.dataYear ?? selectedYear;
+    const dataMonth = data?.dataMonth ?? selectedMonth;
+
+    try {
+      const leaveData = parseAnnualLeaveWorkbook(buffer, dataYear);
+      if (leaveData.leaveEmployees.length === 0 && leaveData.leaveDetails.length === 0) {
+        setLeaveFileName(null);
+        toast.error("연차 파일에서 데이터를 찾지 못했습니다.");
+        return;
+      }
+
+      setData((current) => {
+        const base = current ?? createEmptyAttendanceData(dataYear, dataMonth);
+        return applyManualAttendanceOverrides(
+          mergeAnnualLeaveData(base, leaveData),
+          manualAttendanceOverrides,
+          attendanceRoster
+        );
+      });
+      setPendingBuffer(null);
+      toast.success(`${leaveData.leaveEmployees.length}명의 연차현황을 반영했습니다.`);
+    } catch (err: unknown) {
+      setLeaveFileName(null);
+      toast.error(getErrorMessage(err, "연차 파일 파싱 오류"));
+    }
+  }, [attendanceRoster, data?.dataMonth, data?.dataYear, manualAttendanceOverrides, selectedDate]);
+
+  const handleLeaveFileName = useCallback((name: string) => {
+    setLeaveFileName(name);
+    setFileName((current) => current ?? name);
   }, []);
 
   const handleBuildFromSourceFiles = useCallback(() => {
@@ -1673,6 +1722,29 @@ const Index = () => {
               </>
             ) : (
               <div className="space-y-3">
+                {isAdmin && (
+                  <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-end">
+                    <div className="flex-1">
+                      <p className="mb-1 text-[11px] font-extrabold text-slate-400">연차근황</p>
+                      <FileUploadZone
+                        onFileLoaded={handleLeaveFileLoaded}
+                        fileName={leaveFileName}
+                        onClear={() => setLeaveFileName(null)}
+                        onFileName={handleLeaveFileName}
+                      />
+                    </div>
+                    {data && (
+                      <button
+                        onClick={handleSaveToCloud}
+                        disabled={isSaving}
+                        className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 text-sm font-extrabold text-white transition-colors hover:bg-slate-700 disabled:opacity-50"
+                      >
+                        {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+                        {isSaving ? "저장 중..." : "업로드 & 저장"}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {data ? (
                   <AnnualLeavePanel
                     leaveEmployees={data.leaveEmployees}
@@ -1684,7 +1756,7 @@ const Index = () => {
                   <div className="py-16 text-center">
                     <div className="text-5xl mb-4">⬆️</div>
                     <h2 className="text-sm font-semibold text-muted-foreground mb-2">
-                      근태현황에서 Excel 파일을 먼저 업로드하세요
+                      연차근황 Excel 파일을 업로드하세요
                     </h2>
                   </div>
                 )}

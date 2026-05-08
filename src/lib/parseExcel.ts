@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { parseAnnualLeaveWorkbookFromWorkbook } from "./annualLeaveWorkbook";
 
 export interface Employee {
   team: "한성_F" | "태화_F" | "현채";
@@ -393,127 +394,9 @@ export function parseExcelFile(buffer: ArrayBuffer): ParsedData {
     }
   }
 
-  // === 7. Parse 연차_현채직 sheet (직원 목록 + 입사일 + 사용/잔여일수) ===
-  // C열=성명, D열=부서, E열=입사일, Z~AK열=1~12월 사용일수, AL열=총사용일수, AM열=잔여일수
-  const leaveEmployees: LeaveEmployee[] = [];
-  const leaveEmpSheetName = wb.SheetNames.find(s => s.includes("현채직") || s.includes("현재직"));
-  const leaveEmpSheet = leaveEmpSheetName ? wb.Sheets[leaveEmpSheetName] : null;
-  if (leaveEmpSheet) {
-    const rows: any[][] = XLSX.utils.sheet_to_json(leaveEmpSheet, { header: 1, defval: "" });
-    for (let i = 7; i < rows.length; i++) { // 8행부터 (0-indexed: 7)
-      const r = rows[i];
-      const name = String(r[2] || "").trim(); // C열 (index 2)
-      if (!name) continue;
-      const dept = String(r[3] || "").trim(); // D열 (index 3)
-      // E열 (index 4) = 입사일: Excel serial 또는 문자열
-      let hireDate = "";
-      const hireDateVal = r[4];
-      if (typeof hireDateVal === "number" && hireDateVal > 0) {
-        const dt = new Date(Math.round((hireDateVal - 25569) * 86400 * 1000));
-        const y = dt.getUTCFullYear();
-        const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
-        const d = String(dt.getUTCDate()).padStart(2, "0");
-        hireDate = `${y}-${m}-${d}`;
-      } else if (typeof hireDateVal === "string") {
-        const match = hireDateVal.match(/(\d{4})[.\-\/년](\d{1,2})[.\-\/월](\d{1,2})/);
-        if (match) {
-          hireDate = `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
-        }
-      }
-      // AL열 (index 37) = 총사용일수, AM열 (index 38) = 잔여일수
-      const totalUsed = typeof r[37] === "number" ? r[37] : parseFloat(String(r[37])) || 0;
-      const remaining = typeof r[38] === "number" ? r[38] : parseFloat(String(r[38])) || 0;
-      leaveEmployees.push({ name, dept, hireDate, totalUsed, remaining });
-    }
-  }
-
-  // === 8. Parse 연차_상세 sheet (연차 사용 내역) ===
-  const leaveDetails: LeaveDetail[] = [];
-  const leaveDetailSheetName = wb.SheetNames.find(s => s.includes("상세") || s.includes("연차_상세"));
-  const leaveDetailSheet = leaveDetailSheetName ? wb.Sheets[leaveDetailSheetName] : null;
-  if (leaveDetailSheet) {
-    const rows: any[][] = XLSX.utils.sheet_to_json(leaveDetailSheet, { header: 1, defval: "" });
-    let lastName = ""; // 병합 셀 대비: 마지막 이름 유지
-    for (let i = 3; i < rows.length; i++) { // 4행부터 (0-indexed: 3)
-      const r = rows[i];
-
-      // E열 (index 4) = 이름: 병합 셀이면 빈 값이므로 마지막 이름 이어받음
-      const rawName = String(r[4] || "").trim();
-      if (rawName) lastName = rawName;
-      const name = lastName;
-      if (!name) continue;
-
-      // B열 (index 1) = 사용월, C열 (index 2) = 사용일
-      const monthVal = r[1];
-      const dayVal = r[2];
-      let year = dataYear, month = 0, day = 0;
-
-      if (typeof monthVal === "number" && monthVal > 1000) {
-        // Excel 날짜 시리얼: 연·월·일 모두 추출
-        const dt = new Date(Math.round((monthVal - 25569) * 86400 * 1000));
-        year = dt.getUTCFullYear();
-        month = dt.getUTCMonth() + 1;
-        day = dt.getUTCDate();
-      } else if (typeof monthVal === "number" && monthVal >= 1 && monthVal <= 12) {
-        month = monthVal;
-      } else if (typeof monthVal === "string" && monthVal.trim()) {
-        const s = monthVal.trim();
-        // 전체 날짜: "2026-03-03", "2026.03.03", "2026년 3월 3일" 등
-        const fullDate = s.match(/(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})/);
-        if (fullDate) {
-          year = parseInt(fullDate[1]);
-          month = parseInt(fullDate[2]);
-          day = parseInt(fullDate[3]); // B열에서 일까지 추출
-        } else {
-          // 연월: "2026-03", "2026년 3월"
-          const yearMonth = s.match(/(\d{4})[^\d]+(\d{1,2})/);
-          if (yearMonth) { year = parseInt(yearMonth[1]); month = parseInt(yearMonth[2]); }
-          else {
-            // 월만: "3", "3월"
-            const mOnly = s.match(/(\d{1,2})/);
-            if (mOnly) month = parseInt(mOnly[1]);
-          }
-        }
-      }
-
-      // C열: 날짜 시리얼(>31), 일 숫자(1~31), 날짜 문자열 모두 처리
-      if (typeof dayVal === "number") {
-        if (dayVal >= 1 && dayVal <= 31) {
-          day = dayVal;
-        } else if (dayVal > 31) {
-          // Excel 날짜 시리얼 → 일(day) 추출
-          const dt = new Date(Math.round((dayVal - 25569) * 86400 * 1000));
-          year = dt.getUTCFullYear();
-          month = dt.getUTCMonth() + 1;
-          day = dt.getUTCDate();
-        }
-      } else if (typeof dayVal === "string" && dayVal.trim()) {
-        const fullDate = dayVal.match(/(\d{4})[^\d]+(\d{1,2})[^\d]+(\d{1,2})/);
-        if (fullDate) {
-          year = parseInt(fullDate[1]);
-          month = parseInt(fullDate[2]);
-          day = parseInt(fullDate[3]);
-        } else {
-          const parsed = parseInt(dayVal);
-          if (!isNaN(parsed) && parsed >= 1 && parsed <= 31) day = parsed;
-        }
-      }
-
-      if (month < 1 || month > 12 || day < 1 || day > 31) continue;
-
-      const daysRaw = r[5]; // F열 (index 5) = 사용일수
-      const daysUsed = typeof daysRaw === "number" ? daysRaw : parseFloat(String(daysRaw)) || 1;
-      const reason = String(r[6] || "").trim(); // G열 (index 6) = 사유
-
-      leaveDetails.push({ year, month, day, name, days: daysUsed, reason });
-    }
-  }
-  // 날짜순 정렬
-  leaveDetails.sort((a, b) => {
-    if (a.year !== b.year) return a.year - b.year;
-    if (a.month !== b.month) return a.month - b.month;
-    return a.day - b.day;
-  });
+  const parsedLeaveWorkbook = parseAnnualLeaveWorkbookFromWorkbook(wb, dataYear);
+  const leaveEmployees = parsedLeaveWorkbook.leaveEmployees;
+  const leaveDetails = parsedLeaveWorkbook.leaveDetails;
 
   // === 9. 연차_상세 날짜도 annualLeaveMap에 병합 (근태 캘린더 연차 표시) ===
   for (const detail of leaveDetails) {
