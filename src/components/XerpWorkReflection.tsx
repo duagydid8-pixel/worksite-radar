@@ -363,7 +363,7 @@ export function resolveLoadedAdjustment(
   }
 
   if (saved.manualAdjustment && (saved.diff === null || saved.diff === undefined || saved.diff <= 0)) {
-    return { diff: null, needsUpdate: false, 가산사유: "", manualAdjustment: true };
+    return { diff: null, needsUpdate: false, 가산사유: savedReason, manualAdjustment: true };
   }
 
   const diff = saved.diff !== undefined ? saved.diff : calculated.diff;
@@ -762,7 +762,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setRows((prev) => prev.map((r) => {
       if (r.rowIndex !== rowIndex) return r;
       if (isNaN(num) || num <= 0) {
-        return { ...r, diff: null, 가산사유: "", needsUpdate: false, manualAdjustment: true };
+        return { ...r, diff: null, 가산사유: editingReason.trim(), needsUpdate: false, manualAdjustment: true };
       }
       const reason = normalizeGasanReasonParentheses(
         editingReason.trim() || inferGasanReason(r),
@@ -856,6 +856,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           ({ diff, needsUpdate } = calcDiff(calcGongsuVal, xerpGongsuA));
         }
 
+        const sourceReason = String(row[25] ?? "").trim();
+        const storedReason = ["—", "-", "–"].includes(sourceReason.replace(/\s+/g, "")) ? "" : sourceReason;
+        const inferredReason = inferGasanReason({
+          xerpIn: xerpInStr,
+          xerpOut: xerpOutStr,
+          pmisIn: pmisInStr,
+          rawInMin,
+          rawOutMin,
+          isLate,
+          standardStart: cfg.standardStart,
+        });
+
         processed.push({
           rowIndex: i, 팀명, 성명,
           xerpIn: xerpInStr, xerpOut: xerpOutStr,
@@ -863,7 +875,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           rawInMin, rawOutMin, isJochul,
           effIn, effOut, xerpGongsuA,
           calcGongsuVal, diff,
-          가산사유: needsUpdate ? inferGasanReason({ xerpIn: xerpInStr, xerpOut: xerpOutStr, pmisIn: pmisInStr, rawInMin, rawOutMin, isLate, standardStart: cfg.standardStart }) : "",
+          가산사유: normalizeGasanReasonParentheses(
+            storedReason || (needsUpdate ? inferredReason : ""),
+            inferGasanReasonTags({ rawOutMin }),
+          ),
           needsUpdate, isNoRecord, isLate,
           standardStart: cfg.standardStart,
           isNewEmployee, isWaeju,
@@ -1043,11 +1058,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       }
 
       for (const row of rows) {
-        if (row.diff === null) continue;
-
+        const storedReason = ["—", "-", "–"].includes((row.가산사유 ?? "").replace(/\s+/g, "")) ? "" : (row.가산사유 ?? "");
         let effectiveDiff = row.diff;
-        let effectiveReason = row.가산사유;
-        if (isSafetyEduDate) {
+        let effectiveReason = normalizeGasanReasonParentheses(
+          storedReason || (row.diff !== null ? inferGasanReason(row) : ""),
+          inferGasanReasonTags(row),
+        );
+        if (row.diff !== null && isSafetyEduDate) {
           const outMin = parseMin(row.xerpOut);
           if (outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60) {
             const xerpA = parseFloat(row.xerpGongsuA) || 0;
@@ -1055,9 +1072,15 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             effectiveReason = "정기안전교육으로 빠른퇴근타각";
           }
         }
-        effectiveReason = normalizeGasanReasonParentheses(effectiveReason, inferGasanReasonTags(row));
 
         const excelRow = row.rowIndex + 1; // 0-based → 1-based
+
+        // Z열 (col 26, 0-based 25): 가산사유 (X열은 작업내용 컬럼이므로 건드리지 않음)
+        if (effectiveReason) {
+          ws.getCell(excelRow, 26).value = effectiveReason;
+        }
+
+        if (row.diff === null) continue;
 
         // T열 (col 20, 0-based 19): 가산공수(B) 신청
         ws.getCell(excelRow, 20).value = effectiveDiff;
@@ -1066,11 +1089,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const gongsuA = parseFloat(row.xerpGongsuA) || 0;
         const gongsuAB = Math.round((gongsuA + effectiveDiff) * 100) / 100;
         ws.getCell(excelRow, 22).value = gongsuAB;
-
-        // Z열 (col 26, 0-based 25): 가산사유 (X열은 작업내용 컬럼이므로 건드리지 않음)
-        if (effectiveReason) {
-          ws.getCell(excelRow, 26).value = effectiveReason;
-        }
       }
 
       const buffer = await wb.xlsx.writeBuffer();

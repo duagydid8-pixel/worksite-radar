@@ -182,6 +182,20 @@ describe("XERP work reflection saved adjustment loading", () => {
     });
   });
 
+  it("preserves 가산사유 such as 예비군 when diff is null but reason was set", () => {
+    const result = resolveLoadedAdjustment(
+      { diff: null, 가산사유: "예비군", manualAdjustment: true },
+      { diff: 0.25, needsUpdate: true, 가산사유: "자동 계산 사유" },
+    );
+
+    expect(result).toEqual({
+      diff: null,
+      needsUpdate: false,
+      가산사유: "예비군",
+      manualAdjustment: true,
+    });
+  });
+
   it("uses recalculated values when the saved row has no adjustment fields", () => {
     const result = resolveLoadedAdjustment(
       {},
