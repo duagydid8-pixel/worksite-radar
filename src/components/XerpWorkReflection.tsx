@@ -858,6 +858,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
         const sourceReason = String(row[25] ?? "").trim();
         const storedReason = ["—", "-", "–"].includes(sourceReason.replace(/\s+/g, "")) ? "" : sourceReason;
+        // DEBUG: 첫 번째 데이터 행의 컬럼 값 확인
+        if (i === dataStart) {
+          console.log("[DEBUG] row length:", row.length, "row[23]:", row[23], "row[24]:", row[24], "row[25]:", row[25], "row[26]:", row[26], "row[27]:", row[27]);
+          toast.info(`[디버그] row[25]="${row[25]}" row[24]="${row[24]}" row[26]="${row[26]}"`, { duration: 10000 });
+        }
         const inferredReason = inferGasanReason({
           xerpIn: xerpInStr,
           xerpOut: xerpOutStr,
