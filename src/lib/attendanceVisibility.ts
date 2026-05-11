@@ -72,6 +72,7 @@ export function getVisibleAttendanceEmployees(
   }
 
   return employees.filter((employee) =>
+    Object.keys(employee.dailyRecords).length === 0 ||
     hasVisibleAttendanceForMonth(data, employee, weekYear, weekMonth, manualAttendanceOverrides)
   );
 }
