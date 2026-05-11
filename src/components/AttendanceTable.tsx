@@ -42,6 +42,8 @@ function applyOrder(emps: Employee[], order: string[]): Employee[] {
 function getManualStatusClass(status: NonNullable<Employee["dailyRecords"][string]["status"]>): string {
   if (status === "결근") return "border-rose-200 bg-rose-50 text-rose-700";
   if (status === "연차") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "입사일") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "현장휴무") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-violet-200 bg-violet-50 text-violet-700";
 }
 

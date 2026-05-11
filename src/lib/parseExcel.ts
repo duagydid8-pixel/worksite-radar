@@ -22,7 +22,7 @@ export interface Employee {
   dailyRecords: Record<string, {
     punchIn: string | null;
     punchOut: string | null;
-    status?: "연차" | "오전반차" | "오후반차" | "결근";
+    status?: "연차" | "오전반차" | "오후반차" | "결근" | "입사일" | "현장휴무";
   }>;
 }
 

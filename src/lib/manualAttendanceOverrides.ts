@@ -1,6 +1,6 @@
 import type { Employee, ParsedData } from "./parseExcel";
 
-export type ManualAttendanceStatus = "연차" | "오전반차" | "오후반차" | "결근";
+export type ManualAttendanceStatus = "연차" | "오전반차" | "오후반차" | "결근" | "입사일" | "현장휴무";
 
 export interface ManualAttendanceOverride {
   id: string;
@@ -78,6 +78,14 @@ export function applyManualAttendanceOverrides(
     const date = parseDateKey(override.date);
     if (!date) continue;
 
+    // 현장휴무: 전체 직원에게 적용
+    if (override.status === "현장휴무") {
+      for (const employee of next.employees) {
+        employee.dailyRecords[date.recordKey] = { punchIn: null, punchOut: null, status: "현장휴무" };
+      }
+      continue;
+    }
+
     const overrideNameKey = normalizeName(override.name);
     let employee = next.employees.find((item) => normalizeName(item.name) === overrideNameKey);
     if (!employee) {
@@ -127,6 +135,12 @@ export function applyManualAttendanceOverrides(
 
     if (override.status === "결근") {
       employee.dailyRecords[date.recordKey] = { punchIn: null, punchOut: null, status: "결근" };
+      employee.totalDays = Object.keys(employee.dailyRecords).length;
+      continue;
+    }
+
+    if (override.status === "입사일") {
+      employee.dailyRecords[date.recordKey] = { punchIn: null, punchOut: null, status: "입사일" };
       employee.totalDays = Object.keys(employee.dailyRecords).length;
       continue;
     }

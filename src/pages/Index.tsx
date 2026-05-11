@@ -122,7 +122,7 @@ const MANUAL_ATTENDANCE_OVERRIDES_KEY = "attendance_manual_overrides";
 const ATTENDANCE_ROSTER_KEY = "attendance_roster";
 const ATTENDANCE_ROSTER_FILE_NAME_KEY = "attendance_roster_file_name";
 const LOCAL_ATTENDANCE_WATCH_ENABLED_KEY = "attendance_local_watch_enabled";
-const MANUAL_ATTENDANCE_STATUSES: ManualAttendanceStatus[] = ["연차", "오전반차", "오후반차", "결근"];
+const MANUAL_ATTENDANCE_STATUSES: ManualAttendanceStatus[] = ["연차", "오전반차", "오후반차", "결근", "입사일", "현장휴무"];
 
 interface AdminDailyTask {
   id: string;
@@ -579,7 +579,8 @@ const Index = () => {
 
   const handleAddManualAttendanceOverride = useCallback((event: React.FormEvent) => {
     event.preventDefault();
-    if (!manualAttendanceName) {
+    const isSiteWide = manualAttendanceStatus === "현장휴무";
+    if (!isSiteWide && !manualAttendanceName) {
       toast.error("직원을 선택하세요.");
       return;
     }
@@ -587,7 +588,7 @@ const Index = () => {
     const nextOverride: ManualAttendanceOverride = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       date: manualAttendanceDate,
-      name: manualAttendanceName,
+      name: isSiteWide ? "" : manualAttendanceName,
       status: manualAttendanceStatus,
       note: manualAttendanceNote.trim() || undefined,
       createdAt: new Date().toISOString(),
@@ -1025,19 +1026,21 @@ const Index = () => {
                 className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-bold outline-none focus:border-slate-400"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-bold text-slate-500">직원</label>
-              <select
-                value={manualAttendanceName}
-                onChange={(event) => setManualAttendanceName(event.target.value)}
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-bold outline-none focus:border-slate-400"
-              >
-                <option value="">직원 선택</option>
-                {manualAttendanceEmployeeNames.map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-            </div>
+            {manualAttendanceStatus !== "현장휴무" && (
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-500">직원</label>
+                <select
+                  value={manualAttendanceName}
+                  onChange={(event) => setManualAttendanceName(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-bold outline-none focus:border-slate-400"
+                >
+                  <option value="">직원 선택</option>
+                  {manualAttendanceEmployeeNames.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="mb-1 block text-xs font-bold text-slate-500">상태</label>
               <select
@@ -1076,7 +1079,7 @@ const Index = () => {
               manualAttendanceOverrides.map((override) => (
                 <div key={override.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
                   <span className="font-bold text-slate-900">{override.date}</span>
-                  <span className="font-bold text-slate-700">{override.name}</span>
+                  <span className="font-bold text-slate-700">{override.name || "전체"}</span>
                   <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">{override.status}</span>
                   {override.note && <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-400">{override.note}</span>}
                   <button
