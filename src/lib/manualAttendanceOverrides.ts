@@ -140,6 +140,10 @@ export function applyManualAttendanceOverrides(
     }
 
     if (override.status === "입사일") {
+      // 입사일 이전 기록 전부 제거
+      for (const key of Object.keys(employee.dailyRecords)) {
+        if (key < date.recordKey) delete employee.dailyRecords[key];
+      }
       employee.dailyRecords[date.recordKey] = { punchIn: null, punchOut: null, status: "입사일" };
       employee.totalDays = Object.keys(employee.dailyRecords).length;
       continue;
