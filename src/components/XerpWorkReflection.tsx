@@ -1447,7 +1447,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
         >
           <Upload className="h-4 w-4" />
-          엑셀 업로드
+          엑셀 업로드 [v2]
         </button>
 
         {fileName && (
