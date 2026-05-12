@@ -19,8 +19,9 @@ import {
 } from "@/lib/localAttendanceWatchClient";
 import type { ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
+import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -276,6 +277,7 @@ const Index = () => {
   const [attendanceSubTab, setAttendanceSubTab] = useState<AttendanceSubTab>("근태현황");
   const [payrollSubTab, setPayrollSubTab] = useState<PayrollSubTab>("급여대장보정");
   const [mailSubTab, setMailSubTab] = useState<MailRequestMenu>("certificate");
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [rowOrders, setRowOrders] = useState<Record<string, string[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const { isAdmin, login, logout } = useAdminAuth();
@@ -698,6 +700,7 @@ const Index = () => {
       toast.error("관리자 로그인이 필요합니다.");
       return;
     }
+    setAdminMenuOpen(false);
     setActiveTab(key);
     setSearchQuery("");
   };
@@ -893,8 +896,9 @@ const Index = () => {
   }, [isAdmin]);
 
   const primaryNavItems = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC];
-  const isAdminSection = NAV_ADMIN.some((item) => item.key === activeTab);
-  const activePrimarySubnavKey = activeTab === "근태관리" ? activeTab : isAdminSection ? ADMIN_TOP_NAV_KEY : null;
+  const activeAdminItem = NAV_ADMIN.find((item) => item.key === activeTab);
+  const isAdminSection = Boolean(activeAdminItem);
+  const activePrimarySubnavKey = activeTab === "근태관리" ? activeTab : null;
   const activeNestedSubnavKey = activeTab === "본사메일송부" || activeTab === "급여대장" ? activeTab : null;
 
   const updateSubnavOffsets = useCallback(() => {
@@ -916,7 +920,6 @@ const Index = () => {
     const primaryLeft = activePrimarySubnavKey
       ? measureLeft(findByData("[data-nav-key]", "navKey", activePrimarySubnavKey))
       : null;
-    const adminLeft = Math.max(18, Math.min(Math.round(topbarRect.width * 0.32), 460));
     const nestedLeft = activeNestedSubnavKey
       ? measureLeft(findByData("[data-admin-key]", "adminKey", activeNestedSubnavKey))
       : null;
@@ -924,8 +927,8 @@ const Index = () => {
     setSubnavOffsets((current) => {
       const next = {
         primary: primaryLeft ?? current.primary,
-        admin: adminLeft ?? current.admin,
-        nested: nestedLeft ?? adminLeft ?? current.nested,
+        admin: current.admin,
+        nested: nestedLeft ?? 18,
       };
       return next.primary === current.primary && next.admin === current.admin && next.nested === current.nested
         ? current
@@ -942,7 +945,7 @@ const Index = () => {
     const handleLayoutChange = () => updateSubnavOffsets();
     window.addEventListener("resize", handleLayoutChange);
 
-    const scrollers = topbar.querySelectorAll(".ops-topnav, .ops-admin-strip");
+    const scrollers = topbar.querySelectorAll(".ops-topnav, .ops-admin-menu-panel");
     scrollers.forEach((element) => element.addEventListener("scroll", handleLayoutChange, { passive: true }));
 
     const resizeObserver =
@@ -1314,11 +1317,13 @@ const Index = () => {
             <button
               type="button"
               data-nav-key={ADMIN_TOP_NAV_KEY}
-              onClick={() => isAdmin ? handleNavClick("주간일정", true) : setLoginDialogOpen(true)}
+              onClick={() => isAdmin ? setAdminMenuOpen((open) => !open) : setLoginDialogOpen(true)}
+              aria-expanded={shouldShowAdminMenuPanel({ isAdmin, isOpen: adminMenuOpen })}
               className={`ops-topnav-item ${isAdminSection ? "is-active" : ""} ${!isAdmin ? "is-locked" : ""}`}
             >
               <Lock className="h-4 w-4" />
-              <span>관리자</span>
+              <span>{getAdminMenuButtonLabel(isAdminSection, activeAdminItem?.label)}</span>
+              {isAdmin && <ChevronDown className={`h-3.5 w-3.5 transition-transform ${adminMenuOpen ? "rotate-180" : ""}`} />}
             </button>
           </nav>
 
@@ -1359,24 +1364,8 @@ const Index = () => {
           </div>
         </div>
 
-        {activeTab === "근태관리" && (
-          <div className="ops-subbar">
-            {ATTENDANCE_SUB_TABS.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setAttendanceSubTab(tab)}
-                className={attendanceSubTab === tab ? "is-active" : ""}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {(isAdmin || isAdminSection) && (
-          <div className="ops-admin-strip">
-            <span>관리자 메뉴</span>
+        {shouldShowAdminMenuPanel({ isAdmin, isOpen: adminMenuOpen }) && (
+          <div className="ops-admin-menu-panel" aria-label="관리자 메뉴">
             {NAV_ADMIN.map(({ key, label, icon, adminOnly }) => (
               <button
                 key={key}
@@ -1387,6 +1376,21 @@ const Index = () => {
               >
                 {icon}
                 <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {activeTab === "근태관리" && (
+          <div className="ops-subbar">
+            {ATTENDANCE_SUB_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setAttendanceSubTab(tab)}
+                className={attendanceSubTab === tab ? "is-active" : ""}
+              >
+                {tab}
               </button>
             ))}
           </div>

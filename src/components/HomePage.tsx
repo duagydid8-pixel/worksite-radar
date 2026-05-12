@@ -1,12 +1,14 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { loadXerpWorkDateMapFS, subscribeScheduleFS } from "@/lib/firestoreService";
+import { buildRecentHomeActivities } from "@/lib/recentHomeActivity";
 import type { LeaveDetail } from "@/lib/parseExcel";
 import {
   Loader2, CalendarDays,
   CheckCircle2, XCircle,
   ChevronLeft, ChevronRight,
-  Clock, CloudUpload, HardHat,
+  CloudUpload, HardHat,
   Wind, Droplets, Thermometer, TrendingDown, CalendarOff,
+  Activity,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -593,14 +595,24 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
     { label:"감소인원",  value: countDec,      sub:"전일 대비 인원 감소", icon:<TrendingDown className="h-5 w-5" />, color:"text-amber-600",   iconBg:"bg-amber-50",    showDash: decreased === null },
   ];
 
+  const recentActivities = useMemo(
+    () =>
+      buildRecentHomeActivities({
+        lastAttendanceUploadedAt: lastUploadedAt,
+        latestXerpDate,
+        selectedDate,
+        leaveCount: todayLeaveDetails.length,
+      }),
+    [lastUploadedAt, latestXerpDate, selectedDate, todayLeaveDetails.length]
+  );
+
   return (
     <div className="ops-home p-4 md:p-5 max-w-[1500px] mx-auto min-h-full space-y-4">
 
       <section className="home-command-panel hp-anim-hero">
         <div className="home-command-title">
-          <span>평택 초순수 P4 현장</span>
-          <h1>현장 상황판</h1>
-          <p>{dateLabel}</p>
+          <h1>P4 초순수 현장 관제</h1>
+          <p>{dateLabel} 기준 현장 운영 현황</p>
         </div>
         <div className="home-command-meta">
           <div>
@@ -661,7 +673,30 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
         </main>
 
         <aside className="home-board-aside hp-anim-side">
-          <WeatherCard />
+          <div className="home-side-panel">
+            <div className="home-side-heading">
+              <div className="home-side-icon">
+                <Activity className="h-4.5 w-4.5 text-slate-700" />
+              </div>
+              <div>
+                <p>최근 처리 이력</p>
+                <span>홈 기준 주요 업데이트</span>
+              </div>
+            </div>
+
+            <div className="home-activity-list">
+              {recentActivities.map((activity) => (
+                <div key={activity.title} className="home-activity-row">
+                  <span className="home-activity-dot" />
+                  <div>
+                    <strong>{activity.title}</strong>
+                    <small>{activity.detail}</small>
+                  </div>
+                  <em>{activity.status}</em>
+                </div>
+              ))}
+            </div>
+          </div>
 
           <div className="home-side-panel">
             <div className="home-side-heading">
@@ -691,6 +726,8 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
               </div>
             </div>
           </div>
+
+          <WeatherCard />
 
           <div className="home-side-panel">
             <div className="home-side-heading">
