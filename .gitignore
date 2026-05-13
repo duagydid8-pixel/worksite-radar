@@ -30,3 +30,6 @@ dist-ssr
 
 # Git worktrees
 .worktrees/
+
+# 로컬 네트워크 HTTPS 인증서 (자동 생성, 커밋 불필요)
+scripts/.network-certs/

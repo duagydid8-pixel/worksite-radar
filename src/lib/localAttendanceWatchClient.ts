@@ -1,4 +1,35 @@
-export const LOCAL_ATTENDANCE_WATCH_BASE_URL = "http://127.0.0.1:8787";
+export const DEFAULT_ATTENDANCE_SERVER_URL = "http://127.0.0.1:8787";
+const ATTENDANCE_SERVER_URL_KEY = "attendance-server-url";
+
+export function getAttendanceServerUrl(): string {
+  try {
+    return localStorage.getItem(ATTENDANCE_SERVER_URL_KEY) || DEFAULT_ATTENDANCE_SERVER_URL;
+  } catch {
+    return DEFAULT_ATTENDANCE_SERVER_URL;
+  }
+}
+
+export function setAttendanceServerUrl(url: string): void {
+  try {
+    const trimmed = url.trim().replace(/\/$/, "");
+    if (!trimmed || trimmed === DEFAULT_ATTENDANCE_SERVER_URL) {
+      localStorage.removeItem(ATTENDANCE_SERVER_URL_KEY);
+    } else {
+      localStorage.setItem(ATTENDANCE_SERVER_URL_KEY, trimmed);
+    }
+  } catch {}
+}
+
+export function isCustomAttendanceServerUrl(): boolean {
+  try {
+    return !!localStorage.getItem(ATTENDANCE_SERVER_URL_KEY);
+  } catch {
+    return false;
+  }
+}
+
+/** @deprecated Use getAttendanceServerUrl() */
+export const LOCAL_ATTENDANCE_WATCH_BASE_URL = DEFAULT_ATTENDANCE_SERVER_URL;
 
 export interface LocalAttendanceWatchStatus {
   ready: boolean;
@@ -56,9 +87,9 @@ async function fetchJson<T>(path: string, baseUrl = LOCAL_ATTENDANCE_WATCH_BASE_
 }
 
 export function fetchLocalAttendanceWatchStatus(baseUrl?: string): Promise<LocalAttendanceWatchStatus> {
-  return fetchJson<LocalAttendanceWatchStatus>("/status", baseUrl);
+  return fetchJson<LocalAttendanceWatchStatus>("/status", baseUrl ?? getAttendanceServerUrl());
 }
 
 export function fetchLocalAttendanceSourceFiles(baseUrl?: string): Promise<LocalAttendanceWatchSourcePayload> {
-  return fetchJson<LocalAttendanceWatchSourcePayload>("/source-files", baseUrl);
+  return fetchJson<LocalAttendanceWatchSourcePayload>("/source-files", baseUrl ?? getAttendanceServerUrl());
 }

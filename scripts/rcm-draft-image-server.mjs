@@ -1,10 +1,12 @@
-import { createServer } from "node:http";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { getLocalIPs, getNetworkCerts } from "./network-certs.mjs";
 
 export const DEFAULT_PORT = 8791;
 
@@ -126,14 +128,18 @@ async function convertWorkbook(payload) {
   }
 }
 
-export function startRcmDraftImageServer({
+export async function startRcmDraftImageServer({
   port = Number(process.env.RCM_IMAGE_PORT || DEFAULT_PORT),
+  networkMode = process.argv.includes("--network"),
 } = {}) {
   if (!existsSync(EXPORT_SCRIPT)) {
     throw new Error(`변환 스크립트를 찾을 수 없습니다: ${EXPORT_SCRIPT}`);
   }
 
-  const server = createServer(async (req, res) => {
+  const certs = networkMode ? await getNetworkCerts() : null;
+  const localIPs = networkMode ? certs.ips : [];
+
+  const handler = async (req, res) => {
     if (req.method === "OPTIONS") {
       sendJson(res, 204, {});
       return;
@@ -145,6 +151,8 @@ export function startRcmDraftImageServer({
           ready: true,
           engine: "Microsoft Excel",
           port,
+          networkMode,
+          localIPs,
           paths: ["/status", "/convert"],
         });
         return;
@@ -160,10 +168,26 @@ export function startRcmDraftImageServer({
     } catch (error) {
       sendJson(res, 500, { error: error instanceof Error ? error.message : "알 수 없는 오류" });
     }
-  });
+  };
 
-  server.listen(port, "127.0.0.1", () => {
-    console.log(`[rcm-image] http://127.0.0.1:${port}/status`);
+  const server = networkMode
+    ? createHttpsServer({ cert: certs.cert, key: certs.key }, handler)
+    : createHttpServer(handler);
+
+  const host = networkMode ? "0.0.0.0" : "127.0.0.1";
+  const scheme = networkMode ? "https" : "http";
+
+  server.listen(port, host, () => {
+    if (networkMode) {
+      console.log("[rcm-image] 네트워크 모드 (HTTPS)");
+      console.log(`[rcm-image] 로컬: https://127.0.0.1:${port}/status`);
+      for (const ip of localIPs) {
+        console.log(`[rcm-image] 네트워크: https://${ip}:${port}/status`);
+      }
+      console.log("[rcm-image] 다른 PC에서 위 주소를 브라우저에서 열고 인증서를 수락하세요.");
+    } else {
+      console.log(`[rcm-image] ${scheme}://127.0.0.1:${port}/status`);
+    }
     console.log("[rcm-image] Excel 인쇄영역을 PNG로 변환합니다.");
   });
 
@@ -172,10 +196,8 @@ export function startRcmDraftImageServer({
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (isMain) {
-  try {
-    startRcmDraftImageServer();
-  } catch (error) {
+  startRcmDraftImageServer().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);
-  }
+  });
 }

@@ -6,9 +6,13 @@ import {
   convertRcmWorkbookToImages,
   fetchRcmDraftImageStatus,
   getRcmImageDataUrl,
+  getRcmServerUrl,
+  setRcmServerUrl,
+  DEFAULT_RCM_SERVER_URL,
   type RcmDraftImageItem,
   type RcmDraftImageStatus,
 } from "@/lib/rcmDraftImageClient";
+import NetworkServerSettings from "@/components/NetworkServerSettings";
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -78,6 +82,7 @@ function getPreviousMonthLabel() {
 export default function RcmDraftImageExport() {
   const [status, setStatus] = useState<RcmDraftImageStatus | null>(null);
   const [checking, setChecking] = useState(false);
+  const [serverUrl, setServerUrlState] = useState(getRcmServerUrl);
   const [converting, setConverting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState("");
@@ -239,6 +244,19 @@ export default function RcmDraftImageExport() {
                   </p>
                 </div>
               </div>
+
+              <NetworkServerSettings
+                label="RCM 변환"
+                defaultUrl={DEFAULT_RCM_SERVER_URL}
+                currentUrl={serverUrl}
+                port={8791}
+                onSave={(url) => {
+                  setRcmServerUrl(url);
+                  setServerUrlState(url);
+                  setStatus(null);
+                  void checkStatus();
+                }}
+              />
 
               <label
                 onDragEnter={(event) => {

@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev-with-services.mjs",
+    "dev:vite": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
@@ -12,7 +13,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "attendance:watch": "node scripts/attendance-folder-watcher.mjs",
-    "rcm:image": "node scripts/rcm-draft-image-server.mjs"
+    "attendance:watch:network": "node scripts/attendance-folder-watcher.mjs --network",
+    "rcm:image": "node scripts/rcm-draft-image-server.mjs",
+    "rcm:image:network": "node scripts/rcm-draft-image-server.mjs --network",
+    "dev:network": "node scripts/dev-with-services.mjs --network"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -69,6 +73,7 @@
     "react-resizable-panels": "^2.1.9",
     "react-router-dom": "^6.30.1",
     "recharts": "^2.15.4",
+    "selfsigned": "^5.5.0",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",

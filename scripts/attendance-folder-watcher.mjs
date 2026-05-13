@@ -1,4 +1,6 @@
-import { createServer } from "node:http";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { getLocalIPs, getNetworkCerts } from "./network-certs.mjs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { existsSync, watch } from "node:fs";
 import path from "node:path";
@@ -134,15 +136,19 @@ function sendJson(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
-export function startAttendanceFolderWatcher({
+export async function startAttendanceFolderWatcher({
   watchDir = process.env.ATTENDANCE_WATCH_DIR || DEFAULT_WATCH_DIR,
   port = Number(process.env.ATTENDANCE_WATCH_PORT || DEFAULT_PORT),
+  networkMode = process.argv.includes("--network"),
 } = {}) {
   if (!existsSync(watchDir)) {
     throw new Error(`감시 폴더가 없습니다: ${watchDir}`);
   }
 
-  const server = createServer(async (req, res) => {
+  const certs = networkMode ? await getNetworkCerts() : null;
+  const localIPs = networkMode ? certs.ips : [];
+
+  const handler = async (req, res) => {
     if (req.method === "OPTIONS") {
       sendJson(res, 204, {});
       return;
@@ -150,7 +156,8 @@ export function startAttendanceFolderWatcher({
 
     try {
       if (req.url === "/status") {
-        sendJson(res, 200, await scanWatchDir(watchDir));
+        const status = await scanWatchDir(watchDir);
+        sendJson(res, 200, { ...status, networkMode, localIPs });
         return;
       }
       if (req.url === "/source-files") {
@@ -162,11 +169,25 @@ export function startAttendanceFolderWatcher({
     } catch (error) {
       sendJson(res, 500, { error: error instanceof Error ? error.message : "알 수 없는 오류" });
     }
-  });
+  };
 
-  server.listen(port, "127.0.0.1", () => {
+  const server = networkMode
+    ? createHttpsServer({ cert: certs.cert, key: certs.key }, handler)
+    : createHttpServer(handler);
+
+  const host = networkMode ? "0.0.0.0" : "127.0.0.1";
+
+  server.listen(port, host, () => {
     console.log(`[attendance-watch] ${watchDir}`);
-    console.log(`[attendance-watch] http://127.0.0.1:${port}/status`);
+    if (networkMode) {
+      console.log("[attendance-watch] 네트워크 모드 (HTTPS)");
+      console.log(`[attendance-watch] 로컬: https://127.0.0.1:${port}/status`);
+      for (const ip of localIPs) {
+        console.log(`[attendance-watch] 네트워크: https://${ip}:${port}/status`);
+      }
+    } else {
+      console.log(`[attendance-watch] http://127.0.0.1:${port}/status`);
+    }
   });
 
   watch(watchDir, { persistent: true }, (_eventType, fileName) => {
@@ -180,10 +201,8 @@ export function startAttendanceFolderWatcher({
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (isMain) {
-  try {
-    startAttendanceFolderWatcher();
-  } catch (error) {
+  startAttendanceFolderWatcher().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);
-  }
+  });
 }

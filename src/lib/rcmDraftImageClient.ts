@@ -21,7 +21,35 @@ export interface RcmDraftImageStatus {
   port: number;
 }
 
-const RCM_IMAGE_SERVER_URL = "http://127.0.0.1:8791";
+const DEFAULT_RCM_SERVER_URL = "http://127.0.0.1:8791";
+const RCM_SERVER_URL_KEY = "rcm-server-url";
+
+export function getRcmServerUrl(): string {
+  try {
+    return localStorage.getItem(RCM_SERVER_URL_KEY) || DEFAULT_RCM_SERVER_URL;
+  } catch {
+    return DEFAULT_RCM_SERVER_URL;
+  }
+}
+
+export function setRcmServerUrl(url: string): void {
+  try {
+    const trimmed = url.trim().replace(/\/$/, "");
+    if (!trimmed || trimmed === DEFAULT_RCM_SERVER_URL) {
+      localStorage.removeItem(RCM_SERVER_URL_KEY);
+    } else {
+      localStorage.setItem(RCM_SERVER_URL_KEY, trimmed);
+    }
+  } catch {}
+}
+
+export function isCustomRcmServerUrl(): boolean {
+  try {
+    return !!localStorage.getItem(RCM_SERVER_URL_KEY);
+  } catch {
+    return false;
+  }
+}
 
 async function fileToBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
@@ -44,13 +72,13 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchRcmDraftImageStatus(): Promise<RcmDraftImageStatus> {
-  const response = await fetch(`${RCM_IMAGE_SERVER_URL}/status`, { cache: "no-store" });
+  const response = await fetch(`${getRcmServerUrl()}/status`, { cache: "no-store" });
   return readJsonResponse<RcmDraftImageStatus>(response);
 }
 
 export async function convertRcmWorkbookToImages(file: File): Promise<RcmDraftImageResult> {
   const base64 = await fileToBase64(file);
-  const response = await fetch(`${RCM_IMAGE_SERVER_URL}/convert`, {
+  const response = await fetch(`${getRcmServerUrl()}/convert`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fileName: file.name, base64 }),
