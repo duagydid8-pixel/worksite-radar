@@ -584,11 +584,14 @@ function SiteManagerEditDialog({ info, title, onSave, onClose }: { info: SiteMan
               <button onClick={() => fileRef.current?.click()} className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <Camera className="h-5 w-5 text-white" />
               </button>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
                 const f = e.target.files?.[0]; if (!f) return;
-                const reader = new FileReader();
-                reader.onload = (ev) => setDraft((d) => ({ ...d, photo_url: ev.target?.result as string }));
-                reader.readAsDataURL(f);
+                try {
+                  const dataUrl = await compressImage(f);
+                  setDraft((d) => ({ ...d, photo_url: dataUrl }));
+                } catch {
+                  toast.error("사진을 불러오는 중 오류가 발생했습니다.");
+                }
                 e.target.value = "";
               }} />
             </div>
