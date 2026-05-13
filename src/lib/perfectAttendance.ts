@@ -46,6 +46,7 @@ export interface CalculatePerfectAttendanceInput {
   dateMap: PerfectAttendanceDateMap;
   yearMonth: string;
   saturdayWorkDates: string[];
+  weekdayHolidayDates?: string[];
   resignedNames: Set<string>;
 }
 
@@ -86,6 +87,7 @@ function buildTargetDates(
   yearMonth: string,
   dateMap: PerfectAttendanceDateMap,
   saturdayWorkDates: string[],
+  weekdayHolidayDates: string[] = [],
 ): string[] {
   const dates = new Set<string>();
 
@@ -101,11 +103,21 @@ function buildTargetDates(
     if (day === 6) dates.add(date);
   }
 
+  for (const date of weekdayHolidayDates) {
+    if (!date.startsWith(yearMonth)) continue;
+    dates.delete(date);
+  }
+
   return [...dates].sort();
 }
 
 export function calculatePerfectAttendance(input: CalculatePerfectAttendanceInput): PerfectAttendanceResult {
-  const targetDates = buildTargetDates(input.yearMonth, input.dateMap, input.saturdayWorkDates);
+  const targetDates = buildTargetDates(
+    input.yearMonth,
+    input.dateMap,
+    input.saturdayWorkDates,
+    input.weekdayHolidayDates ?? [],
+  );
   const employeeMap = new Map<string, PerfectAttendanceRow>();
   const firstTargetDate = targetDates[0];
 

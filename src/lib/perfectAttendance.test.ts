@@ -26,6 +26,7 @@ describe("calculatePerfectAttendance", () => {
       dateMap,
       yearMonth: "2026-04",
       saturdayWorkDates: ["2026-04-04"],
+      weekdayHolidayDates: [],
       resignedNames: new Set(),
     });
 
@@ -39,6 +40,7 @@ describe("calculatePerfectAttendance", () => {
       dateMap: { "2026-04-01": [row()] },
       yearMonth: "2026-04",
       saturdayWorkDates: ["2026-04-04"],
+      weekdayHolidayDates: [],
       resignedNames: new Set(),
     });
 
@@ -52,6 +54,7 @@ describe("calculatePerfectAttendance", () => {
       dateMap: { "2026-04-01": [row({ xerp출근: "07:11" })] },
       yearMonth: "2026-04",
       saturdayWorkDates: [],
+      weekdayHolidayDates: [],
       resignedNames: new Set(),
     });
 
@@ -65,6 +68,7 @@ describe("calculatePerfectAttendance", () => {
       dateMap: { "2026-04-01": [row({ 공수합계AB: "0.5" })] },
       yearMonth: "2026-04",
       saturdayWorkDates: [],
+      weekdayHolidayDates: [],
       resignedNames: new Set(),
     });
 
@@ -78,6 +82,7 @@ describe("calculatePerfectAttendance", () => {
       dateMap: { "2026-04-01": [row({ 공수합계AB: "0", 가산사유: "예비군 훈련" })] },
       yearMonth: "2026-04",
       saturdayWorkDates: [],
+      weekdayHolidayDates: [],
       resignedNames: new Set(),
     });
 
@@ -92,6 +97,7 @@ describe("calculatePerfectAttendance", () => {
       dateMap: { "2026-04-01": [row({ 성명: "퇴사자" })] },
       yearMonth: "2026-04",
       saturdayWorkDates: [],
+      weekdayHolidayDates: [],
       resignedNames: new Set(["퇴사자"]),
     });
 
@@ -113,6 +119,7 @@ describe("calculatePerfectAttendance", () => {
       },
       yearMonth: "2026-04",
       saturdayWorkDates: [],
+      weekdayHolidayDates: [],
       resignedNames: new Set(),
     });
 
@@ -132,11 +139,29 @@ describe("calculatePerfectAttendance", () => {
       },
       yearMonth: "2026-04",
       saturdayWorkDates: [],
+      weekdayHolidayDates: [],
       resignedNames: new Set(),
     });
 
     expect(result.summary.totalWorkers).toBe(1);
     expect(result.perfect.map((person) => person.성명)).toEqual(["김철수"]);
     expect(result.failed.map((person) => person.성명)).not.toContain("중간입사");
+  });
+
+  it("excludes weekday holidays from target workdays", () => {
+    const result = calculatePerfectAttendance({
+      dateMap: {
+        "2026-04-01": [row()],
+        "2026-04-02": [row()],
+      },
+      yearMonth: "2026-04",
+      saturdayWorkDates: [],
+      weekdayHolidayDates: ["2026-04-02"],
+      resignedNames: new Set(),
+    });
+
+    expect(result.targetDates).toEqual(["2026-04-01"]);
+    expect(result.summary.targetWorkDays).toBe(1);
+    expect(result.summary.perfectCount).toBe(1);
   });
 });

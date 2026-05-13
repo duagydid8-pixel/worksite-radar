@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
-import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadEmployeesP5PH1FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS } from "@/lib/firestoreService";
+import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadEmployeesP5PH1FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS, loadPerfectAttendanceWeekdayHolidaysFS, savePerfectAttendanceWeekdayHolidaysFS } from "@/lib/firestoreService";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 
 // ── 타입 ──────────────────────────────────────────────
@@ -53,8 +53,13 @@ function parseSheet(wb: XLSX.WorkBook): XerpPmisRow[] {
   const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
   if (raw.length === 0) return [];
   let dataStart = 0;
+  let gasanReasonCol = 25;
   for (let i = 0; i < Math.min(raw.length, 5); i++) {
-    if (isHeaderRow(raw[i])) dataStart = i + 1;
+    if (isHeaderRow(raw[i])) {
+      dataStart = i + 1;
+      const reasonCol = raw[i].findIndex((c) => String(c).replace(/\s+/g, "").includes("가산사유"));
+      if (reasonCol >= 0) gasanReasonCol = reasonCol;
+    }
   }
   const results: XerpPmisRow[] = [];
   for (let i = dataStart; i < raw.length; i++) {
@@ -64,10 +69,37 @@ function parseSheet(wb: XLSX.WorkBook): XerpPmisRow[] {
     for (const [colStr, field] of Object.entries(COL_MAP)) {
       emp[field] = String(row[Number(colStr)] ?? "").trim();
     }
-    emp.가산사유 = String(row[25] ?? "").trim();
+    emp.가산사유 = cleanReasonText(row[25]) || cleanReasonText(row[gasanReasonCol]);
     results.push(emp);
   }
   return results;
+}
+
+function cleanReasonText(value: unknown): string {
+  const text = String(value ?? "").trim();
+  const compact = text.replace(/\s+/g, "");
+  if (!text || ["-", "—", "–", "기타"].includes(compact)) return "";
+  return text;
+}
+
+function isSafetyEduEarlyOut(row: XerpPmisRow): boolean {
+  return row.xerp퇴근 === "16:20" || row.xerp퇴근 === "16:20:00";
+}
+
+function getGasanReason(row: XerpPmisRow, fallback = ""): string {
+  const record = row as unknown as Record<string, unknown>;
+  const candidates = [
+    row.가산사유,
+    record["가산 사유"],
+    record["가산사유 "],
+    record["gasanReason"],
+    record["reason"],
+  ];
+  for (const candidate of candidates) {
+    const reason = cleanReasonText(candidate);
+    if (reason) return reason;
+  }
+  return cleanReasonText(fallback);
 }
 
 const XERP_PMIS_EXPORT_COLUMNS = 26;
@@ -552,28 +584,73 @@ interface CalendarModalProps {
   year: number;
   month: number;
   dateMap: DateMap;
+  safetyEduDates: Set<string>;
   onPrev: () => void;
   onNext: () => void;
   onClose: () => void;
 }
 
-function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: CalendarModalProps) {
+function CalendarModal({ emp, year, month, dateMap, safetyEduDates, onPrev, onNext, onClose }: CalendarModalProps) {
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  useEffect(() => {
+    setSelectedDay(null);
+  }, [year, month, emp.사번, emp.성명]);
+
   const days = buildCalendarDays(year, month);
   const todayStr = toDateStr();
   const [ty, tm, td] = todayStr.split("-").map(Number);
+  const selectedRecord = selectedDay ? getEmpRecord(dateMap, year, month, selectedDay, emp) : null;
+  const selectedDateLabel = selectedDay ? `${year}년 ${month}월 ${selectedDay}일` : "";
+  const selectedDateKey = selectedDay ? `${year}-${String(month).padStart(2,"0")}-${String(selectedDay).padStart(2,"0")}` : "";
+  const selectedGasanReason = selectedRecord
+    ? getGasanReason(
+        selectedRecord,
+        safetyEduDates.has(selectedDateKey) && isSafetyEduEarlyOut(selectedRecord)
+          ? "정기안전교육으로 빠른퇴근타각"
+          : ""
+      )
+    : "";
+  const selectedHasGasan = selectedRecord
+    ? [selectedRecord.가산신청, selectedRecord.가산승인].some((value) => {
+        const text = String(value ?? "").trim();
+        return text !== "" && text !== "0" && text !== "N" && text !== "-" && text !== "—";
+      })
+    : false;
+  const selectedWorkItems = selectedRecord
+    ? [
+        ["조출", selectedRecord.조출],
+        ["오전", selectedRecord.오전],
+        ["오후", selectedRecord.오후],
+        ["연장", selectedRecord.연장],
+        ["야간", selectedRecord.야간],
+        ["철야", selectedRecord.철야],
+        ["점심", selectedRecord.점심],
+        ["공수 A", selectedRecord.공수합계A],
+        ["초과당일", selectedRecord.초과당일],
+        ["초과합계", selectedRecord.초과합계],
+        ["가산신청", selectedRecord.가산신청],
+        ["가산승인", selectedRecord.가산승인],
+        ["공수 A+B", selectedRecord.공수합계AB],
+        ["월누계", selectedRecord.월누계],
+      ].filter(([, value]) => {
+        const text = String(value ?? "").trim();
+        return text !== "" && text !== "0";
+      })
+    : [];
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* 모달 헤더 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
           <div className="flex items-center gap-3">
@@ -621,11 +698,12 @@ function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: C
           <div className="grid grid-cols-7 gap-0.5">
             {days.map((day, idx) => {
               if (day === null) {
-                return <div key={`pad-${idx}`} className="min-h-[72px] rounded-lg bg-muted/20" />;
+                return <div key={`pad-${idx}`} className="min-h-[60px] rounded-lg bg-muted/20" />;
               }
 
               const rec = getEmpRecord(dateMap, year, month, day, emp);
               const isToday = year === ty && month === tm && day === td;
+              const isSelected = selectedDay === day;
               const dow = (idx % 7); // 0=일, 6=토
               const isSun = dow === 0;
               const isSat = dow === 6;
@@ -637,10 +715,12 @@ function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: C
               const isPmis = !hasXerp && rec && (inTime || outTime);
 
               return (
-                <div
+                <button
+                  type="button"
                   key={day}
-                  className={`min-h-[72px] rounded-lg border p-1.5 flex flex-col gap-0.5
-                    ${isToday ? "border-primary bg-primary/5" : "border-border/40 bg-white"}
+                  onClick={() => setSelectedDay(day)}
+                  className={`min-h-[60px] rounded-lg border p-1.5 flex flex-col gap-0.5 text-left transition-colors
+                    ${isSelected ? "border-primary bg-primary/10 ring-2 ring-primary/20" : isToday ? "border-primary bg-primary/5" : "border-border/40 bg-white hover:bg-muted/30"}
                     ${rec ? "" : "opacity-60"}
                   `}
                 >
@@ -684,9 +764,93 @@ function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: C
                   {isPmis && !rec?.공수합계AB && (
                     <div className="text-[9px] text-muted-foreground/60 leading-tight mt-auto">PMIS</div>
                   )}
-                </div>
+                </button>
               );
             })}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-border bg-muted/20 p-4">
+            {!selectedDay ? (
+              <div className="text-sm text-muted-foreground">
+                일자를 선택하면 해당일 XERP 기록, PMIS 기록, 공수와 가산사유를 확인할 수 있습니다.
+              </div>
+            ) : !selectedRecord ? (
+              <div>
+                <div className="text-sm font-bold text-foreground">{selectedDateLabel}</div>
+                <div className="mt-1 text-sm text-muted-foreground">해당일 기록이 없습니다.</div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold text-foreground">{selectedDateLabel}</div>
+                    <div className="text-xs text-muted-foreground">{selectedRecord.성명} 상세 기록</div>
+                  </div>
+                  {selectedRecord.공수합계AB && selectedRecord.공수합계AB !== "0" && (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-right">
+                      <div className="text-[10px] font-semibold text-emerald-700">공수합계</div>
+                      <div className="text-base font-bold text-emerald-700 tabular-nums">{selectedRecord.공수합계AB}</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+                    <div className="text-xs font-bold text-blue-700 mb-2">XERP 기록</div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-[11px] text-blue-600/70">출근</div>
+                        <div className="font-semibold text-blue-900 tabular-nums">{selectedRecord.xerp출근 || "-"}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-blue-600/70">퇴근</div>
+                        <div className="font-semibold text-blue-900 tabular-nums">{selectedRecord.xerp퇴근 || "-"}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="text-xs font-bold text-slate-700 mb-2">PMIS 기록</div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-[11px] text-slate-500">출근</div>
+                        <div className="font-semibold text-slate-900 tabular-nums">{selectedRecord.pmis출근 || "-"}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-slate-500">퇴근</div>
+                        <div className="font-semibold text-slate-900 tabular-nums">{selectedRecord.pmis퇴근 || "-"}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedWorkItems.length > 0 && (
+                  <div>
+                    <div className="text-xs font-bold text-muted-foreground mb-2">공수 / 가산 내역</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedWorkItems.map(([label, value]) => (
+                        <span
+                          key={`${label}-${value}`}
+                          className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-xs"
+                        >
+                          <span className="text-muted-foreground">{label}</span>
+                          <span className="font-bold text-foreground tabular-nums">{value}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(selectedGasanReason || selectedHasGasan) && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <div className="text-xs font-bold text-amber-700 mb-1">가산사유</div>
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-amber-950">
+                      {selectedGasanReason || "가산사유 없음"}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -734,6 +898,8 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [isSavingMemo, setIsSavingMemo] = useState(false);
   const [saturdayWorkDates, setSaturdayWorkDates] = useState<string[]>([]);
   const [saturdayInput, setSaturdayInput] = useState(TODAY);
+  const [weekdayHolidayDates, setWeekdayHolidayDates] = useState<string[]>([]);
+  const [weekdayHolidayInput, setWeekdayHolidayInput] = useState(TODAY);
   const [perfectDialog, setPerfectDialog] = useState<"perfect" | "failed" | "reserve" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadedTemplateBuffersRef = useRef<Record<string, ArrayBuffer>>({});
@@ -794,9 +960,10 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       dateMap,
       yearMonth: selectedYearMonth,
       saturdayWorkDates,
+      weekdayHolidayDates,
       resignedNames,
     }),
-    [dateMap, selectedYearMonth, saturdayWorkDates, resignedNames]
+    [dateMap, selectedYearMonth, saturdayWorkDates, weekdayHolidayDates, resignedNames]
   );
   const matchesPersonSearch = (person: { 성명: string; 사번?: string }) => {
     const q = search.trim();
@@ -881,6 +1048,10 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     loadPerfectAttendanceSaturdaysFS(site).then((dates) => {
       setSaturdayWorkDates(dates);
     });
+
+    loadPerfectAttendanceWeekdayHolidaysFS(site).then((dates) => {
+      setWeekdayHolidayDates(dates);
+    });
   }, []);
 
   // 날짜 변경 시 선택 초기화 + 메모 동기화
@@ -907,6 +1078,14 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     return ok;
   };
 
+  const saveWeekdayHolidayDates = async (dates: string[]): Promise<boolean> => {
+    const normalized = [...new Set(dates)].sort();
+    setWeekdayHolidayDates(normalized);
+    const ok = await savePerfectAttendanceWeekdayHolidaysFS(site, normalized);
+    if (!ok) toast.error("평일 휴무일 저장 실패");
+    return ok;
+  };
+
   const addSaturdayWorkDate = async () => {
     if (!saturdayInput) return;
     const date = new Date(`${saturdayInput}T00:00:00`);
@@ -921,6 +1100,23 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const removeSaturdayWorkDate = async (date: string) => {
     const ok = await saveSaturdayWorkDates(saturdayWorkDates.filter((d) => d !== date));
     if (ok) toast.success(`${formatLabel(date)} 토요 현장근무일을 삭제했습니다.`);
+  };
+
+  const addWeekdayHolidayDate = async () => {
+    if (!weekdayHolidayInput) return;
+    const date = new Date(`${weekdayHolidayInput}T00:00:00`);
+    const day = date.getDay();
+    if (day === 0 || day === 6) {
+      toast.error("평일만 등록할 수 있습니다.");
+      return;
+    }
+    const ok = await saveWeekdayHolidayDates([...weekdayHolidayDates, weekdayHolidayInput]);
+    if (ok) toast.success(`${formatLabel(weekdayHolidayInput)} 평일 휴무일을 등록했습니다.`);
+  };
+
+  const removeWeekdayHolidayDate = async (date: string) => {
+    const ok = await saveWeekdayHolidayDates(weekdayHolidayDates.filter((d) => d !== date));
+    if (ok) toast.success(`${formatLabel(date)} 평일 휴무일을 삭제했습니다.`);
   };
 
   // Firestore 저장 헬퍼
@@ -1475,6 +1671,46 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                 ))}
               </div>
               <p className="text-[11px] text-muted-foreground mt-3">일요일은 자동 제외되고, 등록된 토요일만 만근 대상일에 포함됩니다.</p>
+
+              <div className="mt-4 pt-4 border-t border-dashed border-border">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-foreground">평일 휴무일</h3>
+                    <p className="text-[11px] text-muted-foreground">{site} · {selectedYearMonth} 기준</p>
+                  </div>
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <input
+                    type="date"
+                    value={weekdayHolidayInput}
+                    onChange={(e) => setWeekdayHolidayInput(e.target.value)}
+                    className="min-w-0 flex-1 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                  />
+                  <button
+                    onClick={addWeekdayHolidayDate}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-700"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    추가
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {weekdayHolidayDates.filter((d) => d.startsWith(selectedYearMonth)).length === 0 ? (
+                    <span className="text-xs text-muted-foreground">등록된 평일 휴무일 없음</span>
+                  ) : weekdayHolidayDates.filter((d) => d.startsWith(selectedYearMonth)).map((date) => (
+                    <button
+                      key={date}
+                      onClick={() => removeWeekdayHolidayDate(date)}
+                      className="px-2.5 py-1 rounded-full bg-slate-50 text-slate-700 border border-slate-100 text-xs font-semibold hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-colors"
+                      title="클릭하면 삭제"
+                    >
+                      {formatLabel(date)} 삭제
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-3">평일 휴무일은 만근 대상일에서 제외됩니다.</p>
+              </div>
             </div>
           </div>
 
@@ -1811,7 +2047,8 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
             ) : (
               displayRows.map((row) => {
                 const hasGaasan = row.가산신청 && row.가산신청 !== "0" && row.가산신청 !== "N" && row.가산신청 !== "—" && row.가산신청.trim() !== "";
-                const isEarlyOut = isSafetyEduDate && (row.xerp퇴근 === "16:20" || row.xerp퇴근 === "16:20:00");
+                const isEarlyOut = isSafetyEduDate && isSafetyEduEarlyOut(row);
+                const gasanReason = getGasanReason(row, isEarlyOut ? "정기안전교육으로 빠른퇴근타각" : "");
                 const rowBg = isEarlyOut
                   ? "bg-amber-50/60 hover:bg-amber-50/80"
                   : hasGaasan ? "bg-amber-50/40 hover:bg-amber-50/70" : "hover:bg-muted/20";
@@ -1866,12 +2103,12 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                   </td>
                   <td className={cellNum}>{row.가산승인||"—"}</td>
                   <td
-                    title={isEarlyOut ? "정기안전교육으로 빠른퇴근타각" : undefined}
+                    title={gasanReason || undefined}
                     className={`px-2 py-1.5 text-[10px] text-center border-r border-border/40 leading-tight
-                      ${isEarlyOut ? "text-amber-700 bg-amber-100/60 font-semibold" : "text-muted-foreground whitespace-nowrap"}`}
+                      ${gasanReason ? "text-amber-700 bg-amber-100/60 font-semibold" : "text-muted-foreground whitespace-nowrap"}`}
                     style={{ minWidth: "90px" }}
                   >
-                    {isEarlyOut ? "정기안전교육으로 빠른퇴근타각" : "—"}
+                    {gasanReason || "—"}
                   </td>
                   <td className={`${cellNum} font-bold p-0 ${isEarlyOut ? "bg-amber-50 text-amber-700" : "bg-primary/5 text-primary"}`}>
                     <button
@@ -1905,6 +2142,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           year={calendarYear}
           month={calendarMonth}
           dateMap={dateMap}
+          safetyEduDates={safetyEduDates}
           onPrev={prevMonth}
           onNext={nextMonth}
           onClose={() => setCalendarEmp(null)}

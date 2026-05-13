@@ -97,6 +97,13 @@ export function normalizeGasanReasonParentheses(reason: string, fallbackTags: Ga
     .trim();
 }
 
+function cleanGasanReason(value: unknown): string {
+  const text = String(value ?? "").trim();
+  const compact = text.replace(/\s+/g, "");
+  if (!text || ["-", "—", "–", "기타"].includes(compact)) return "";
+  return text;
+}
+
 // ── 신규자 정보 타입 ──────────────────────────────────
 interface NewEmpInfo { 생년월일: string; 단가: string; }
 
@@ -414,7 +421,7 @@ interface ProcessedRow {
 // 엑셀 원본 전체 컬럼 (XERP&PMIS와 동일 구조)
 interface RawExcelRow {
   rowIndex: number;
-  cols: string[]; // 0~22 컬럼 전체
+  cols: string[]; // 0~25 컬럼 전체, Z열(25)=가산사유
 }
 
 const ORIGINAL_WORKBOOK_DB = "worksite-radar-xerp-workbooks";
@@ -860,13 +867,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           ({ diff, needsUpdate } = calcDiff(calcGongsuVal, xerpGongsuA));
         }
 
-        const sourceReason = String(row[25] ?? "").trim();
-        const storedReason = ["—", "-", "–"].includes(sourceReason.replace(/\s+/g, "")) ? "" : sourceReason;
-        // DEBUG: 첫 번째 데이터 행의 컬럼 값 확인
-        if (i === dataStart) {
-          console.log("[DEBUG] row length:", row.length, "row[23]:", row[23], "row[24]:", row[24], "row[25]:", row[25], "row[26]:", row[26], "row[27]:", row[27]);
-          toast.info(`[디버그] row[25]="${row[25]}" row[24]="${row[24]}" row[26]="${row[26]}"`, { duration: 10000 });
-        }
+        const storedReason = cleanGasanReason(row[25]);
         const inferredReason = inferGasanReason({
           xerpIn: xerpInStr,
           xerpOut: xerpOutStr,
@@ -902,7 +903,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         if (!String(rowFmt2[3] ?? "").trim()) continue;
         allRawExcel.push({
           rowIndex: i,
-          cols: Array.from({ length: 25 }, (_, ci) => String(rowFmt2[ci] ?? "").trim()),
+          cols: Array.from({ length: 26 }, (_, ci) => String(rowFmt2[ci] ?? "").trim()),
         });
       }
       setRawExcelRows(allRawExcel);
@@ -1030,7 +1031,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           가산승인: c[20],
           공수합계AB: gongsuAB,
           월누계: c[22],
-          가산사유: normalizeGasanReasonParentheses(pr?.가산사유 ?? c[25] ?? "", pr ? inferGasanReasonTags(pr) : []),
+          가산사유: normalizeGasanReasonParentheses(
+            cleanGasanReason(c[25]) || cleanGasanReason(pr?.가산사유),
+            pr ? inferGasanReasonTags(pr) : [],
+          ),
         };
       });
 

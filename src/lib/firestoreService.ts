@@ -359,6 +359,16 @@ export async function savePerfectAttendanceSaturdaysFS(site: string, dates: stri
   return fsSet(`perfect_attendance_saturdays_${site}`, { dates: normalized });
 }
 
+export async function loadPerfectAttendanceWeekdayHolidaysFS(site: string): Promise<string[]> {
+  const data = await fsGet<{ dates: string[] }>(`perfect_attendance_weekday_holidays_${site}`);
+  return data?.dates ?? [];
+}
+
+export async function savePerfectAttendanceWeekdayHolidaysFS(site: string, dates: string[]): Promise<boolean> {
+  const normalized = [...new Set(dates)].sort();
+  return fsSet(`perfect_attendance_weekday_holidays_${site}`, { dates: normalized });
+}
+
 // ── XERP 공수 반영 다운로드 이력 ──────────────────────────
 export interface DownloadHistoryEntry {
   downloadedAt: string;
