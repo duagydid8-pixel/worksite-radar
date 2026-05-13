@@ -21,7 +21,7 @@ import type { ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -38,6 +38,7 @@ const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMail
 const LazyOrgChart = lazy(() => import("@/components/OrgChart"));
 const LazyPayrollPage = lazy(() => import("@/components/PayrollPage"));
 const LazyAdditionalWorkScanPage = lazy(() => import("@/components/AdditionalWorkScanPage"));
+const LazyRcmDraftImageExport = lazy(() => import("@/components/RcmDraftImageExport"));
 
 function LazyPanel({ children }: { children: ReactNode }) {
   return (
@@ -80,7 +81,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
 }
 
 type TeamFilter = "전체" | "한성" | "태화" | "현채";
-type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
+type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장" | "RCM기안서송부";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔";
 
@@ -123,6 +124,7 @@ const HEAD_OFFICE_NAV: NavItem[] = [
   { key: "급여대장", label: "급여대장", icon: <BookText className="h-4 w-4" />, adminOnly: true },
   { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: true },
   { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: true },
+  { key: "RCM기안서송부", label: "RCM 기안서 송부", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: true },
 ];
 
 const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN, ...HEAD_OFFICE_NAV];
@@ -2045,6 +2047,13 @@ const Index = () => {
           {activeTab === "지출결의서" && isAdmin && (
             <LazyPanel>
               <LazyExpenseReportTab isAdmin={isAdmin} />
+            </LazyPanel>
+          )}
+
+          {/* RCM 기안서 송부 */}
+          {activeTab === "RCM기안서송부" && isAdmin && (
+            <LazyPanel>
+              <LazyRcmDraftImageExport />
             </LazyPanel>
           )}
 

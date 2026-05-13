@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "attendance:watch": "node scripts/attendance-folder-watcher.mjs"
+    "attendance:watch": "node scripts/attendance-folder-watcher.mjs",
+    "rcm:image": "node scripts/rcm-draft-image-server.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
