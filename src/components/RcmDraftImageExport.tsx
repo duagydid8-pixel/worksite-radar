@@ -53,10 +53,10 @@ function getBaseSheetNumber(sheetName: string) {
   return sheetName.match(/^#\d+/)?.[0] ?? "";
 }
 
-function buildDraftTitle(sheetName: string, projectLabel: string, targetMonth: string, draftDate: string) {
+function buildDraftTitle(sheetName: string, projectLabel: string, siteLabel: string, targetMonth: string, draftDate: string) {
   const sheetNumber = getBaseSheetNumber(sheetName);
   const titleLabel = RCM_TITLE_LABELS[sheetNumber] ?? sheetName;
-  return `[사업1본부] ${projectLabel} 초순수_${targetMonth} RCM ${titleLabel}_ ${draftDate}`;
+  return `[사업1본부] ${projectLabel} ${siteLabel}_${targetMonth} RCM ${titleLabel}_ ${draftDate}`;
 }
 
 function getTodayDraftDate() {
@@ -85,6 +85,7 @@ export default function RcmDraftImageExport() {
   const [fileName, setFileName] = useState("");
   const [items, setItems] = useState<RcmDraftImageItem[]>([]);
   const [projectLabel, setProjectLabel] = useState("P4 PH4");
+  const [siteLabel, setSiteLabel] = useState("초순수");
   const [targetMonth, setTargetMonth] = useState(getPreviousMonthLabel);
   const [draftDate, setDraftDate] = useState(getTodayDraftDate);
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -311,6 +312,14 @@ export default function RcmDraftImageExport() {
                   />
                 </label>
                 <label className="block">
+                  <span className="text-xs font-extrabold text-slate-500">현장/분야명</span>
+                  <input
+                    value={siteLabel}
+                    onChange={(event) => setSiteLabel(event.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
+                  />
+                </label>
+                <label className="block">
                   <span className="text-xs font-extrabold text-slate-500">대상월</span>
                   <input
                     value={targetMonth}
@@ -376,13 +385,13 @@ export default function RcmDraftImageExport() {
                           인쇄영역 {item.range} · {formatBytes(item.size)}
                         </p>
                         <p className="mt-2 max-w-4xl rounded-md bg-slate-50 px-2 py-1.5 text-xs font-bold leading-5 text-slate-700">
-                          {buildDraftTitle(item.sheetName, projectLabel, targetMonth, draftDate)}
+                          {buildDraftTitle(item.sheetName, projectLabel, siteLabel, targetMonth, draftDate)}
                         </p>
                       </div>
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => copyTitle(buildDraftTitle(item.sheetName, projectLabel, targetMonth, draftDate))}
+                          onClick={() => copyTitle(buildDraftTitle(item.sheetName, projectLabel, siteLabel, targetMonth, draftDate))}
                           className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 text-xs font-extrabold text-blue-700 shadow-sm transition-colors hover:bg-blue-100"
                         >
                           <Clipboard className="h-4 w-4" />
