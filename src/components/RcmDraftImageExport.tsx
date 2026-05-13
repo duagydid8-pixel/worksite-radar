@@ -249,7 +249,7 @@ export default function RcmDraftImageExport() {
                 label="RCM 변환"
                 defaultUrl={DEFAULT_RCM_SERVER_URL}
                 currentUrl={serverUrl}
-                port={8791}
+                port={8792}
                 onSave={(url) => {
                   setRcmServerUrl(url);
                   setServerUrlState(url);

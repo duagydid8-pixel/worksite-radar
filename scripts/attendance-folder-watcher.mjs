@@ -136,9 +136,12 @@ function sendJson(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
+export const DEFAULT_HTTPS_PORT = 8788;
+
 export async function startAttendanceFolderWatcher({
   watchDir = process.env.ATTENDANCE_WATCH_DIR || DEFAULT_WATCH_DIR,
   port = Number(process.env.ATTENDANCE_WATCH_PORT || DEFAULT_PORT),
+  httpsPort = Number(process.env.ATTENDANCE_WATCH_HTTPS_PORT || DEFAULT_HTTPS_PORT),
   networkMode = process.argv.includes("--network"),
 } = {}) {
   if (!existsSync(watchDir)) {
@@ -148,7 +151,7 @@ export async function startAttendanceFolderWatcher({
   const certs = networkMode ? await getNetworkCerts() : null;
   const localIPs = networkMode ? certs.ips : [];
 
-  const handler = async (req, res) => {
+  const makeHandler = () => async (req, res) => {
     if (req.method === "OPTIONS") {
       sendJson(res, 204, {});
       return;
@@ -171,24 +174,23 @@ export async function startAttendanceFolderWatcher({
     }
   };
 
-  const server = networkMode
-    ? createHttpsServer({ cert: certs.cert, key: certs.key }, handler)
-    : createHttpServer(handler);
-
-  const host = networkMode ? "0.0.0.0" : "127.0.0.1";
-
-  server.listen(port, host, () => {
+  // 항상 HTTP 로컬 서버 실행 (주 PC용)
+  const httpServer = createHttpServer(makeHandler());
+  httpServer.listen(port, "127.0.0.1", () => {
     console.log(`[attendance-watch] ${watchDir}`);
-    if (networkMode) {
-      console.log("[attendance-watch] 네트워크 모드 (HTTPS)");
-      console.log(`[attendance-watch] 로컬: https://127.0.0.1:${port}/status`);
-      for (const ip of localIPs) {
-        console.log(`[attendance-watch] 네트워크: https://${ip}:${port}/status`);
-      }
-    } else {
-      console.log(`[attendance-watch] http://127.0.0.1:${port}/status`);
-    }
+    console.log(`[attendance-watch] http://127.0.0.1:${port}/status`);
   });
+
+  // 네트워크 모드면 HTTPS 서버 추가 (다른 PC용)
+  if (networkMode) {
+    const httpsServer = createHttpsServer({ cert: certs.cert, key: certs.key }, makeHandler());
+    httpsServer.listen(httpsPort, "0.0.0.0", () => {
+      console.log("[attendance-watch] 네트워크 모드 (HTTPS) — 다른 PC 접속용");
+      for (const ip of localIPs) {
+        console.log(`[attendance-watch] 네트워크: https://${ip}:${httpsPort}/status`);
+      }
+    });
+  }
 
   watch(watchDir, { persistent: true }, (_eventType, fileName) => {
     if (fileName && classifyAttendanceFile(fileName)) {
@@ -196,7 +198,7 @@ export async function startAttendanceFolderWatcher({
     }
   });
 
-  return server;
+  return httpServer;
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
