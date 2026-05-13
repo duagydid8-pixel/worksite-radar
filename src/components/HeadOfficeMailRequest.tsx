@@ -71,6 +71,7 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
   const [certificateType, setCertificateType] = useState<CertificateType>("재직증명서");
   const [customCertificateName, setCustomCertificateName] = useState("");
   const [siteName, setSiteName] = useState(SITE_OPTIONS[0].value);
+  const [orgChartSiteName, setOrgChartSiteName] = useState(SITE_OPTIONS[0].value);
   const [requestDate, setRequestDate] = useState(todayISO());
   const [nameInput, setNameInput] = useState("");
   const [internalActiveMenu, setInternalActiveMenu] = useState<MailRequestMenu>("certificate");
@@ -129,12 +130,12 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
     [certificateName, rows],
   );
   const orgChartMailSubject = useMemo(
-    () => createOrgChartMailSubject(requestDate),
-    [requestDate],
+    () => createOrgChartMailSubject(requestDate, orgChartSiteName),
+    [requestDate, orgChartSiteName],
   );
   const orgChartMailBody = useMemo(
-    () => createOrgChartMailBody(requestDate),
-    [requestDate],
+    () => createOrgChartMailBody(requestDate, orgChartSiteName),
+    [requestDate, orgChartSiteName],
   );
 
   const employeeCount = employees.filter((employee) => employeeName(employee)).length;
@@ -408,6 +409,18 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
       ) : activeMenu === "orgChart" ? (
         <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
           <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">프로젝트</label>
+              <select
+                value={orgChartSiteName}
+                onChange={(e) => setOrgChartSiteName(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-slate-400"
+              >
+                {SITE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="mb-1 block text-xs font-bold text-slate-500">송부일</label>
               <input

@@ -7,6 +7,7 @@ import {
   createMailSubject,
   createOrgChartMailBody,
   createOrgChartMailSubject,
+  getOrgChartProjectLabel,
   getRequestSitePhrase,
   MAIL_REQUEST_MENU_OPTIONS,
   resolveCertificateName,
@@ -52,6 +53,16 @@ describe("head office mail helpers", () => {
     expect(createOrgChartMailBody("2026-05-06")).not.toContain("참조 : 참조처 제외");
     expect(createOrgChartMailBody("2026-05-06")).not.toContain("발신 : 염효양 사원/초순수파트");
     expect(createOrgChartMailBody("2026-05-06")).toContain("2026년 5월 P4-PH4 초순수 현장 조직도 송부드립니다.");
+  });
+
+  it("creates the org chart send mail for the selected project", () => {
+    expect(getOrgChartProjectLabel(SITE_OPTIONS[2].value)).toBe("P5-PH1 초순수 현장");
+    expect(createOrgChartMailSubject("2026-05-06", SITE_OPTIONS[2].value)).toBe(
+      "[초순수파트] 사업1팀_P5-PH1 초순수 현장 조직도 송부의 件_26.05.06",
+    );
+    expect(createOrgChartMailBody("2026-05-06", SITE_OPTIONS[1].value)).toContain(
+      "2026년 5월 P4-PH2 초순수 현장 조직도 송부드립니다.",
+    );
   });
 
   it("creates the request body using selected site and certificate", () => {

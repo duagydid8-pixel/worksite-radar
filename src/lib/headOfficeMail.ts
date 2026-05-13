@@ -98,6 +98,14 @@ export function getRequestSitePhrase(siteName: string): string {
   return siteName.trim();
 }
 
+export function getOrgChartProjectLabel(siteName: string): string {
+  const matched = SITE_OPTIONS.find((option) => option.value === siteName);
+  if (matched) return `${matched.label} 초순수 현장`;
+
+  const phrase = getRequestSitePhrase(siteName);
+  return phrase.replace(/^평택\s+/, "").trim();
+}
+
 export function createMailBody(certificateName: string, siteName: string): string {
   const name = certificateName.trim() || "증명서";
   const sitePhrase = getRequestSitePhrase(siteName);
@@ -111,15 +119,17 @@ export function createMailBody(certificateName: string, siteName: string): strin
   ].join("\n");
 }
 
-export function createOrgChartMailSubject(requestDate: string): string {
-  return `[초순수파트] 사업1팀_P4-PH4 초순수 현장 조직도 송부의 件_${formatDateDots(requestDate).slice(2)}`;
+export function createOrgChartMailSubject(requestDate: string, siteName = SITE_OPTIONS[0].value): string {
+  const projectLabel = getOrgChartProjectLabel(siteName);
+  return `[초순수파트] 사업1팀_${projectLabel} 조직도 송부의 件_${formatDateDots(requestDate).slice(2)}`;
 }
 
-export function createOrgChartMailBody(requestDate: string): string {
+export function createOrgChartMailBody(requestDate: string, siteName = SITE_OPTIONS[0].value): string {
   const dateParts = formatDateDots(requestDate).match(/^(\d{4})\.(\d{2})\./);
   const year = dateParts?.[1] ?? new Date().getFullYear();
   const month = dateParts?.[2] ?? "";
   const monthLabel = month ? `${Number(month)}월 ` : "";
+  const projectLabel = getOrgChartProjectLabel(siteName);
 
   return [
     "안녕하세요.",
@@ -128,7 +138,7 @@ export function createOrgChartMailBody(requestDate: string): string {
     "",
     "업무에 노고가 많으십니다.",
     "",
-    `${year}년 ${monthLabel}P4-PH4 초순수 현장 조직도 송부드립니다.`,
+    `${year}년 ${monthLabel}${projectLabel} 조직도 송부드립니다.`,
     "",
     "문의 사항은 연락 부탁드립니다.",
     "",
