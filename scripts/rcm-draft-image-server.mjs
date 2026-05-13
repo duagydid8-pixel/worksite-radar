@@ -18,6 +18,7 @@ function sendJson(res, statusCode, body) {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Private-Network": "true",
     "Cache-Control": "no-store",
   });
   res.end(JSON.stringify(body));
