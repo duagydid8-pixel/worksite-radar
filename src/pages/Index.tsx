@@ -48,22 +48,27 @@ function LazyPanel({ children }: { children: ReactNode }) {
 }
 
 function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
-  const [xerpSite, setXerpSite] = useState<"PH4" | "PH2">("PH4");
+  const [xerpSite, setXerpSite] = useState<"PH4" | "PH2" | "P5PH1">("PH4");
+  const xerpSites = [
+    { value: "PH4", label: "P4-PH4" },
+    { value: "PH2", label: "P4-PH2" },
+    { value: "P5PH1", label: "P5-PH1" },
+  ] as const;
   return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-3">
       {/* 서브탭 */}
       <div className="flex gap-2">
-        {(["PH4", "PH2"] as const).map((s) => (
+        {xerpSites.map((site) => (
           <button
-            key={s}
-            onClick={() => setXerpSite(s)}
+            key={site.value}
+            onClick={() => setXerpSite(site.value)}
             className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border ${
-              xerpSite === s
+              xerpSite === site.value
                 ? "bg-primary text-primary-foreground border-primary shadow-sm"
                 : "bg-white text-muted-foreground border-border hover:bg-muted/50"
             }`}
           >
-            P4-{s}
+            {site.label}
           </button>
         ))}
       </div>

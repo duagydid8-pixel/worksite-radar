@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   loadEmployeesPH4FS, saveEmployeesPH4FS,
   loadEmployeesPH2FS, saveEmployeesPH2FS,
+  loadEmployeesP5PH1FS, saveEmployeesP5PH1FS,
 } from "@/lib/firestoreService";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -896,6 +897,7 @@ export default function NewEmployeeList() {
         <TabsList className="mb-3 bg-slate-100 p-1">
           <TabsTrigger value="ph4">P4-PH4 초순수</TabsTrigger>
           <TabsTrigger value="ph2">P4-PH2 초순수</TabsTrigger>
+          <TabsTrigger value="p5ph1">P5-PH1 초순수</TabsTrigger>
         </TabsList>
         <TabsContent value="ph4">
           <EmployeeTabContent
@@ -907,6 +909,12 @@ export default function NewEmployeeList() {
           <EmployeeTabContent
             loadFn={loadEmployeesPH2FS}
             saveFn={saveEmployeesPH2FS}
+          />
+        </TabsContent>
+        <TabsContent value="p5ph1">
+          <EmployeeTabContent
+            loadFn={loadEmployeesP5PH1FS}
+            saveFn={saveEmployeesP5PH1FS}
           />
         </TabsContent>
       </Tabs>

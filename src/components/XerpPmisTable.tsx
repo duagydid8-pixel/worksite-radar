@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
-import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS } from "@/lib/firestoreService";
+import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadEmployeesP5PH1FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS } from "@/lib/firestoreService";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 
 // ── 타입 ──────────────────────────────────────────────
@@ -715,11 +715,12 @@ function CalendarModal({ emp, year, month, dateMap, onPrev, onNext, onClose }: C
 }
 
 // ── 컴포넌트 ──────────────────────────────────────────
-interface Props { isAdmin: boolean; site?: "PH4" | "PH2" }
+export type XerpPmisSite = "PH4" | "PH2" | "P5PH1";
+interface Props { isAdmin: boolean; site?: XerpPmisSite }
 
 export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
-  const loadXerp = site === "PH2" ? loadXerpPH2FS : loadXerpFS;
-  const saveXerp = site === "PH2" ? saveXerpPH2FS : saveXerpFS;
+  const loadXerp = site === "P5PH1" ? loadXerpP5PH1FS : site === "PH2" ? loadXerpPH2FS : loadXerpFS;
+  const saveXerp = site === "P5PH1" ? saveXerpP5PH1FS : site === "PH2" ? saveXerpPH2FS : saveXerpFS;
   const [dateMap, setDateMap] = useState<DateMap>({});
   const [selectedDate, setSelectedDate] = useState<string>(TODAY);
   const [resignedNames, setResignedNames] = useState<Set<string>>(new Set());
@@ -848,10 +849,10 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
-    // 퇴사자 명단 로드 (PH4 + PH2)
-    Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS()]).then(([ph4, ph2]) => {
+    // 퇴사자 명단 로드 (PH4 + PH2 + P5-PH1)
+    Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS(), loadEmployeesP5PH1FS()]).then(([ph4, ph2, p5]) => {
       const names = new Set<string>();
-      for (const rows of [ph4, ph2]) {
+      for (const rows of [ph4, ph2, p5]) {
         if (!Array.isArray(rows)) continue;
         for (const emp of rows as { 이름?: string; 퇴사일?: string }[]) {
           if (emp.퇴사일 && emp.이름) names.add(emp.이름);

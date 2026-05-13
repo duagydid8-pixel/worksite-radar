@@ -11,7 +11,7 @@ import {
   type PayrollEmployeeOption,
 } from "@/lib/additionalWorkProcessor";
 import { extractAdditionalWorkWithVision, type VisionExtractImage } from "@/lib/openaiAdditionalWorkExtractor";
-import { loadEmployeesPH2FS, loadEmployeesPH4FS } from "@/lib/firestoreService";
+import { loadEmployeesP5PH1FS, loadEmployeesPH2FS, loadEmployeesPH4FS } from "@/lib/firestoreService";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -269,9 +269,9 @@ export default function AdditionalWorkScanPage() {
   [draftRows, payrollEmployees]);
 
   useEffect(() => {
-    Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS()]).then(([ph4Rows, ph2Rows]) => {
+    Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS(), loadEmployeesP5PH1FS()]).then(([ph4Rows, ph2Rows, p5Rows]) => {
       const next: TechnicalIdentity[] = [];
-      for (const [site, rows] of [["PH4", ph4Rows], ["PH2", ph2Rows]] as const) {
+      for (const [site, rows] of [["PH4", ph4Rows], ["PH2", ph2Rows], ["P5PH1", p5Rows]] as const) {
         for (const row of rows ?? []) {
           const residentNo = readField(row, "주민번호");
           const name = readField(row, "이름") || readField(row, "성명");

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle, Clipboard, Loader2, Mail, Search, UserX } from "lucide-react";
 import { toast } from "sonner";
-import { loadEmployeesPH2FS, loadEmployeesPH4FS } from "@/lib/firestoreService";
+import { loadEmployeesP5PH1FS, loadEmployeesPH2FS, loadEmployeesPH4FS } from "@/lib/firestoreService";
 import {
   buildCertificateRows,
   CERTIFICATE_OPTIONS,
+  createExtraWorkMailBody,
+  createExtraWorkMailSubject,
   createCertificateTableHtml,
   createCertificateTableText,
   createMailBody,
@@ -12,6 +14,7 @@ import {
   createOrgChartMailBody,
   createOrgChartMailSubject,
   MAIL_REQUEST_MENU_OPTIONS,
+  previousMonthISO,
   resolveCertificateName,
   SITE_OPTIONS,
   splitNames,
@@ -20,11 +23,12 @@ import {
   type MailRequestMenu,
 } from "@/lib/headOfficeMail";
 
-type EmployeeSite = "PH4" | "PH2";
+type EmployeeSite = "PH4" | "PH2" | "P5PH1";
 
 const DATA_SOURCE_OPTIONS: { label: string; value: EmployeeSite }[] = [
   { label: "P4-PH4 명단", value: "PH4" },
   { label: "P4-PH2 명단", value: "PH2" },
+  { label: "P5-PH1 명단", value: "P5PH1" },
 ];
 
 function employeeName(employee: unknown): string {
@@ -72,6 +76,8 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
   const [customCertificateName, setCustomCertificateName] = useState("");
   const [siteName, setSiteName] = useState(SITE_OPTIONS[0].value);
   const [orgChartSiteName, setOrgChartSiteName] = useState(SITE_OPTIONS[0].value);
+  const [extraWorkSiteName, setExtraWorkSiteName] = useState(SITE_OPTIONS[0].value);
+  const [extraWorkMonth, setExtraWorkMonth] = useState(previousMonthISO());
   const [requestDate, setRequestDate] = useState(todayISO());
   const [nameInput, setNameInput] = useState("");
   const [internalActiveMenu, setInternalActiveMenu] = useState<MailRequestMenu>("certificate");
@@ -86,7 +92,7 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    const loadFn = dataSource === "PH4" ? loadEmployeesPH4FS : loadEmployeesPH2FS;
+    const loadFn = dataSource === "P5PH1" ? loadEmployeesP5PH1FS : dataSource === "PH2" ? loadEmployeesPH2FS : loadEmployeesPH4FS;
 
     loadFn().then((rows) => {
       if (cancelled) return;
@@ -111,8 +117,8 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
   );
 
   const mailSubject = useMemo(
-    () => createMailSubject(certificateName, requestDate),
-    [certificateName, requestDate],
+    () => createMailSubject(certificateName, requestDate, siteName),
+    [certificateName, requestDate, siteName],
   );
 
   const mailBody = useMemo(
@@ -136,6 +142,14 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
   const orgChartMailBody = useMemo(
     () => createOrgChartMailBody(requestDate, orgChartSiteName),
     [requestDate, orgChartSiteName],
+  );
+  const extraWorkMailSubject = useMemo(
+    () => createExtraWorkMailSubject(requestDate, extraWorkMonth, extraWorkSiteName),
+    [requestDate, extraWorkMonth, extraWorkSiteName],
+  );
+  const extraWorkMailBody = useMemo(
+    () => createExtraWorkMailBody(extraWorkMonth, extraWorkSiteName),
+    [extraWorkMonth, extraWorkSiteName],
   );
 
   const employeeCount = employees.filter((employee) => employeeName(employee)).length;
@@ -172,6 +186,16 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
   const handleCopyOrgChartBody = async () => {
     await navigator.clipboard.writeText(orgChartMailBody);
     toast.success("조직도 송부메일 본문을 복사했습니다.");
+  };
+
+  const handleCopyExtraWorkSubject = async () => {
+    await navigator.clipboard.writeText(extraWorkMailSubject);
+    toast.success("가산공수 메일 제목을 복사했습니다.");
+  };
+
+  const handleCopyExtraWorkBody = async () => {
+    await navigator.clipboard.writeText(extraWorkMailBody);
+    toast.success("가산공수 메일 본문을 복사했습니다.");
   };
 
   return (
@@ -465,6 +489,74 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
               <p className="mb-1 text-xs font-bold text-slate-500">메일 본문</p>
               <div className="whitespace-pre-line rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold leading-7 text-slate-900">
                 {orgChartMailBody}
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : activeMenu === "extraWork" ? (
+        <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">프로젝트</label>
+              <select
+                value={extraWorkSiteName}
+                onChange={(e) => setExtraWorkSiteName(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-slate-400"
+              >
+                {SITE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">대상월</label>
+              <input
+                type="month"
+                value={extraWorkMonth}
+                onChange={(e) => setExtraWorkMonth(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-slate-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">송부일</label>
+              <input
+                type="date"
+                value={requestDate}
+                onChange={(e) => setRequestDate(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-slate-400"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={handleCopyExtraWorkSubject}
+                className="flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-800 transition-colors hover:bg-slate-50"
+              >
+                <Clipboard className="h-4 w-4 text-slate-400" />
+                제목 복사
+              </button>
+              <button
+                onClick={handleCopyExtraWorkBody}
+                className="flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-900 text-sm font-extrabold text-white transition-colors hover:bg-slate-700"
+              >
+                <Clipboard className="h-4 w-4" />
+                본문 복사
+              </button>
+            </div>
+          </section>
+
+          <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <p className="mb-1 text-xs font-bold text-slate-500">메일 제목</p>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-extrabold text-slate-950">
+                {extraWorkMailSubject}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-1 text-xs font-bold text-slate-500">메일 본문</p>
+              <div className="whitespace-pre-line rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold leading-7 text-slate-900">
+                {extraWorkMailBody}
               </div>
             </div>
           </section>

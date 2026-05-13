@@ -78,14 +78,21 @@ export function todayISO(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+export function previousMonthISO(): string {
+  const now = new Date();
+  const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export function resolveCertificateName(type: string, customName: string): string {
   if (type === "기타") return customName.trim();
   return type.trim();
 }
 
-export function createMailSubject(certificateName: string, requestDate: string): string {
+export function createMailSubject(certificateName: string, requestDate: string, siteName = SITE_OPTIONS[0].value): string {
   const name = certificateName.trim() || "증명서";
-  return `평택 P4 초순수 ${name}요청의 件_${formatDateDots(requestDate)}`;
+  const projectLabel = getOrgChartProjectLabel(siteName);
+  return `평택 ${projectLabel} ${name}요청의 件_${formatDateDots(requestDate)}`;
 }
 
 export function getRequestSitePhrase(siteName: string): string {
@@ -106,6 +113,16 @@ export function getOrgChartProjectLabel(siteName: string): string {
   return phrase.replace(/^평택\s+/, "").trim();
 }
 
+export function getExtraWorkProjectLabel(siteName: string): string {
+  const matched = SITE_OPTIONS.find((option) => option.value === siteName);
+  if (matched) return `${matched.label.replace(/-/g, " ")} 초순수`;
+
+  const phrase = getRequestSitePhrase(siteName)
+    .replace(/^평택\s+/, "")
+    .replace(/\s*현장$/, "");
+  return phrase.replace(/-/g, " ").trim();
+}
+
 export function createMailBody(certificateName: string, siteName: string): string {
   const name = certificateName.trim() || "증명서";
   const sitePhrase = getRequestSitePhrase(siteName);
@@ -117,6 +134,13 @@ export function createMailBody(certificateName: string, siteName: string): strin
     "",
     `${sitePhrase} ${name} 요청드립니다.`,
   ].join("\n");
+}
+
+export function formatYearMonthKorean(yearMonth: string, shortYear = false): string {
+  const matched = yearMonth.trim().match(/^(\d{4})-(\d{2})$/);
+  if (!matched) return yearMonth.trim();
+  const year = shortYear ? matched[1].slice(2) : matched[1];
+  return `${year}년 ${matched[2]}월`;
 }
 
 export function createOrgChartMailSubject(requestDate: string, siteName = SITE_OPTIONS[0].value): string {
@@ -141,6 +165,35 @@ export function createOrgChartMailBody(requestDate: string, siteName = SITE_OPTI
     `${year}년 ${monthLabel}${projectLabel} 조직도 송부드립니다.`,
     "",
     "문의 사항은 연락 부탁드립니다.",
+    "",
+    "감사합니다.",
+  ].join("\n");
+}
+
+export function createExtraWorkMailSubject(
+  requestDate: string,
+  targetMonth: string,
+  siteName = SITE_OPTIONS[0].value,
+): string {
+  const projectLabel = getExtraWorkProjectLabel(siteName);
+  return `평택 ${projectLabel}_${formatYearMonthKorean(targetMonth, true)} XERP 가산공수 지급 증빙자료 송부의 件_${formatDateDots(requestDate)}`;
+}
+
+export function createExtraWorkMailBody(
+  targetMonth: string,
+  siteName = SITE_OPTIONS[0].value,
+): string {
+  const projectLabel = getExtraWorkProjectLabel(siteName);
+  return [
+    "수신 : 수신처 제외",
+    "참조 : 참조처 제외",
+    "발신 : 염효양 사원/초순수파트",
+    "",
+    "안녕하세요. 사업1본부 초순수파트 염효양 사원입니다.",
+    "",
+    "업무에 노고가 많으십니다.",
+    "",
+    `${formatYearMonthKorean(targetMonth)} ${projectLabel} 현장 XERP 가산공수 지급 증빙자료를 첨부드리오니 확인 부탁드립니다.`,
     "",
     "감사합니다.",
   ].join("\n");

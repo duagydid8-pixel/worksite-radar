@@ -77,6 +77,15 @@ export async function saveEmployeesPH2FS(rows: unknown[]) {
   return fsSet("new_employees_ph2", { rows });
 }
 
+// ── 기술인 및 관리자 명단 — P5-PH1 초순수 ───────────
+export async function loadEmployeesP5PH1FS() {
+  const data = await fsGet<{ rows: unknown[] }>("new_employees_p5_ph1");
+  return data?.rows ?? null;
+}
+export async function saveEmployeesP5PH1FS(rows: unknown[]) {
+  return fsSet("new_employees_p5_ph1", { rows });
+}
+
 // ── 급여대장 수동 결근 입력 ───────────────────────────
 export async function loadManualAbsencesFS(): Promise<ManualAbsence[]> {
   const data = await fsGet<{ rows: ManualAbsence[] }>("payroll_manual_absences");
@@ -93,6 +102,7 @@ export async function saveManualAbsencesFS(rows: ManualAbsence[]): Promise<boole
 
 const XERP_INDEX_DOC = "xerp_pmis_index";
 const XERP_PH2_INDEX_DOC = "xerp_pmis_ph2_index";
+const XERP_P5_PH1_INDEX_DOC = "xerp_pmis_p5_ph1_index";
 
 async function loadXerpByDates(indexDocId: string, datePrefix: string): Promise<Record<string, unknown[]> | null> {
   if (!db) return null;
@@ -161,6 +171,13 @@ export async function loadXerpPH2FS(): Promise<Record<string, unknown[]> | null>
 }
 export async function saveXerpPH2FS(dateMap: Record<string, unknown[]>): Promise<boolean> {
   return saveXerpByDates(XERP_PH2_INDEX_DOC, "xerp_pmis_ph2_date", dateMap);
+}
+
+export async function loadXerpP5PH1FS(): Promise<Record<string, unknown[]> | null> {
+  return loadXerpByDates(XERP_P5_PH1_INDEX_DOC, "xerp_pmis_p5_ph1_date");
+}
+export async function saveXerpP5PH1FS(dateMap: Record<string, unknown[]>): Promise<boolean> {
+  return saveXerpByDates(XERP_P5_PH1_INDEX_DOC, "xerp_pmis_p5_ph1_date", dateMap);
 }
 
 // ── XERP 공수 반영 저장 (날짜별) ─────────────────────

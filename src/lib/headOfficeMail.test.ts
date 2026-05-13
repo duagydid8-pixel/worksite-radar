@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCertificateRows,
+  createExtraWorkMailBody,
+  createExtraWorkMailSubject,
   createCertificateTableHtml,
   createCertificateTableText,
   createMailBody,
   createMailSubject,
   createOrgChartMailBody,
   createOrgChartMailSubject,
+  formatYearMonthKorean,
+  getExtraWorkProjectLabel,
   getOrgChartProjectLabel,
   getRequestSitePhrase,
   MAIL_REQUEST_MENU_OPTIONS,
@@ -41,7 +45,10 @@ describe("head office mail helpers", () => {
 
   it("creates the requested mail subject format", () => {
     expect(createMailSubject("재직증명서", "2026-04-27")).toBe(
-      "평택 P4 초순수 재직증명서요청의 件_2026.04.27",
+      "평택 P4-PH4 초순수 현장 재직증명서요청의 件_2026.04.27",
+    );
+    expect(createMailSubject("재직증명서", "2026-04-27", SITE_OPTIONS[2].value)).toBe(
+      "평택 P5-PH1 초순수 현장 재직증명서요청의 件_2026.04.27",
     );
   });
 
@@ -62,6 +69,17 @@ describe("head office mail helpers", () => {
     );
     expect(createOrgChartMailBody("2026-05-06", SITE_OPTIONS[1].value)).toContain(
       "2026년 5월 P4-PH2 초순수 현장 조직도 송부드립니다.",
+    );
+  });
+
+  it("creates the extra work payment evidence mail for the selected project and month", () => {
+    expect(getExtraWorkProjectLabel(SITE_OPTIONS[0].value)).toBe("P4 PH4 초순수");
+    expect(formatYearMonthKorean("2026-04", true)).toBe("26년 04월");
+    expect(createExtraWorkMailSubject("2026-05-11", "2026-04", SITE_OPTIONS[0].value)).toBe(
+      "평택 P4 PH4 초순수_26년 04월 XERP 가산공수 지급 증빙자료 송부의 件_2026.05.11",
+    );
+    expect(createExtraWorkMailBody("2026-04", SITE_OPTIONS[1].value)).toContain(
+      "2026년 04월 P4 PH2 초순수 현장 XERP 가산공수 지급 증빙자료를 첨부드리오니 확인 부탁드립니다.",
     );
   });
 

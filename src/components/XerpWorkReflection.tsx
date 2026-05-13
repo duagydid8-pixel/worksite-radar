@@ -3,7 +3,7 @@ import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, S
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename, upsertXerpPmisDateList } from "@/lib/xerpPmisDates";
 
 // ── 시간 유틸 ─────────────────────────────────────────
@@ -375,8 +375,12 @@ export function resolveLoadedAdjustment(
   };
 }
 
-function detectSite(filename: string): "PH4" | "PH2" {
-  return filename.toUpperCase().includes("PH2") ? "PH2" : "PH4";
+type XerpSyncSite = "PH4" | "PH2" | "P5PH1";
+
+function detectSite(filename: string): XerpSyncSite {
+  const upper = filename.toUpperCase();
+  if (upper.includes("P5") || upper.includes("PH1")) return "P5PH1";
+  return upper.includes("PH2") ? "PH2" : "PH4";
 }
 
 function today(): string {
@@ -512,7 +516,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [sortDirWR, setSortDirWR] = useState<"asc" | "desc">("asc");
 
   // XERP&PMIS 연동 설정
-  const [syncSite, setSyncSite] = useState<"PH4" | "PH2">("PH4");
+  const [syncSite, setSyncSite] = useState<XerpSyncSite>("PH4");
   const [syncDate, setSyncDate] = useState<string>(today());
   const [xerpDates, setXerpDates] = useState<string[]>([]);
 
@@ -533,7 +537,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
   // 사이트 변경 시 XERP&PMIS 날짜 목록 로드
   useEffect(() => {
-    const loadFn = syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
+    const loadFn = syncSite === "P5PH1" ? loadXerpP5PH1FS : syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
     loadFn().then((dm) => {
       if (dm && typeof dm === "object") {
         const dates = Object.keys(dm).sort().reverse();
@@ -997,8 +1001,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     }
     setIsSyncing(true);
     try {
-      const loadFn = syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
-      const saveFn = syncSite === "PH2" ? saveXerpPH2FS : saveXerpFS;
+      const loadFn = syncSite === "P5PH1" ? loadXerpP5PH1FS : syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
+      const saveFn = syncSite === "P5PH1" ? saveXerpP5PH1FS : syncSite === "PH2" ? saveXerpPH2FS : saveXerpFS;
 
       const dateMap = (await loadFn() as Record<string, unknown[]> | null) ?? {};
 
@@ -1597,11 +1601,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
           <select
             value={syncSite}
-            onChange={(e) => setSyncSite(e.target.value as "PH4" | "PH2")}
+            onChange={(e) => setSyncSite(e.target.value as XerpSyncSite)}
             className="border border-emerald-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none"
           >
             <option value="PH4">P4-PH4</option>
             <option value="PH2">P4-PH2</option>
+            <option value="P5PH1">P5-PH1</option>
           </select>
 
           <input

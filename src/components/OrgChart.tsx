@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
 import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_VERSION, PPT_MEMBER_BORDER_COLORS, PPT_ORG_VERSION } from "@/lib/pptOrgData";
-import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2 } from "lucide-react";
+import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2, RotateCw } from "lucide-react";
 import { toPng } from "html-to-image";
 import pptxgen from "pptxgenjs";
 import JSZip from "jszip";
@@ -29,9 +29,9 @@ const ORG_SITES: Array<{ key: OrgSiteKey; label: string; title: string; docId: s
   { key: "p4-ph4", label: "P4-PH4", title: "P4 PH4 초순수", docId: "org_p4_ph4", date: "26.05.12" },
   { key: "p4-ph2", label: "P4-PH2", title: "P4 PH2 초순수", docId: "org_p4_ph2", date: "26.05.12" },
   { key: "p5-ph1", label: "P5-PH1", title: "P5 PH1 초순수", docId: "org_p5_ph1", date: "26.05.12" },
-  { key: "head-office-p4-ph4", label: "P4-PH4", title: "P4 PH4 초순수", docId: "org_head_office", date: "26.05.06" },
-  { key: "head-office-p4-ph2", label: "P4-PH2", title: "P4 PH2 초순수", docId: "org_head_office", date: "26.05.06" },
-  { key: "head-office-p5-ph1", label: "P5-PH1", title: "P5 PH1 초순수", docId: "org_head_office", date: "26.05.06" },
+  { key: "head-office-p4-ph4", label: "P4-PH4", title: "P4 PH4 초순수", docId: "org_head_office_p4_ph4", date: "26.05.06" },
+  { key: "head-office-p4-ph2", label: "P4-PH2", title: "P4 PH2 초순수", docId: "org_head_office_p4_ph2", date: "26.05.06" },
+  { key: "head-office-p5-ph1", label: "P5-PH1", title: "P5 PH1 초순수", docId: "org_head_office_p5_ph1", date: "26.05.06" },
 ];
 const BASE_TEAMS: OrgTeam[] = [
   { id: "base-team-construction", name: "공사팀", color: "#2563eb", sort_order: 0 },
@@ -100,6 +100,40 @@ function compressImage(file: File, maxPx = 300, quality = 0.88): Promise<string>
     };
     reader.readAsDataURL(file);
   });
+}
+
+async function imageSrcToObjectUrl(src: string): Promise<{ url: string; revoke: () => void }> {
+  if (src.startsWith("data:image/")) return { url: src, revoke: () => undefined };
+  const response = await fetch(src);
+  if (!response.ok) throw new Error("image-load-failed");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  return { url, revoke: () => URL.revokeObjectURL(url) };
+}
+
+async function rotateImageSrc(src: string, degrees = 90): Promise<string> {
+  const { url, revoke } = await imageSrcToObjectUrl(src);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = url;
+    });
+    const normalizedDegrees = ((degrees % 360) + 360) % 360;
+    const swap = normalizedDegrees === 90 || normalizedDegrees === 270;
+    const canvas = document.createElement("canvas");
+    canvas.width = swap ? img.height : img.width;
+    canvas.height = swap ? img.width : img.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas-unavailable");
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((normalizedDegrees * Math.PI) / 180);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    return canvas.toDataURL("image/jpeg", 0.9);
+  } finally {
+    revoke();
+  }
 }
 
 function lighten(hex: string, pct: number) {
@@ -521,6 +555,15 @@ async function exportHeadOfficeTemplatePpt({
 function SiteManagerEditDialog({ info, title, onSave, onClose }: { info: SiteManagerInfo; title: string; onSave: (i: SiteManagerInfo) => void; onClose: () => void }) {
   const [draft, setDraft] = useState<SiteManagerInfo>({ ...info });
   const fileRef = useRef<HTMLInputElement>(null);
+  const handleRotate = async () => {
+    if (!draft.photo_url) return;
+    try {
+      const rotated = await rotateImageSrc(draft.photo_url);
+      setDraft((current) => ({ ...current, photo_url: rotated }));
+    } catch {
+      toast.error("사진 회전 중 오류가 발생했습니다.");
+    }
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -552,12 +595,20 @@ function SiteManagerEditDialog({ info, title, onSave, onClose }: { info: SiteMan
             <div className="flex flex-col gap-1.5">
               <p className="text-xs text-muted-foreground">클릭하여 사진 업로드</p>
               {draft.photo_url && (
-                <button
-                  onClick={() => setDraft((d) => ({ ...d, photo_url: "" }))}
-                  className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
-                >
-                  <X className="h-3 w-3" /> 사진 삭제
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleRotate}
+                    className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                  >
+                    <RotateCw className="h-3 w-3" /> 90도 회전
+                  </button>
+                  <button
+                    onClick={() => setDraft((d) => ({ ...d, photo_url: "" }))}
+                    className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
+                  >
+                    <X className="h-3 w-3" /> 사진 삭제
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -589,6 +640,15 @@ function EditDialog({ member, onSave, onClose, onPhotoUpload, onPhotoRemove, upl
   useEffect(() => {
     setDraft((current) => ({ ...current, photo_url: member.photo_url }));
   }, [member.photo_url]);
+  const handleRotate = async () => {
+    if (!draft.photo_url) return;
+    try {
+      const rotated = await rotateImageSrc(draft.photo_url);
+      setDraft((current) => ({ ...current, photo_url: rotated }));
+    } catch {
+      toast.error("사진 회전 중 오류가 발생했습니다.");
+    }
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -622,12 +682,20 @@ function EditDialog({ member, onSave, onClose, onPhotoUpload, onPhotoRemove, upl
             <div className="flex flex-col gap-1.5">
               <p className="text-xs text-muted-foreground">클릭하여 사진 업로드</p>
               {draft.photo_url && (
-                <button
-                  onClick={() => { onPhotoRemove(draft.id); setDraft((d) => ({ ...d, photo_url: "" })); }}
-                  className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
-                >
-                  <X className="h-3 w-3" /> 사진 삭제
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleRotate}
+                    className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 font-medium transition-colors"
+                  >
+                    <RotateCw className="h-3 w-3" /> 90도 회전
+                  </button>
+                  <button
+                    onClick={() => { onPhotoRemove(draft.id); setDraft((d) => ({ ...d, photo_url: "" })); }}
+                    className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-700 font-medium transition-colors"
+                  >
+                    <X className="h-3 w-3" /> 사진 삭제
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -757,6 +825,9 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
     loadOrgFS(activeSite.docId).then(async (data) => {
       if (activeSite.key === "p4-ph4" && !data) {
         data = await loadOrgFS("org");
+      }
+      if (activeSite.key === "head-office-p4-ph4" && !data) {
+        data = await loadOrgFS("org_head_office");
       }
       if (data && Array.isArray((data as OrgData).teams) && (data as OrgData).teams.length > 0 && (data as OrgData).orgSourceVersion === expectedOrgSourceVersion) {
         const d = data as OrgData;
