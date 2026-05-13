@@ -21,7 +21,7 @@ export interface RcmDraftImageStatus {
   port: number;
 }
 
-const DEFAULT_RCM_SERVER_URL = "http://127.0.0.1:8791";
+export const DEFAULT_RCM_SERVER_URL = "http://127.0.0.1:8791";
 const RCM_SERVER_URL_KEY = "rcm-server-url";
 
 export function getRcmServerUrl(): string {
