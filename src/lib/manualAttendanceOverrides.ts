@@ -118,13 +118,14 @@ export function applyManualAttendanceOverrides(
     const existingRecord = employee.dailyRecords[date.recordKey] ?? { punchIn: null, punchOut: null };
 
     if (override.status === "연차") {
+      const reason = override.note ? `수동 연차: ${override.note}` : "수동 연차";
       next.annualLeaveMap[override.name] = {
         ...(next.annualLeaveMap[override.name] ?? {}),
         [date.leaveKey]: true,
       };
       employee.dailyRecords[date.recordKey] = { punchIn: null, punchOut: null, status: "연차" };
       employee.totalDays = Object.keys(employee.dailyRecords).length;
-      next.leaveDetails.push({ ...date, name: override.name, days: 1, reason: override.note || "수동 연차" });
+      next.leaveDetails.push({ ...date, name: override.name, days: 1, reason });
       continue;
     }
 

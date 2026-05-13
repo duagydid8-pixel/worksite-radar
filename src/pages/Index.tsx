@@ -243,13 +243,26 @@ function removeAnnualLeaveForNames(data: ParsedData, excludedNames: Set<string>)
   if (excludedNames.size === 0) return data;
   const normalizedExcludedNames = new Set([...excludedNames].map(normalizeEmployeeName));
   const keepName = (name: string) => !normalizedExcludedNames.has(normalizeEmployeeName(name));
+  const keepLeaveDetail = (detail: ParsedData["leaveDetails"][number]) =>
+    keepName(detail.name) || detail.reason.startsWith("수동 연차");
+  const leaveDetails = data.leaveDetails.filter(keepLeaveDetail);
+  const annualLeaveMap = Object.fromEntries(
+    Object.entries(data.annualLeaveMap).filter(([name]) => keepName(name))
+  );
+
+  for (const detail of leaveDetails) {
+    if (!detail.reason.startsWith("수동 연차")) continue;
+    annualLeaveMap[detail.name] = {
+      ...(annualLeaveMap[detail.name] ?? {}),
+      [`${detail.year}|${detail.month}|${detail.day}`]: true,
+    };
+  }
+
   return {
     ...data,
-    annualLeaveMap: Object.fromEntries(
-      Object.entries(data.annualLeaveMap).filter(([name]) => keepName(name))
-    ),
+    annualLeaveMap,
     leaveEmployees: data.leaveEmployees.filter((employee) => keepName(employee.name)),
-    leaveDetails: data.leaveDetails.filter((detail) => keepName(detail.name)),
+    leaveDetails,
   };
 }
 
