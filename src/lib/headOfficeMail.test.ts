@@ -5,6 +5,8 @@ import {
   createCertificateTableText,
   createMailBody,
   createMailSubject,
+  createOrgChartMailBody,
+  createOrgChartMailSubject,
   getRequestSitePhrase,
   MAIL_REQUEST_MENU_OPTIONS,
   resolveCertificateName,
@@ -40,6 +42,16 @@ describe("head office mail helpers", () => {
     expect(createMailSubject("재직증명서", "2026-04-27")).toBe(
       "평택 P4 초순수 재직증명서요청의 件_2026.04.27",
     );
+  });
+
+  it("creates the org chart send mail subject and body", () => {
+    expect(createOrgChartMailSubject("2026-05-06")).toBe(
+      "[초순수파트] 사업1팀_P4-PH4 초순수 현장 조직도 송부의 件_26.05.06",
+    );
+    expect(createOrgChartMailBody("2026-05-06")).not.toContain("수신 : 수신처 제외");
+    expect(createOrgChartMailBody("2026-05-06")).not.toContain("참조 : 참조처 제외");
+    expect(createOrgChartMailBody("2026-05-06")).not.toContain("발신 : 염효양 사원/초순수파트");
+    expect(createOrgChartMailBody("2026-05-06")).toContain("2026년 5월 P4-PH4 초순수 현장 조직도 송부드립니다.");
   });
 
   it("creates the request body using selected site and certificate", () => {

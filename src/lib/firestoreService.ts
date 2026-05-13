@@ -45,11 +45,11 @@ async function fsSet(docId: string, data: object): Promise<boolean> {
 }
 
 // ── 조직도 ──────────────────────────────────────────
-export async function loadOrgFS() {
-  return fsGet<{ teams: unknown[]; members: unknown[]; siteManager?: unknown }>("org");
+export async function loadOrgFS(docId = "org") {
+  return fsGet<{ teams: unknown[]; members: unknown[]; siteManager?: unknown }>(docId);
 }
-export async function saveOrgFS(data: object) {
-  return fsSet("org", data);
+export async function saveOrgFS(data: object, docId = "org") {
+  return fsSet(docId, data);
 }
 
 // ── 기술인 및 관리자 명단 — P4-PH4 초순수 ───────────

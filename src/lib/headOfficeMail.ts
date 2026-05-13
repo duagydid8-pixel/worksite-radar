@@ -111,6 +111,31 @@ export function createMailBody(certificateName: string, siteName: string): strin
   ].join("\n");
 }
 
+export function createOrgChartMailSubject(requestDate: string): string {
+  return `[초순수파트] 사업1팀_P4-PH4 초순수 현장 조직도 송부의 件_${formatDateDots(requestDate).slice(2)}`;
+}
+
+export function createOrgChartMailBody(requestDate: string): string {
+  const dateParts = formatDateDots(requestDate).match(/^(\d{4})\.(\d{2})\./);
+  const year = dateParts?.[1] ?? new Date().getFullYear();
+  const month = dateParts?.[2] ?? "";
+  const monthLabel = month ? `${Number(month)}월 ` : "";
+
+  return [
+    "안녕하세요.",
+    "",
+    "평택 현장 P4 초순수 염효양 선임입니다.",
+    "",
+    "업무에 노고가 많으십니다.",
+    "",
+    `${year}년 ${monthLabel}P4-PH4 초순수 현장 조직도 송부드립니다.`,
+    "",
+    "문의 사항은 연락 부탁드립니다.",
+    "",
+    "감사합니다.",
+  ].join("\n");
+}
+
 export function buildCertificateRows(
   names: string[],
   employees: unknown[],

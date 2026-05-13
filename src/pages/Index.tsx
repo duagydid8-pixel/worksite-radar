@@ -75,13 +75,13 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
 }
 
 type TeamFilter = "전체" | "한성" | "태화" | "현채";
-type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
+type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔";
 
 const ATTENDANCE_SUB_TABS: AttendanceSubTab[] = ["근태현황", "연차현황"];
 const PAYROLL_SUB_TABS: { value: PayrollSubTab; label: string; icon: React.ReactNode }[] = [
-  { value: "급여대장보정", label: "경비 업로드", icon: <BookText className="h-3.5 w-3.5" /> },
+  { value: "급여대장보정", label: "공수자동보정", icon: <BookText className="h-3.5 w-3.5" /> },
   { value: "추가공수스캔", label: "추가공수 스캔추출", icon: <ScanText className="h-3.5 w-3.5" /> },
 ];
 
@@ -98,6 +98,7 @@ const NAV_PUBLIC: NavItem[] = [
   { key: "홈", label: "홈", icon: <Home className="h-4 w-4" />, adminOnly: false },
   { key: "근태관리", label: "근태관리", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
   { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
+  { key: "본사송부용", label: "본사 송부용", icon: <Mail className="h-4 w-4" />, adminOnly: false },
 ];
 
 const NAV_ADMIN: NavItem[] = [
@@ -105,17 +106,21 @@ const NAV_ADMIN: NavItem[] = [
   { key: "주간일정", label: "주간일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
   { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
-  { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: true },
-  { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: true },
-  { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: true },
-  { key: "급여대장", label: "급여대장", icon: <BookText className="h-4 w-4" />, adminOnly: true },
 ];
 
 const NAV_SEMI_PUBLIC: NavItem[] = [
   { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: false },
 ];
 
-const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN];
+const HEAD_OFFICE_NAV: NavItem[] = [
+  { key: "조직도송부", label: "조직도 송부 PPT", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
+  { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: true },
+  { key: "급여대장", label: "급여대장", icon: <BookText className="h-4 w-4" />, adminOnly: true },
+  { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: true },
+  { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: true },
+];
+
+const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN, ...HEAD_OFFICE_NAV];
 const ADMIN_TOP_NAV_KEY = "__admin";
 const ADMIN_TODO_HIDE_PREFIX = "admin_todo_hidden_";
 const ADMIN_DAILY_TASKS_PREFIX = "admin_daily_tasks_";
@@ -700,8 +705,9 @@ const Index = () => {
       toast.error("관리자 로그인이 필요합니다.");
       return;
     }
+    const nextTab = key === "본사송부용" ? "조직도송부" : key;
     setAdminMenuOpen(false);
-    setActiveTab(key);
+    setActiveTab(nextTab);
     setSearchQuery("");
   };
 
@@ -896,6 +902,7 @@ const Index = () => {
   }, [isAdmin]);
 
   const primaryNavItems = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC];
+  const isHeadOfficeSection = activeTab === "본사송부용" || HEAD_OFFICE_NAV.some((item) => item.key === activeTab);
   const activeAdminItem = NAV_ADMIN.find((item) => item.key === activeTab);
   const isAdminSection = Boolean(activeAdminItem);
   const activePrimarySubnavKey = activeTab === "근태관리" ? activeTab : null;
@@ -920,9 +927,11 @@ const Index = () => {
     const primaryLeft = activePrimarySubnavKey
       ? measureLeft(findByData("[data-nav-key]", "navKey", activePrimarySubnavKey))
       : null;
-    const nestedLeft = activeNestedSubnavKey
-      ? measureLeft(findByData("[data-admin-key]", "adminKey", activeNestedSubnavKey))
-      : null;
+    const nestedLeft = isHeadOfficeSection
+      ? measureLeft(findByData("[data-nav-key]", "navKey", "본사송부용"))
+      : activeNestedSubnavKey
+        ? measureLeft(findByData("[data-admin-key]", "adminKey", activeNestedSubnavKey))
+        : null;
 
     setSubnavOffsets((current) => {
       const next = {
@@ -934,7 +943,7 @@ const Index = () => {
         ? current
         : next;
     });
-  }, [activeNestedSubnavKey, activePrimarySubnavKey]);
+  }, [activeNestedSubnavKey, activePrimarySubnavKey, isHeadOfficeSection]);
 
   useLayoutEffect(() => {
     updateSubnavOffsets();
@@ -1300,7 +1309,7 @@ const Index = () => {
 
           <nav className="ops-topnav" aria-label="주요 메뉴">
             {primaryNavItems.map(({ key, label, icon }) => {
-              const isActive = activeTab === key;
+              const isActive = activeTab === key || (key === "본사송부용" && isHeadOfficeSection);
               return (
                 <button
                   key={key}
@@ -1391,6 +1400,22 @@ const Index = () => {
                 className={attendanceSubTab === tab ? "is-active" : ""}
               >
                 {tab}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isHeadOfficeSection && (
+          <div className="ops-subbar ops-subbar-nested">
+            {HEAD_OFFICE_NAV.map(({ key, label, icon, adminOnly }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => handleNavClick(key, adminOnly)}
+                className={activeTab === key ? "is-active" : ""}
+              >
+                {icon}
+                <span>{label}</span>
               </button>
             ))}
           </div>
@@ -1859,7 +1884,15 @@ const Index = () => {
         {activeTab === "조직도" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
-              <LazyOrgChart />
+              <LazyOrgChart initialSiteKey="p4-ph4" />
+            </LazyPanel>
+          </div>
+        )}
+
+        {activeTab === "조직도송부" && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+            <LazyPanel>
+              <LazyOrgChart initialSiteKey="head-office-p4-ph4" showSiteTabs={false} />
             </LazyPanel>
           </div>
         )}

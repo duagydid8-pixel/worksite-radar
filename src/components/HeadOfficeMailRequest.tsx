@@ -9,6 +9,8 @@ import {
   createCertificateTableText,
   createMailBody,
   createMailSubject,
+  createOrgChartMailBody,
+  createOrgChartMailSubject,
   MAIL_REQUEST_MENU_OPTIONS,
   resolveCertificateName,
   SITE_OPTIONS,
@@ -126,6 +128,14 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
     () => createCertificateTableHtml(certificateName, rows),
     [certificateName, rows],
   );
+  const orgChartMailSubject = useMemo(
+    () => createOrgChartMailSubject(requestDate),
+    [requestDate],
+  );
+  const orgChartMailBody = useMemo(
+    () => createOrgChartMailBody(requestDate),
+    [requestDate],
+  );
 
   const employeeCount = employees.filter((employee) => employeeName(employee)).length;
   const activeMenuLabel = MAIL_REQUEST_MENU_OPTIONS.find((option) => option.value === activeMenu)?.label ?? "증명서";
@@ -151,6 +161,16 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
     } catch {
       toast.error("표 복사 중 오류가 발생했습니다.");
     }
+  };
+
+  const handleCopyOrgChartSubject = async () => {
+    await navigator.clipboard.writeText(orgChartMailSubject);
+    toast.success("조직도 송부메일 제목을 복사했습니다.");
+  };
+
+  const handleCopyOrgChartBody = async () => {
+    await navigator.clipboard.writeText(orgChartMailBody);
+    toast.success("조직도 송부메일 본문을 복사했습니다.");
   };
 
   return (
@@ -385,6 +405,57 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
           </div>
         </section>
       </div>
+      ) : activeMenu === "orgChart" ? (
+        <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-500">송부일</label>
+              <input
+                type="date"
+                value={requestDate}
+                onChange={(e) => setRequestDate(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-slate-400"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={handleCopyOrgChartSubject}
+                className="flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-800 transition-colors hover:bg-slate-50"
+              >
+                <Clipboard className="h-4 w-4 text-slate-400" />
+                제목 복사
+              </button>
+              <button
+                onClick={handleCopyOrgChartBody}
+                className="flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-900 text-sm font-extrabold text-white transition-colors hover:bg-slate-700"
+              >
+                <Clipboard className="h-4 w-4" />
+                본문 복사
+              </button>
+            </div>
+
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold leading-5 text-blue-700">
+              첨부파일은 `조직도 송부` 메뉴에서 PPT 다운로드한 파일을 첨부하면 됩니다.
+            </div>
+          </section>
+
+          <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <p className="mb-1 text-xs font-bold text-slate-500">메일 제목</p>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-extrabold text-slate-950">
+                {orgChartMailSubject}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-1 text-xs font-bold text-slate-500">메일 본문</p>
+              <div className="whitespace-pre-line rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold leading-7 text-slate-900">
+                {orgChartMailBody}
+              </div>
+            </div>
+          </section>
+        </div>
       ) : (
         <PreparingPanel title={activeMenuLabel} />
       )}
