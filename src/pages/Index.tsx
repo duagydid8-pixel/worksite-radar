@@ -120,11 +120,11 @@ const NAV_SEMI_PUBLIC: NavItem[] = [
 
 const HEAD_OFFICE_NAV: NavItem[] = [
   { key: "조직도송부", label: "조직도 송부 PPT", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
-  { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: true },
-  { key: "급여대장", label: "급여대장", icon: <BookText className="h-4 w-4" />, adminOnly: true },
-  { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: true },
-  { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: true },
-  { key: "RCM기안서송부", label: "RCM 기안서 송부", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: true },
+  { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: false },
+  { key: "급여대장", label: "급여대장", icon: <BookText className="h-4 w-4" />, adminOnly: false },
+  { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: false },
+  { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: false },
+  { key: "RCM기안서송부", label: "RCM 기안서 송부", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: false },
 ];
 
 const NAV_ITEMS: NavItem[] = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC, ...NAV_ADMIN, ...HEAD_OFFICE_NAV];
@@ -1441,7 +1441,7 @@ const Index = () => {
           </div>
         )}
 
-        {activeTab === "본사메일송부" && isAdmin && (
+        {activeTab === "본사메일송부" && (
           <div className="ops-subbar ops-subbar-nested">
             {MAIL_REQUEST_MENU_OPTIONS.map((option) => (
               <button
@@ -1456,7 +1456,7 @@ const Index = () => {
           </div>
         )}
 
-        {activeTab === "급여대장" && isAdmin && (
+        {activeTab === "급여대장" && (
           <div className="ops-subbar ops-subbar-nested">
             {PAYROLL_SUB_TABS.map((option) => (
               <button
@@ -2011,7 +2011,7 @@ const Index = () => {
           )}
 
           {/* 본사 메일송부 */}
-          {activeTab === "본사메일송부" && isAdmin && (
+          {activeTab === "본사메일송부" && (
             <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
               <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm md:hidden">
                 <div className="grid grid-cols-3 gap-1">
@@ -2037,28 +2037,28 @@ const Index = () => {
           )}
 
           {/* PDF 분리 도구 */}
-          {activeTab === "PDF분리" && isAdmin && (
+          {activeTab === "PDF분리" && (
             <LazyPanel>
               <LazyPdfSplitter />
             </LazyPanel>
           )}
 
           {/* 지출결의서 */}
-          {activeTab === "지출결의서" && isAdmin && (
+          {activeTab === "지출결의서" && (
             <LazyPanel>
               <LazyExpenseReportTab isAdmin={isAdmin} />
             </LazyPanel>
           )}
 
           {/* RCM 기안서 송부 */}
-          {activeTab === "RCM기안서송부" && isAdmin && (
+          {activeTab === "RCM기안서송부" && (
             <LazyPanel>
               <LazyRcmDraftImageExport />
             </LazyPanel>
           )}
 
           {/* 급여대장 */}
-          {activeTab === "급여대장" && isAdmin && (
+          {activeTab === "급여대장" && (
             <div>
               <div className="p-4 pb-0 md:hidden">
                 <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
