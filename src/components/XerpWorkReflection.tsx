@@ -3,7 +3,8 @@ import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, S
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename, upsertXerpPmisDateList } from "@/lib/xerpPmisDates";
 
 // ── 시간 유틸 ─────────────────────────────────────────
@@ -496,6 +497,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [editingReason, setEditingReason] = useState("");
   const [showSpecialList, setShowSpecialList] = useState(false);
   const [showEarlyLeaveList, setShowEarlyLeaveList] = useState(false);
+  const [showOutingList, setShowOutingList] = useState(false);
+  const [pmisOutings, setPmisOutings] = useState<{ name: string; 범주: string; 직종: string; outings: { outTime: string; inTime: string | null }[]; hasUnreturned: boolean }[]>([]);
   const [showNewEmpList, setShowNewEmpList] = useState(false);
   const [newEmpData, setNewEmpData] = useState<Map<string, NewEmpInfo>>(new Map());
   const [newEmpFileName, setNewEmpFileName] = useState<string | null>(null);
@@ -564,6 +567,40 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
   // workDate 변경 시 선택 초기화
   useEffect(() => { setSelectedIdxes(new Set()); }, [workDate]);
+
+  // PMIS 외출 명단 로드
+  useEffect(() => {
+    if (!workDate) { setPmisOutings([]); return; }
+    loadPmisLogFS(syncSite, workDate).then((raw) => {
+      const d = raw as ParsedPmisData | null;
+      if (!d?.logs?.length) { setPmisOutings([]); return; }
+      const byPerson = new Map<string, { logs: LogRow[]; 범주: string; 직종: string }>();
+      for (const log of d.logs) {
+        if (!byPerson.has(log.이름)) byPerson.set(log.이름, { logs: [], 범주: log.범주, 직종: log.직종 });
+        byPerson.get(log.이름)!.logs.push(log);
+      }
+      const result: typeof pmisOutings = [];
+      for (const [name, { logs: events, 범주, 직종 }] of byPerson) {
+        events.sort((a, b) => a.시간.localeCompare(b.시간));
+        const outings: { outTime: string; inTime: string | null }[] = [];
+        let currentOut: string | null = null;
+        for (let i = 0; i < events.length; i++) {
+          const e = events[i];
+          const isLast = i === events.length - 1;
+          if (e.구분 === "IN") {
+            if (currentOut !== null) { outings.push({ outTime: currentOut, inTime: e.시간 }); currentOut = null; }
+          } else if (e.구분 === "OUT" && !isLast) {
+            if (currentOut === null) currentOut = e.시간;
+          }
+        }
+        const hasUnreturned = currentOut !== null;
+        if (hasUnreturned) outings.push({ outTime: currentOut!, inTime: null });
+        if (outings.length > 0) result.push({ name, 범주, 직종, outings, hasUnreturned });
+      }
+      result.sort((a, b) => a.name.localeCompare(b.name));
+      setPmisOutings(result);
+    }).catch(() => setPmisOutings([]));
+  }, [workDate, syncSite]);
 
   // 신규자 명단 날짜별 로드 헬퍼 — 로드된 Map 반환
   const loadNewEmpForDate = async (date: string): Promise<Map<string, NewEmpInfo>> => {
@@ -1513,6 +1550,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             )}
 
             <button
+              onClick={() => setShowOutingList((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                pmisOutings.length > 0
+                  ? "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                  : "border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100"
+              }`}
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              PMIS 외출 {pmisOutings.length > 0 ? `${pmisOutings.length}명` : "(없음)"}
+            </button>
+
+            <button
               onClick={handleSave}
               disabled={isSaving}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
@@ -1790,6 +1839,53 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           </div>
         );
       })()}
+
+      {/* PMIS 외출 명단 패널 */}
+      {showOutingList && (
+        <div className="rounded-xl border border-violet-200 bg-white shadow-sm overflow-hidden shrink-0">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-violet-50 border-b border-violet-200">
+            <span className="text-xs font-bold text-violet-700 flex items-center gap-1.5">
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              PMIS 외출 명단 — {workDate} / {syncSite}
+              {pmisOutings.length === 0 && <span className="text-violet-400 font-normal ml-1">(데이터 없음 — PMIS IN/OUT 먼저 저장 필요)</span>}
+            </span>
+            <button onClick={() => setShowOutingList(false)} className="text-violet-400 hover:text-violet-700">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {pmisOutings.length > 0 && (
+            <div className="overflow-auto" style={{ maxHeight: "300px" }}>
+              <table className="min-w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-violet-200">
+                    {["범주", "성명", "직종", "외출시간", "복귀시간", "상태"].map((h) => (
+                      <th key={h} className="px-2 py-2 text-[11px] font-semibold text-center bg-violet-100 border-r border-violet-200 last:border-r-0 sticky top-0 z-10 whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pmisOutings.flatMap((p) =>
+                    p.outings.map((o, oi) => (
+                      <tr key={`${p.name}-${oi}`} className="border-b border-violet-100 last:border-0">
+                        <td className="px-2 py-1.5 text-xs text-center text-muted-foreground border-r border-violet-100 whitespace-nowrap">{oi === 0 ? p.범주 : ""}</td>
+                        <td className="px-2 py-1.5 text-xs text-center font-semibold border-r border-violet-100 whitespace-nowrap">{oi === 0 ? p.name : ""}</td>
+                        <td className="px-2 py-1.5 text-xs text-center text-muted-foreground border-r border-violet-100 whitespace-nowrap">{oi === 0 ? p.직종 : ""}</td>
+                        <td className="px-2 py-1.5 text-xs text-center tabular-nums text-orange-600 font-semibold border-r border-violet-100">{o.outTime}</td>
+                        <td className="px-2 py-1.5 text-xs text-center tabular-nums text-emerald-600 font-semibold border-r border-violet-100">{o.inTime ?? "—"}</td>
+                        <td className="px-2 py-1.5 text-xs text-center whitespace-nowrap">
+                          {o.inTime === null
+                            ? <span className="text-rose-500 font-bold">미복귀</span>
+                            : <span className="text-emerald-600">복귀</span>}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 검색창 + 정기안전교육 + 정렬 + 범례 */}
       {rows.length > 0 && (
