@@ -148,6 +148,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
           <LazyPanel>
             <LazyPmisInOutLogTab
               key={selectedSite}
+              site={selectedSite}
               data={pmisDataBySite[selectedSite] ?? null}
               onDataLoaded={handlePmisDataLoaded}
               onClear={handlePmisClear}

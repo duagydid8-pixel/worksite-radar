@@ -457,3 +457,39 @@ export function subscribeScheduleFS(
     () => callback(null),
   );
 }
+
+// ── PMIS IN/OUT 로그 (일별, 사이트별) ────────────────
+const PMIS_LOG_PREFIX: Record<string, string> = {
+  PH4: "pmis_log_ph4",
+  PH2: "pmis_log_ph2",
+  P5PH1: "pmis_log_p5ph1",
+};
+
+export async function savePmisLogFS(site: string, date: string, data: unknown): Promise<boolean> {
+  const prefix = PMIS_LOG_PREFIX[site] ?? "pmis_log_ph4";
+  const ok = await fsSet(`${prefix}_${date}`, { data, savedAt: new Date().toISOString() });
+  if (!ok) return false;
+  const index = (await fsGet<{ dates: string[] }>(`${prefix}_index`)) ?? { dates: [] };
+  const dates = Array.from(new Set([...index.dates, date])).sort().reverse();
+  return fsSet(`${prefix}_index`, { dates });
+}
+
+export async function loadPmisLogFS(site: string, date: string): Promise<unknown | null> {
+  const prefix = PMIS_LOG_PREFIX[site] ?? "pmis_log_ph4";
+  const doc = await fsGet<{ data: unknown }>(`${prefix}_${date}`);
+  return doc?.data ?? null;
+}
+
+export async function listPmisLogDatesFS(site: string): Promise<string[]> {
+  const prefix = PMIS_LOG_PREFIX[site] ?? "pmis_log_ph4";
+  const index = await fsGet<{ dates: string[] }>(`${prefix}_index`);
+  return index?.dates ?? [];
+}
+
+export async function deletePmisLogFS(site: string, date: string): Promise<boolean> {
+  const prefix = PMIS_LOG_PREFIX[site] ?? "pmis_log_ph4";
+  const index = (await fsGet<{ dates: string[] }>(`${prefix}_index`)) ?? { dates: [] };
+  const dates = index.dates.filter((d) => d !== date);
+  await fsSet(`${prefix}_index`, { dates });
+  return fsSet(`${prefix}_${date}`, { data: null, deleted: true });
+}

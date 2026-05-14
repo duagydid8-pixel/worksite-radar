@@ -1,7 +1,9 @@
-import { useRef, useState, useMemo } from "react";
+import { useRef, useState, useMemo, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { Upload, FileSpreadsheet, Search, X, LogIn, LogOut, Users, AlertTriangle, ArrowRight, Clock } from "lucide-react";
+import { FileSpreadsheet, Search, X, LogIn, LogOut, Users, AlertTriangle, ArrowRight, Clock, HelpCircle, Trash2, CalendarDays, Save } from "lucide-react";
 import { toast } from "sonner";
+import { savePmisLogFS, loadPmisLogFS, listPmisLogDatesFS, deletePmisLogFS } from "@/lib/firestoreService";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export interface PersonRow {
   이름: string;
@@ -200,24 +202,63 @@ function parseXlsx(file: File): Promise<ParsedPmisData> {
 type ViewMode = "persons" | "outings" | "logs";
 
 interface Props {
+  site: string;
   data: ParsedPmisData | null;
   onDataLoaded: (d: ParsedPmisData) => void;
   onClear: () => void;
   xerpNames?: Set<string> | null;
 }
 
-export default function PmisInOutLogTab({ data, onDataLoaded, onClear, xerpNames }: Props) {
+export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xerpNames }: Props) {
   const [dragActive, setDragActive] = useState(false);
   const [view, setView] = useState<ViewMode>("persons");
   const [search, setSearch] = useState("");
   const [outingsOnly, setOutingsOnly] = useState(true);
   const [hideNonXerp, setHideNonXerp] = useState(false);
+  const [savedDates, setSavedDates] = useState<string[]>([]);
+  const [showManual, setShowManual] = useState(false);
+  const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    listPmisLogDatesFS(site).then(setSavedDates).catch(() => {});
+  }, [site]);
 
   const isInXerp = (name: string) => !xerpNames || !hideNonXerp || xerpNames.has(name);
   const nonXerpCount = xerpNames && data
     ? data.persons.filter((p) => !xerpNames.has(p.이름)).length
     : 0;
+
+  const handleSave = async () => {
+    if (!data) return;
+    setSaving(true);
+    const ok = await savePmisLogFS(site, data.dateLabel, data);
+    setSaving(false);
+    if (ok) {
+      setSavedDates((prev) => Array.from(new Set([data.dateLabel, ...prev])).sort().reverse());
+      toast.success(`${data.dateLabel} 저장 완료`);
+    } else {
+      toast.error("저장 실패");
+    }
+  };
+
+  const handleLoadDate = async (date: string) => {
+    const loaded = await loadPmisLogFS(site, date);
+    if (loaded) {
+      onDataLoaded(loaded as ParsedPmisData);
+      setSearch("");
+      toast.success(`${date} 로드 완료`);
+    } else {
+      toast.error("데이터를 불러올 수 없습니다.");
+    }
+  };
+
+  const handleDeleteDate = async (date: string) => {
+    await deletePmisLogFS(site, date);
+    setSavedDates((prev) => prev.filter((d) => d !== date));
+    if (data?.dateLabel === date) onClear();
+    toast.success(`${date} 삭제됨`);
+  };
 
   const handleFile = async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".xlsx")) {
@@ -260,9 +301,102 @@ export default function PmisInOutLogTab({ data, onDataLoaded, onClear, xerpNames
     return list;
   }, [personDetails, outingsOnly, search, hideNonXerp, xerpNames]);
 
+  const ManualDialog = () => (
+    <Dialog open={showManual} onOpenChange={setShowManual}>
+      <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-base font-black">PMIS 콘솔 추출 가이드</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
+            <p className="font-black text-slate-800">① 준비</p>
+            <ol className="list-decimal list-inside space-y-1 text-slate-600 font-semibold">
+              <li>Chrome에서 <span className="font-mono text-xs bg-white border border-slate-200 px-1 rounded">sena.doallpmis.com</span> 로그인</li>
+              <li>인력관리 → 일일 출역현황 → <strong>일일 출역현황 상세</strong></li>
+              <li>날짜를 원하는 날짜로 변경 후 조회 클릭</li>
+            </ol>
+          </div>
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
+            <p className="font-black text-slate-800">② 함수 로드 (F12 → Console)</p>
+            <p className="text-slate-600 font-semibold">아래 경로 파일을 메모장으로 열어 <strong>전체 복사(Ctrl+A → Ctrl+C)</strong></p>
+            <code className="block text-xs bg-white border border-slate-200 p-2 rounded break-all">
+              C:\Users\bongryong\worksite-radar\outputs\pmis_loader.js
+            </code>
+            <p className="text-slate-600 font-semibold">콘솔에 <strong>Ctrl+V → Enter</strong></p>
+            <p className="text-xs text-emerald-700 font-bold">✓ "OK v6: collectAllPages / ..." 메시지 확인</p>
+          </div>
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
+            <p className="font-black text-slate-800">③ 순서대로 실행</p>
+            <div className="space-y-2">
+              {[
+                { step: "전체 페이지 수집 (자동, ~20초)", code: "await collectAllPages()" },
+                { step: "프로젝트 코드 확인", code: "getPjtCd()" },
+                { step: "IN/OUT 데이터 수집 (날짜·코드 맞게 수정)", code: 'await fetchAllInOut("2026-05-13", "SECLP00002")' },
+                { step: "파싱", code: "parseAndJoin()" },
+                { step: "CSV 다운로드", code: 'downloadCsv("inout_log_2026-05-13.csv")' },
+              ].map(({ step, code }, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-black flex items-center justify-center">{i + 1}</span>
+                  <div>
+                    <p className="font-semibold text-slate-700">{step}</p>
+                    <code className="text-xs bg-white border border-slate-200 px-2 py-0.5 rounded block mt-0.5">{code}</code>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
+            <p className="font-black text-slate-800">④ 엑셀 변환 (Claude Code 터미널)</p>
+            <code className="block text-xs bg-white border border-slate-200 p-2 rounded break-all">
+              python "C:\Users\bongryong\skills\sena-pmis-inout-log\scripts\build_xlsx.py" "C:\Users\bongryong\worksite-radar\outputs\inout_log_YYYY-MM-DD.csv" "C:\Users\bongryong\worksite-radar\outputs\일일출역로그_YYYY-MM-DD.xlsx" "YYYY-MM-DD"
+            </code>
+          </div>
+          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+            <p className="font-black text-amber-800">주의</p>
+            <ul className="list-disc list-inside text-amber-700 text-xs font-semibold space-y-1 mt-1">
+              <li>allow pasting 입력 후 Enter해야 붙여넣기 가능</li>
+              <li>비밀번호는 직접 입력 (절대 저장/공유 금지)</li>
+              <li>날짜 바꿀 때마다 collectAllPages() 다시 실행</li>
+            </ul>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (!data) {
     return (
-      <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+      <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-4">
+        <ManualDialog />
+        {/* 저장된 날짜 목록 */}
+        {savedDates.length > 0 && (
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-4">
+            <p className="text-xs font-extrabold text-slate-600 mb-2 flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5" /> 저장된 날짜
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {savedDates.map((date) => (
+                <div key={date} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => void handleLoadDate(date)}
+                    className="text-xs font-bold text-slate-800 hover:text-blue-600"
+                  >
+                    {date}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteDate(date)}
+                    className="text-slate-300 hover:text-red-500"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* 업로드 영역 */}
         <div
           onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
           onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
@@ -274,7 +408,7 @@ export default function PmisInOutLogTab({ data, onDataLoaded, onClear, xerpNames
             if (file) void handleFile(file);
           }}
           onClick={() => inputRef.current?.click()}
-          className={`flex min-h-[320px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
+          className={`flex min-h-[240px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
             dragActive ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50"
           }`}
         >
@@ -286,8 +420,15 @@ export default function PmisInOutLogTab({ data, onDataLoaded, onClear, xerpNames
           <FileSpreadsheet className="h-12 w-12 text-slate-400" />
           <p className="mt-4 text-base font-black text-slate-800">PMIS 출역 IN/OUT 로그 업로드</p>
           <p className="mt-1 text-sm font-semibold text-slate-500">
-            스킬로 생성한 <span className="font-mono">일일출역로그_YYYY-MM-DD.xlsx</span> 파일을 끌어다 놓거나 클릭
+            <span className="font-mono">일일출역로그_YYYY-MM-DD.xlsx</span> 파일을 끌어다 놓거나 클릭
           </p>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setShowManual(true); }}
+            className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-blue-600"
+          >
+            <HelpCircle className="h-4 w-4" /> 콘솔 추출 방법
+          </button>
         </div>
       </div>
     );
@@ -295,6 +436,7 @@ export default function PmisInOutLogTab({ data, onDataLoaded, onClear, xerpNames
 
   return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-4">
+      <ManualDialog />
       {/* 헤더 */}
       <div className="flex flex-wrap items-center gap-3">
         <div>
@@ -332,6 +474,21 @@ export default function PmisInOutLogTab({ data, onDataLoaded, onClear, xerpNames
               XERP 미등록 {nonXerpCount}명 {hideNonXerp ? "숨김중" : "숨기기"}
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+          >
+            <Save className="h-3.5 w-3.5" /> {saving ? "저장중..." : "저장"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowManual(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-extrabold text-slate-400 hover:text-blue-600 hover:border-blue-300"
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+          </button>
           <button
             type="button"
             onClick={onClear}
