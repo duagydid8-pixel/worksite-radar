@@ -18,10 +18,12 @@ import {
   shouldApplyLocalWatchVersion,
 } from "@/lib/localAttendanceWatchClient";
 import type { ParsedData } from "@/lib/parseExcel";
+import type { ParsedPmisData } from "@/components/PmisInOutLogTab";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
+import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreService";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -31,6 +33,7 @@ const LazyNewEmployeeList = lazy(() => import("@/components/NewEmployeeList"));
 const LazyAnnualLeavePanel = lazy(() => import("@/components/AnnualLeavePanel"));
 const LazyXerpPmisTable = lazy(() => import("@/components/XerpPmisTable"));
 const LazyXerpWorkReflection = lazy(() => import("@/components/XerpWorkReflection"));
+const LazyPmisInOutLogTab = lazy(() => import("@/components/PmisInOutLogTab"));
 const LazyWeeklySchedule = lazy(() => import("@/components/WeeklySchedule").then((module) => ({ default: module.WeeklySchedule })));
 const LazyPdfSplitter = lazy(() => import("@/components/tabs/PdfSplitter"));
 const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMailRequest"));
@@ -47,34 +50,112 @@ function LazyPanel({ children }: { children: ReactNode }) {
   );
 }
 
+type XerpSiteKey = "PH4" | "PH2" | "P5PH1";
+type XerpSubPage = "xerp" | "inout";
+
+const XERP_SITES = [
+  { value: "PH4" as XerpSiteKey, label: "P4-PH4" },
+  { value: "PH2" as XerpSiteKey, label: "P4-PH2" },
+  { value: "P5PH1" as XerpSiteKey, label: "P5-PH1" },
+] as const;
+
 function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
-  const [xerpSite, setXerpSite] = useState<"PH4" | "PH2" | "P5PH1">("PH4");
-  const xerpSites = [
-    { value: "PH4", label: "P4-PH4" },
-    { value: "PH2", label: "P4-PH2" },
-    { value: "P5PH1", label: "P5-PH1" },
-  ] as const;
+  const [selectedSite, setSelectedSite] = useState<XerpSiteKey>("PH4");
+  const [selectedPage, setSelectedPage] = useState<XerpSubPage>("xerp");
+  const [pmisDataBySite, setPmisDataBySite] = useState<Partial<Record<XerpSiteKey, ParsedPmisData>>>({});
+  const [xerpNamesBySite, setXerpNamesBySite] = useState<Partial<Record<XerpSiteKey, Set<string>>>>({});
+
+  useEffect(() => {
+    if (xerpNamesBySite[selectedSite]) return;
+    const loadFn = selectedSite === "PH4" ? loadXerpFS : selectedSite === "PH2" ? loadXerpPH2FS : loadXerpP5PH1FS;
+    loadFn().then((dateMap) => {
+      if (!dateMap) return;
+      const names = new Set<string>();
+      Object.values(dateMap).forEach((rows) => {
+        (rows as { 성명?: string }[]).forEach((r) => {
+          if (r.성명?.trim()) names.add(r.성명.trim());
+        });
+      });
+      if (names.size > 0) setXerpNamesBySite((prev) => ({ ...prev, [selectedSite]: names }));
+    }).catch(() => {});
+  }, [selectedSite]);
+
+  const handlePmisDataLoaded = (d: ParsedPmisData) => {
+    setPmisDataBySite((prev) => ({ ...prev, [selectedSite]: d }));
+  };
+  const handlePmisClear = () => {
+    setPmisDataBySite((prev) => { const n = { ...prev }; delete n[selectedSite]; return n; });
+  };
+
   return (
-    <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-3">
-      {/* 서브탭 */}
-      <div className="flex gap-2">
-        {xerpSites.map((site) => (
-          <button
-            key={site.value}
-            onClick={() => setXerpSite(site.value)}
-            className={`px-5 py-2 rounded-xl text-sm font-bold transition-all border ${
-              xerpSite === site.value
-                ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                : "bg-white text-muted-foreground border-border hover:bg-muted/50"
-            }`}
-          >
-            {site.label}
-          </button>
-        ))}
+    <div className="flex min-h-[600px]">
+      {/* 사이드바 */}
+      <div className="w-44 shrink-0 border-r border-slate-200 bg-slate-50 py-3">
+        {XERP_SITES.map((site) => {
+          const isActive = selectedSite === site.value;
+          return (
+            <div key={site.value}>
+              <button
+                type="button"
+                onClick={() => { setSelectedSite(site.value); }}
+                className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm font-bold transition-colors text-left ${
+                  isActive ? "bg-primary/10 text-primary border-r-2 border-primary" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <Database className="h-3.5 w-3.5 shrink-0" />
+                {site.label}
+              </button>
+              {isActive && (
+                <div className="mb-1">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPage("xerp")}
+                    className={`w-full flex items-center gap-2 pl-9 pr-4 py-2 text-xs font-semibold transition-colors text-left ${
+                      selectedPage === "xerp" ? "bg-white text-slate-900 font-bold" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <BarChart2 className="h-3 w-3 shrink-0" />
+                    XERP/PMIS 현황
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPage("inout")}
+                    className={`w-full flex items-center gap-2 pl-9 pr-4 py-2 text-xs font-semibold transition-colors text-left ${
+                      selectedPage === "inout" ? "bg-white text-slate-900 font-bold" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <LogIn className="h-3 w-3 shrink-0" />
+                    IN/OUT 로그
+                    {pmisDataBySite[site.value] && (
+                      <span className="ml-auto rounded-full bg-emerald-500 w-1.5 h-1.5 shrink-0" />
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-      <LazyPanel>
-        <LazyXerpPmisTable isAdmin={isAdmin} site={xerpSite} key={xerpSite} />
-      </LazyPanel>
+
+      {/* 콘텐츠 */}
+      <div className="flex-1 min-w-0">
+        {selectedPage === "xerp" && (
+          <LazyPanel>
+            <LazyXerpPmisTable isAdmin={isAdmin} site={selectedSite} key={selectedSite} />
+          </LazyPanel>
+        )}
+        {selectedPage === "inout" && (
+          <LazyPanel>
+            <LazyPmisInOutLogTab
+              key={selectedSite}
+              data={pmisDataBySite[selectedSite] ?? null}
+              onDataLoaded={handlePmisDataLoaded}
+              onClear={handlePmisClear}
+              xerpNames={xerpNamesBySite[selectedSite] ?? null}
+            />
+          </LazyPanel>
+        )}
+      </div>
     </div>
   );
 }
