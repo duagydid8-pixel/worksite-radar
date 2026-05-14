@@ -1842,8 +1842,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       {/* PMIS 외출 명단 패널 */}
       {showOutingList && (() => {
+        const xerpNames = new Set(rows.map((r) => r.성명));
+        const filteredOutings = pmisOutings.filter((p) => xerpNames.has(p.name));
         type OutingRow = { name: string; 범주: string; 직종: string; o: { outTime: string; inTime: string | null }; oi: number; earlyOut: boolean; lateIn: boolean; flagged: boolean };
-        const flat: OutingRow[] = pmisOutings.flatMap((p) =>
+        const flat: OutingRow[] = filteredOutings.flatMap((p) =>
           p.outings.map((o, oi) => {
             const earlyOut = o.outTime < "11:00:00";
             const lateIn = o.inTime !== null ? o.inTime > "13:00:00" : false;
@@ -1859,9 +1861,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               <span className="text-xs font-bold text-violet-700 flex items-center gap-2">
                 <ArrowUpDown className="h-3.5 w-3.5" />
                 PMIS 외출 명단 — {workDate} / {syncSite}
-                {pmisOutings.length > 0 && (
+                {filteredOutings.length > 0 && (
                   <>
-                    <span className="text-violet-500 font-normal">{pmisOutings.length}명</span>
+                    <span className="text-violet-500 font-normal">{filteredOutings.length}명</span>
                     {flagCount > 0 && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-bold text-amber-700">
                         <AlertTriangle className="h-3 w-3" /> 주의 {flagCount}건
@@ -1870,12 +1872,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                   </>
                 )}
                 {pmisOutings.length === 0 && <span className="text-violet-400 font-normal">(데이터 없음 — PMIS IN/OUT 먼저 저장 필요)</span>}
+                {pmisOutings.length > 0 && filteredOutings.length === 0 && <span className="text-violet-400 font-normal">(XERP 명단 대상자 중 외출 없음)</span>}
               </span>
               <button onClick={() => setShowOutingList(false)} className="text-violet-400 hover:text-violet-700">
                 <X className="h-4 w-4" />
               </button>
             </div>
-            {pmisOutings.length > 0 && (
+            {filteredOutings.length > 0 && (
               <>
                 <div className="overflow-auto" style={{ maxHeight: "320px" }}>
                   <table className="min-w-full text-xs border-collapse">
