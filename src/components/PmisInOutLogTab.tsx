@@ -201,6 +201,15 @@ function parseXlsx(file: File): Promise<ParsedPmisData> {
 
 type ViewMode = "persons" | "outings" | "logs";
 
+const PMIS_LOADER_SCRIPT = `void function(){
+window.collectAllPages=async function(){var ifr=document.querySelector("iframe");if(!ifr)return JSON.stringify({error:"no iframe"});var w=ifr.contentWindow;var grid=w.$find&&w.$find("WebDataGrid1");if(!grid)return JSON.stringify({error:"no grid"});var paging=grid.get_behaviors().get_paging();var totalPages=paging.get_pageCount();window.__items=[];var seen=new Set();function extractCurrent(){var d=ifr.contentDocument;var els=d.querySelectorAll('[onclick^="popupTimebook"]');var added=0;els.forEach(function(el){var oc=el.getAttribute("onclick");var args=(oc.match(/'([^']*)'/g)||[]).map(function(s){return s.slice(1,-1)});var k=args[0]+"|"+args[1];if(!seen.has(k)){seen.add(k);var tr=el.closest("tr");var tds=tr?Array.from(tr.querySelectorAll("td")).map(function(c){return c.textContent.trim().replace(/\\s+/g," ")}):[];window.__items.push({mpw_idx:args[0],mpw_chk_idx:args[1],mpw_type:args[2]||"S",tds:tds.slice(0,20)});added++}});return added}function postback(suffix){var d=ifr.contentDocument;d.querySelector('[name="__EVENTTARGET"]').value="WebDataGrid1$ctl01$ucPagerControl$"+suffix;d.querySelector('[name="__EVENTARGUMENT"]').value="";d.forms[0].submit()}postback("btnFirst");await new Promise(function(r){setTimeout(r,4000)});extractCurrent();for(var p=1;p<totalPages;p++){postback("btnNext");await new Promise(function(r){setTimeout(r,4000)});var added=extractCurrent();if(added===0)break}return JSON.stringify({totalPages:totalPages,collected:window.__items.length})};
+window.getPjtCd=function(){var ifr=document.querySelector("iframe");if(!ifr)return JSON.stringify({error:"no iframe"});var w=ifr.contentWindow;if(typeof w.popupTimebook!=="function")return JSON.stringify({error:"no popupTimebook"});var src=w.popupTimebook.toString();var m=src.match(/pjt_cd=([A-Z0-9]+)/);if(!m)return JSON.stringify({error:"pjt_cd not found"});window.__pjtCd=m[1];return JSON.stringify({pjtCd:m[1]})};
+window.fetchAllInOut=async function(workDate,pjtCd,startIdx,endIdx){var items=window.__items;if(!items||!items.length)return JSON.stringify({error:"no items"});pjtCd=pjtCd||window.__pjtCd||"SECLP00001";startIdx=startIdx||0;endIdx=endIdx||items.length;if(endIdx>items.length)endIdx=items.length;var base="https://sena.doallpmis.com/Manpower/ManpowerStatus/InOut_List.aspx";window.__inout_html=window.__inout_html||{};var ok=0,err=0,redir=0;for(var i=startIdx;i<endIdx;i++){var it=items[i];var url=base+"?pjt_cd="+pjtCd+"&mnu_cd=L3_DailyStatusSearch&internal_type=N&group_type=L3_ManpowerList&mpw_idx="+it.mpw_idx+"&mpw_chk_idx="+it.mpw_chk_idx+"&mpw_type="+it.mpw_type+"&work_date="+workDate;try{var r=await fetch(url,{credentials:"include"});var txt=await r.text();if(txt.length<1000||txt.indexOf("Login.aspx")>=0){redir++;if(redir>=3)return JSON.stringify({error:"session expired",ok:ok,atIdx:i});continue}window.__inout_html[i]=txt;ok++}catch(e){err++}}return JSON.stringify({ok:ok,err:err,redir:redir,total:items.length,fetched:Object.keys(window.__inout_html).length})};
+window.parseAndJoin=function(){function pe(html){var doc=new DOMParser().parseFromString(html,"text/html");var ev=[];doc.querySelectorAll("tr").forEach(function(r){var cells=Array.from(r.children).filter(function(c){return c.tagName==="TD"});if(cells.length>=5){var t=cells.map(function(c){return c.textContent.trim()});if((t[2]==="IN"||t[2]==="OUT")&&t[1].match(/\\d{4}-\\d{2}-\\d{2}/))ev.push({name:t[0],type:t[2],fullTime:t[4]})}});return ev}var items=window.__items;var html=window.__inout_html;if(!items||!html)return JSON.stringify({error:"run collectAllPages+fetchAllInOut first"});var rows=[];Object.keys(html).forEach(function(k){var i=Number(k);var evs=pe(html[k]);var it=items[i];var tds=it.tds;var m={company:tds[1]||"",category:tds[2]||"",maskedName:tds[3]||"",birth:tds[5]||"",trade:tds[6]||"",job:tds[7]||"",formType:tds[14]||"",teamLeader:tds[17]||""};evs.forEach(function(e){rows.push({company:m.company,category:m.category,name:e.name,maskedName:m.maskedName,birth:m.birth,trade:m.trade,job:m.job,date:e.fullTime?e.fullTime.slice(0,10):"",time:e.fullTime?e.fullTime.slice(11):"",type:e.type,formType:m.formType,teamLeader:m.teamLeader})})});rows.sort(function(a,b){return(a.date+" "+a.time).localeCompare(b.date+" "+b.time)});var hdr=["company","category","name","maskedName","birth","trade","job","date","time","type","formType","teamLeader"];var lines=[hdr.join("|")];rows.forEach(function(r){lines.push(hdr.map(function(h){return(r[h]||"").replace(/\\|/g," ")}).join("|"))});window.__csv=lines.join("\\n");return JSON.stringify({total:rows.length,IN:rows.filter(function(r){return r.type==="IN"}).length,OUT:rows.filter(function(r){return r.type==="OUT"}).length,len:window.__csv.length})};
+window.downloadCsv=function(filename){filename=filename||("inout_log_"+new Date().toISOString().slice(0,10)+".csv");var csv=window.__csv;if(!csv)return JSON.stringify({error:"no csv"});var blob=new Blob(["\\uFEFF"+csv],{type:"text/csv;charset=utf-8"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(url)},5000);return JSON.stringify({ok:true,filename:filename,size:csv.length})};
+console.log("OK v6: collectAllPages / getPjtCd / fetchAllInOut / parseAndJoin / downloadCsv");
+}()`;
+
 interface Props {
   site: string;
   data: ParsedPmisData | null;
@@ -318,11 +327,18 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
           </div>
           <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
             <p className="font-black text-slate-800">② 함수 로드 (F12 → Console)</p>
-            <p className="text-slate-600 font-semibold">아래 경로 파일을 메모장으로 열어 <strong>전체 복사(Ctrl+A → Ctrl+C)</strong></p>
-            <code className="block text-xs bg-white border border-slate-200 p-2 rounded break-all">
-              C:\Users\bongryong\worksite-radar\outputs\pmis_loader.js
-            </code>
-            <p className="text-slate-600 font-semibold">콘솔에 <strong>Ctrl+V → Enter</strong></p>
+            <p className="text-slate-600 font-semibold">아래 버튼으로 스크립트를 클립보드에 복사한 뒤 콘솔에 <strong>Ctrl+V → Enter</strong></p>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(PMIS_LOADER_SCRIPT).then(() => {
+                  toast.success("스크립트 복사됨 — 콘솔에 Ctrl+V 후 Enter");
+                }).catch(() => toast.error("복사 실패"));
+              }}
+              className="w-full flex items-center justify-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-extrabold text-blue-700 hover:bg-blue-100"
+            >
+              📋 PMIS 스크립트 클립보드 복사
+            </button>
             <p className="text-xs text-emerald-700 font-bold">✓ "OK v6: collectAllPages / ..." 메시지 확인</p>
           </div>
           <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
