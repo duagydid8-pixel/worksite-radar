@@ -106,6 +106,74 @@ function computePersonDetails(logs: LogRow[]): PersonDetail[] {
   return result.sort((a, b) => (a.firstIn ?? "").localeCompare(b.firstIn ?? ""));
 }
 
+// CSV(파이프 구분) → ParsedPmisData (Python build_xlsx 없이 앱에서 직접 변환)
+// 헤더: company|category|name|maskedName|birth|trade|job|date|time|type|formType|teamLeader
+function parseCsv(text: string, fileName: string): ParsedPmisData {
+  const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.trim());
+  if (lines.length < 2) throw new Error("데이터가 없습니다.");
+
+  const logs: LogRow[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const c = lines[i].split("|");
+    if (c.length < 10 || !c[2]) continue;
+    logs.push({
+      회사: c[0] || "",
+      범주: c[1] || "",
+      이름: c[2] || "",
+      일자: c[7] || "",
+      시간: c[8] || "",
+      구분: (c[9] || "") as "IN" | "OUT",
+      출역형태: c[10] || "",
+      직종: c[6] || "",
+    });
+  }
+
+  // 사람별 정리 도출
+  const byName = new Map<string, LogRow[]>();
+  for (const l of logs) {
+    if (!byName.has(l.이름)) byName.set(l.이름, []);
+    byName.get(l.이름)!.push(l);
+  }
+  const persons: PersonRow[] = [];
+  for (const [name, evs] of byName) {
+    const sorted = [...evs].sort((a, b) => a.시간.localeCompare(b.시간));
+    const ins = sorted.filter((e) => e.구분 === "IN");
+    const outs = sorted.filter((e) => e.구분 === "OUT");
+    const first = sorted[0];
+    persons.push({
+      이름: name,
+      마스킹: "",
+      범주: first.범주,
+      직종: first.직종,
+      처음IN: ins[0]?.시간 || "",
+      마지막OUT: outs[outs.length - 1]?.시간 || "",
+      IN횟수: ins.length,
+      OUT횟수: outs.length,
+      총이벤트: evs.length,
+      비고: ins.length !== outs.length ? "IN≠OUT" : "",
+    });
+  }
+  persons.sort((a, b) => a.처음IN.localeCompare(b.처음IN));
+
+  const inCount = logs.filter((l) => l.구분 === "IN").length;
+  const outCount = logs.filter((l) => l.구분 === "OUT").length;
+  const summary: Summary = {
+    기준일: logs[0]?.일자 || "",
+    출역자수: String(byName.size),
+    IN이벤트: String(inCount),
+    OUT이벤트: String(outCount),
+  };
+
+  const dateMatch = fileName.match(/\d{4}-\d{2}-\d{2}/);
+  return {
+    fileName,
+    dateLabel: dateMatch ? dateMatch[0] : (logs[0]?.일자 || ""),
+    persons,
+    logs,
+    summary,
+  };
+}
+
 function parseXlsx(file: File): Promise<ParsedPmisData> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -270,21 +338,30 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
   };
 
   const handleFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      toast.error("xlsx 파일만 업로드해 주세요.");
+    const name = file.name.toLowerCase();
+    const isCsv = name.endsWith(".csv");
+    const isXlsx = name.endsWith(".xlsx");
+    if (!isCsv && !isXlsx) {
+      toast.error("xlsx 또는 csv 파일만 업로드해 주세요.");
       return;
     }
     try {
-      const parsed = await parseXlsx(file);
+      let parsed: ParsedPmisData;
+      if (isCsv) {
+        const text = await file.text();
+        parsed = parseCsv(text, file.name);
+      } else {
+        parsed = await parseXlsx(file);
+      }
       if (parsed.persons.length === 0 && parsed.logs.length === 0) {
-        toast.error("출역 데이터를 찾지 못했습니다. 스킬 생성 엑셀인지 확인해 주세요.");
+        toast.error("출역 데이터를 찾지 못했습니다.");
         return;
       }
       onDataLoaded(parsed);
       setSearch("");
       toast.success(`${parsed.dateLabel} 출역로그 로드 완료 (${parsed.persons.length}명)`);
     } catch {
-      toast.error("엑셀 파싱 중 오류가 발생했습니다.");
+      toast.error("파일 파싱 중 오류가 발생했습니다.");
     }
   };
 
@@ -361,11 +438,12 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
               ))}
             </div>
           </div>
-          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
-            <p className="font-black text-slate-800">④ 엑셀 변환 (Claude Code 터미널)</p>
-            <code className="block text-xs bg-white border border-slate-200 p-2 rounded break-all">
-              python "C:\Users\bongryong\skills\sena-pmis-inout-log\scripts\build_xlsx.py" "C:\Users\bongryong\worksite-radar\outputs\inout_log_YYYY-MM-DD.csv" "C:\Users\bongryong\worksite-radar\outputs\일일출역로그_YYYY-MM-DD.xlsx" "YYYY-MM-DD"
-            </code>
+          <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-2">
+            <p className="font-black text-emerald-800">④ 앱에 업로드</p>
+            <p className="text-slate-600 font-semibold text-xs">
+              다운받은 <span className="font-mono bg-white border border-slate-200 px-1 rounded">inout_log_YYYY-MM-DD.csv</span> 파일을 이 페이지의 업로드 영역에 드래그&드롭하거나 클릭해서 선택하면 바로 표시됩니다.
+            </p>
+            <p className="text-xs text-emerald-700 font-bold">✓ Python 변환 불필요 — CSV 직접 업로드 가능</p>
           </div>
           <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
             <p className="font-black text-amber-800">주의</p>
