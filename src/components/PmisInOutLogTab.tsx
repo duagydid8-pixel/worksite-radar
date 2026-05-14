@@ -562,10 +562,12 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
             </div>
           </div>
           <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-2">
-            <p className="font-black text-emerald-800">④ 앱에 업로드</p>
-            <p className="text-slate-600 font-semibold text-xs">
-              다운받은 <span className="font-mono bg-white border border-slate-200 px-1 rounded">inout_log_YYYY-MM-DD.csv</span> 파일을 이 페이지의 업로드 영역에 드래그&드롭하거나 클릭해서 선택하면 바로 표시됩니다.
-            </p>
+            <p className="font-black text-emerald-800">④ 앱에 업로드 & 저장</p>
+            <ul className="text-slate-600 font-semibold text-xs space-y-1.5 list-none">
+              <li>• <strong>1개</strong>: 드래그&드롭 또는 클릭 → 바로 화면에 표시</li>
+              <li>• <strong>여러 날짜</strong>: CSV 파일 여러 개를 한번에 드래그&드롭하면 날짜별로 자동 인식해 일괄 저장</li>
+              <li>• 저장된 날짜는 왼쪽 달력에서 클릭해 불러오기</li>
+            </ul>
             <p className="text-xs text-emerald-700 font-bold">✓ Python 변환 불필요 — CSV 직접 업로드 가능</p>
           </div>
           <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
