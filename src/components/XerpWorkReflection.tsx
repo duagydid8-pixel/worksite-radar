@@ -1841,51 +1841,90 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       })()}
 
       {/* PMIS 외출 명단 패널 */}
-      {showOutingList && (
-        <div className="rounded-xl border border-violet-200 bg-white shadow-sm overflow-hidden shrink-0">
-          <div className="flex items-center justify-between px-4 py-2.5 bg-violet-50 border-b border-violet-200">
-            <span className="text-xs font-bold text-violet-700 flex items-center gap-1.5">
-              <ArrowUpDown className="h-3.5 w-3.5" />
-              PMIS 외출 명단 — {workDate} / {syncSite}
-              {pmisOutings.length === 0 && <span className="text-violet-400 font-normal ml-1">(데이터 없음 — PMIS IN/OUT 먼저 저장 필요)</span>}
-            </span>
-            <button onClick={() => setShowOutingList(false)} className="text-violet-400 hover:text-violet-700">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          {pmisOutings.length > 0 && (
-            <div className="overflow-auto" style={{ maxHeight: "300px" }}>
-              <table className="min-w-full text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-violet-200">
-                    {["범주", "성명", "직종", "외출시간", "복귀시간", "상태"].map((h) => (
-                      <th key={h} className="px-2 py-2 text-[11px] font-semibold text-center bg-violet-100 border-r border-violet-200 last:border-r-0 sticky top-0 z-10 whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {pmisOutings.flatMap((p) =>
-                    p.outings.map((o, oi) => (
-                      <tr key={`${p.name}-${oi}`} className="border-b border-violet-100 last:border-0">
-                        <td className="px-2 py-1.5 text-xs text-center text-muted-foreground border-r border-violet-100 whitespace-nowrap">{oi === 0 ? p.범주 : ""}</td>
-                        <td className="px-2 py-1.5 text-xs text-center font-semibold border-r border-violet-100 whitespace-nowrap">{oi === 0 ? p.name : ""}</td>
-                        <td className="px-2 py-1.5 text-xs text-center text-muted-foreground border-r border-violet-100 whitespace-nowrap">{oi === 0 ? p.직종 : ""}</td>
-                        <td className="px-2 py-1.5 text-xs text-center tabular-nums text-orange-600 font-semibold border-r border-violet-100">{o.outTime}</td>
-                        <td className="px-2 py-1.5 text-xs text-center tabular-nums text-emerald-600 font-semibold border-r border-violet-100">{o.inTime ?? "—"}</td>
-                        <td className="px-2 py-1.5 text-xs text-center whitespace-nowrap">
-                          {o.inTime === null
-                            ? <span className="text-rose-500 font-bold">미복귀</span>
-                            : <span className="text-emerald-600">복귀</span>}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+      {showOutingList && (() => {
+        type OutingRow = { name: string; 범주: string; 직종: string; o: { outTime: string; inTime: string | null }; oi: number; earlyOut: boolean; lateIn: boolean; flagged: boolean };
+        const flat: OutingRow[] = pmisOutings.flatMap((p) =>
+          p.outings.map((o, oi) => {
+            const earlyOut = o.outTime < "11:00:00";
+            const lateIn = o.inTime !== null ? o.inTime > "13:00:00" : false;
+            const flagged = earlyOut || lateIn || o.inTime === null;
+            return { name: p.name, 범주: p.범주, 직종: p.직종, o, oi, earlyOut, lateIn, flagged };
+          })
+        );
+        flat.sort((a, b) => Number(b.flagged) - Number(a.flagged) || a.o.outTime.localeCompare(b.o.outTime));
+        const flagCount = flat.filter((r) => r.flagged).length;
+        return (
+          <div className="rounded-xl border border-violet-200 bg-white shadow-sm overflow-hidden shrink-0">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-violet-50 border-b border-violet-200">
+              <span className="text-xs font-bold text-violet-700 flex items-center gap-2">
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                PMIS 외출 명단 — {workDate} / {syncSite}
+                {pmisOutings.length > 0 && (
+                  <>
+                    <span className="text-violet-500 font-normal">{pmisOutings.length}명</span>
+                    {flagCount > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                        <AlertTriangle className="h-3 w-3" /> 주의 {flagCount}건
+                      </span>
+                    )}
+                  </>
+                )}
+                {pmisOutings.length === 0 && <span className="text-violet-400 font-normal">(데이터 없음 — PMIS IN/OUT 먼저 저장 필요)</span>}
+              </span>
+              <button onClick={() => setShowOutingList(false)} className="text-violet-400 hover:text-violet-700">
+                <X className="h-4 w-4" />
+              </button>
             </div>
-          )}
-        </div>
-      )}
+            {pmisOutings.length > 0 && (
+              <>
+                <div className="overflow-auto" style={{ maxHeight: "320px" }}>
+                  <table className="min-w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-violet-200">
+                        {["범주", "성명", "직종", "외출", "복귀", "상태"].map((h) => (
+                          <th key={h} className="px-2 py-2 text-[11px] font-semibold text-center bg-violet-100 border-r border-violet-200 last:border-r-0 sticky top-0 z-10 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {flat.map((r, idx) => {
+                        const rowBg = r.flagged ? "bg-amber-50" : "";
+                        const borderCol = r.flagged ? "border-amber-100" : "border-violet-100";
+                        return (
+                          <tr key={`${r.name}-${r.oi}-${idx}`} className={`border-b ${borderCol} last:border-0 ${rowBg}`}>
+                            <td className={`px-2 py-1.5 text-center text-muted-foreground border-r ${borderCol} whitespace-nowrap`}>{r.oi === 0 ? r.범주 : ""}</td>
+                            <td className={`px-2 py-1.5 text-center font-semibold border-r ${borderCol} whitespace-nowrap`}>{r.oi === 0 ? r.name : ""}</td>
+                            <td className={`px-2 py-1.5 text-center text-muted-foreground border-r ${borderCol} whitespace-nowrap`}>{r.oi === 0 ? r.직종 : ""}</td>
+                            <td className={`px-2 py-1.5 text-center tabular-nums font-semibold border-r ${borderCol} ${r.earlyOut ? "text-amber-600 font-black" : "text-orange-500"}`}>
+                              {r.o.outTime}
+                              {r.earlyOut && <span className="ml-1 text-[10px] text-amber-500">11시↑</span>}
+                            </td>
+                            <td className={`px-2 py-1.5 text-center tabular-nums font-semibold border-r ${borderCol} ${r.lateIn ? "text-amber-600 font-black" : r.o.inTime ? "text-emerald-600" : "text-slate-400"}`}>
+                              {r.o.inTime ?? "—"}
+                              {r.lateIn && <span className="ml-1 text-[10px] text-amber-500">13시↓</span>}
+                            </td>
+                            <td className={`px-2 py-1.5 text-center whitespace-nowrap border-r-0`}>
+                              {r.o.inTime === null
+                                ? <span className="text-rose-500 font-bold">미복귀</span>
+                                : r.flagged
+                                  ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><AlertTriangle className="h-3 w-3" />주의</span>
+                                  : <span className="text-emerald-600">복귀</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-4 py-1.5 bg-slate-50 border-t border-violet-100 flex gap-4 text-[11px] text-slate-500">
+                  <span><span className="text-amber-600 font-bold">11시↑</span> 오전 11시 이전 외출</span>
+<span><span className="text-amber-600 font-bold">13시↓</span> 오후 1시 이후 복귀</span>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 검색창 + 정기안전교육 + 정렬 + 범례 */}
       {rows.length > 0 && (
