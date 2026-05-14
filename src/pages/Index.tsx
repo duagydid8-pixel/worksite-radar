@@ -21,7 +21,7 @@ import type { ParsedData } from "@/lib/parseExcel";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Receipt, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -33,7 +33,6 @@ const LazyXerpPmisTable = lazy(() => import("@/components/XerpPmisTable"));
 const LazyXerpWorkReflection = lazy(() => import("@/components/XerpWorkReflection"));
 const LazyWeeklySchedule = lazy(() => import("@/components/WeeklySchedule").then((module) => ({ default: module.WeeklySchedule })));
 const LazyPdfSplitter = lazy(() => import("@/components/tabs/PdfSplitter"));
-const LazyExpenseReportTab = lazy(() => import("@/components/ExpenseReport"));
 const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMailRequest"));
 const LazyOrgChart = lazy(() => import("@/components/OrgChart"));
 const LazyPayrollPage = lazy(() => import("@/components/PayrollPage"));
@@ -81,7 +80,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
 }
 
 type TeamFilter = "전체" | "한성" | "태화" | "현채";
-type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "지출결의서" | "본사메일송부" | "급여대장" | "RCM기안서송부";
+type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔";
 
@@ -116,6 +115,7 @@ const NAV_ADMIN: NavItem[] = [
 
 const NAV_SEMI_PUBLIC: NavItem[] = [
   { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: false },
+  { key: "전자카드 조회", label: "전자카드 조회", icon: <CreditCard className="h-4 w-4" />, adminOnly: false },
 ];
 
 const HEAD_OFFICE_NAV: NavItem[] = [
@@ -123,7 +123,6 @@ const HEAD_OFFICE_NAV: NavItem[] = [
   { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: false },
   { key: "급여대장", label: "급여대장", icon: <BookText className="h-4 w-4" />, adminOnly: false },
   { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: false },
-  { key: "지출결의서", label: "지출결의서", icon: <Receipt className="h-4 w-4" />, adminOnly: false },
   { key: "RCM기안서송부", label: "RCM 기안서 송부", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: false },
 ];
 
@@ -2001,6 +2000,20 @@ const Index = () => {
           <XerpPmisPageWrapper isAdmin={isAdmin} />
         )}
 
+        {activeTab === "전자카드 조회" && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                <CreditCard className="h-5 w-5" />
+              </div>
+              <h2 className="text-lg font-extrabold text-slate-900">전자카드 조회</h2>
+              <p className="mt-2 text-sm font-semibold text-slate-500">
+                전자카드 조회 화면을 준비 중입니다.
+              </p>
+            </div>
+          </div>
+        )}
+
           {/* XERP 공수 반영 */}
           {activeTab === "XERP공수반영" && (
             <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
@@ -2040,13 +2053,6 @@ const Index = () => {
           {activeTab === "PDF분리" && (
             <LazyPanel>
               <LazyPdfSplitter />
-            </LazyPanel>
-          )}
-
-          {/* 지출결의서 */}
-          {activeTab === "지출결의서" && (
-            <LazyPanel>
-              <LazyExpenseReportTab isAdmin={isAdmin} />
             </LazyPanel>
           )}
 
