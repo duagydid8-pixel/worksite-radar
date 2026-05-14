@@ -190,7 +190,7 @@ const NAV_PUBLIC: NavItem[] = [
 
 const NAV_ADMIN: NavItem[] = [
   { key: "오늘할일관리", label: "오늘 할 일 관리", icon: <ListChecks className="h-4 w-4" />, adminOnly: true },
-  { key: "주간일정", label: "주간일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
+  { key: "주간일정", label: "작업일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
   { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
 ];
@@ -940,8 +940,8 @@ const Index = () => {
       target: "근태관리" as ActiveTab,
     },
     {
-      title: "주간 작업일정 점검",
-      description: `${formatWeekRange(monday)} 구역별 조출·연장·야간 일정을 확인하세요.`,
+      title: "월간 작업일정 점검",
+      description: "월 기준 구역별 조출·연장·야간 일정을 확인하세요.",
       badge: "일정",
       tone: "base",
       icon: <CalendarRange className="h-4 w-4" />,
@@ -1998,7 +1998,7 @@ const Index = () => {
           </div>
         )}
 
-        {/* 주간일정 */}
+        {/* 작업일정 */}
         {activeTab === "주간일정" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>

@@ -52,7 +52,7 @@ interface HomePageProps {
 }
 
 const DAY_KO   = ["일","월","화","수","목","금","토"];
-const WEEK_DAY = ["월","화","수","목","금","토","일"];
+const WEEK_DAY = ["일","월","화","수","목","금","토"];
 
 type WorkRow = { isNoRecord: boolean; isWaeju?: boolean; 성명: string };
 function calcStats(rows: WorkRow[]) {
@@ -128,128 +128,101 @@ const TYPE_META: Record<string, { bg: string; text: string; border: string; labe
 };
 const IMPORTANT_SCHEDULE_TYPES = new Set(["연장", "야간", "주말중식OT"]);
 
-function getWeekDates(ws: string) {
-  const s = new Date(ws + "T00:00:00");
-  return Array.from({length:7}, (_,i)=>{
-    const d = new Date(s); d.setDate(s.getDate()+i);
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+function toDateStr(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+}
+
+function getMonthStart(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return toDateStr(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+function getMonthCalendarDates(dateStr: string) {
+  const monthStart = new Date(getMonthStart(dateStr) + "T00:00:00");
+  const firstCell = new Date(monthStart);
+  firstCell.setDate(monthStart.getDate() - monthStart.getDay());
+
+  return Array.from({length:42}, (_,i)=>{
+    const d = new Date(firstCell); d.setDate(firstCell.getDate()+i);
+    return toDateStr(d);
   });
 }
 
-// ── 주간 스케줄 테이블 ────────────────────────────────
+// ── 월간 작업 달력 ───────────────────────────────────
 const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleData }>(
   ({ schedule }) => {
-    const weekDates = useMemo(() => getWeekDates(schedule.weekStart), [schedule.weekStart]);
+    const monthDates = useMemo(() => getMonthCalendarDates(schedule.weekStart), [schedule.weekStart]);
     const todayStr  = new Date().toISOString().slice(0,10);
-    const [,wm,wd]  = schedule.weekStart.split("-").map(Number);
-    const [,em,ed]  = weekDates[6].split("-").map(Number);
-
-    const floorGroups = useMemo(() => {
-      const f1: string[]=[], f3: string[]=[], ot: string[]=[];
-      for (const z of schedule.zones) {
-        if (z.startsWith("1층")) f1.push(z);
-        else if (z.startsWith("3층")) f3.push(z);
-        else ot.push(z);
-      }
-      const g: { label:string; zones:string[] }[] = [];
-      if (f1.length) g.push({label:"1층",zones:f1});
-      if (f3.length) g.push({label:"3층",zones:f3});
-      if (ot.length) g.push({label:"기타",zones:ot});
-      if (!g.length)  g.push({label:"",zones:schedule.zones});
-      return g;
-    }, [schedule.zones]);
+    const monthStart = getMonthStart(schedule.weekStart);
+    const [year, month] = monthStart.split("-").map(Number);
 
     return (
       <div>
         <div className="mb-3 flex items-center justify-between">
           <p className="text-xs font-semibold text-gray-500">
-            {wm}월 {wd}일 ~ {em}월 {ed}일
+            {year}년 {month}월
           </p>
           <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-400">
             {schedule.zones.length}개 구역
           </span>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
-          <div className="min-w-[720px] space-y-2">
-            <div className="grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5">
-              <div className="px-2 py-2 text-[10px] font-extrabold text-slate-400">구역</div>
-              {weekDates.map((date,i)=>{
-                const [,m,d] = date.split("-").map(Number);
-                const isToday   = date === todayStr;
-                const isWeekend = i >= 5;
-                return (
-                  <div key={date} className={`hp-sched-day rounded-lg border border-slate-100 bg-white px-2 py-2 text-center ${isToday ? "hp-sched-day-today ring-1 ring-slate-300" : ""}`}>
-                    <div className={`text-[11px] font-extrabold ${isToday?"text-slate-950":isWeekend?"text-sky-500":"text-slate-700"}`}>{m}/{d}</div>
-                    <div className={`mt-0.5 text-[10px] ${isToday?"text-slate-500":isWeekend?"text-sky-400":"text-slate-400"}`}>{WEEK_DAY[i]}</div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+          <div className="grid grid-cols-7 gap-1.5">
+            {WEEK_DAY.map((day, i) => (
+              <div key={day} className={`px-2 py-1.5 text-center text-[10px] font-extrabold ${i === 0 ? "text-rose-400" : i === 6 ? "text-sky-500" : "text-slate-400"}`}>
+                {day}
+              </div>
+            ))}
+            {monthDates.map((date, dateIdx)=>{
+              const [,m,d] = date.split("-").map(Number);
+              const typeEntries = schedule.zones
+                .map((zone) => ({ zone, type: schedule.schedule[date]?.[zone] ?? "" }))
+                .filter((entry) => entry.type);
+              const dateObject = new Date(date + "T00:00:00");
+              const isToday = date === todayStr;
+              const isOutsideMonth = dateObject.getMonth() + 1 !== month;
+              return (
+                <div
+                  key={date}
+                  className={`hp-sched-cell min-h-[118px] rounded-lg border px-2 py-2 ${isToday ? "hp-sched-cell-today border-slate-300 bg-white ring-1 ring-slate-300" : "border-slate-100 bg-white"} ${isOutsideMonth ? "opacity-45" : ""}`}
+                >
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className={`text-[11px] font-extrabold ${isToday ? "text-slate-950" : "text-slate-700"}`}>{m}/{d}</span>
+                    {typeEntries.length > 0 && <span className="text-[9px] font-bold text-slate-400">{typeEntries.length}</span>}
                   </div>
-                );
-              })}
-            </div>
-
-            {floorGroups.map(group => (
-              <React.Fragment key={group.label}>
-                {group.label && (
-                  <div className="px-2 pt-2 text-[10px] font-extrabold tracking-widest text-slate-400">
-                    {group.label}
-                  </div>
-                )}
-                {group.zones.map((zone, zoneIdx) => {
-                  const rowClass = `hp-sched-r${Math.min(zoneIdx + 1, 5)}`;
-                  return (
-                  <div key={zone} className={`grid grid-cols-[104px_repeat(7,minmax(72px,1fr))] gap-1.5 rounded-lg border border-slate-100 bg-white p-1.5 ${rowClass}`}>
-                    <div className="flex items-center px-2 text-xs font-extrabold text-slate-800">
-                      <span className="truncate">{group.label ? zone.replace(/^[13]층\s*/,"") : zone}</span>
-                    </div>
-                    {weekDates.map((date, dateIdx)=>{
-                      const type = schedule.schedule[date]?.[zone] ?? "";
+                  <div className="space-y-1">
+                    {typeEntries.slice(0, 3).map(({ zone, type }, entryIdx) => {
                       const matchedMetas = Object.entries(TYPE_META).filter(([k]) => type.includes(k));
-                      const getTime = (key: string) => {
-                        const after = type.slice(type.indexOf(key) + key.length);
-                        return after.match(/\d{2}:\d{2}~\d{2}:\d{2}/)?.[0] ?? "";
-                      };
                       const memo = type.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
-                      const isToday = date === todayStr;
-                      const cellDelayMs = 980 + Math.min(zoneIdx, 5) * 70 + dateIdx * 24;
+                      const cellDelayMs = 780 + dateIdx * 12 + entryIdx * 40;
                       return (
-                        <div key={date} className={`hp-sched-cell min-h-[58px] rounded-md border px-1.5 py-1.5 text-center ${isToday ? "hp-sched-cell-today border-slate-300 bg-slate-50" : "border-slate-100 bg-white"}`}>
-                          {matchedMetas.length > 0 ? (
-                            <div className="flex flex-col items-center gap-1">
-                              {matchedMetas.slice(0, 3).map(([k, meta]) => {
-                                const time = getTime(k);
-                                const isImportant = IMPORTANT_SCHEDULE_TYPES.has(k);
-                                return (
-                                  <div key={k} className="flex flex-col items-center gap-0.5">
-                                    <span
-                                      className={`hp-sched-chip inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${isImportant ? "hp-sched-chip-priority" : ""} ${meta.bg} ${meta.text} ${meta.border}`}
-                                      style={{ animationDelay: `${cellDelayMs}ms` }}
-                                    >
-                                      {meta.label}
-                                    </span>
-                                    {time && <span className="text-[8px] text-gray-400 tabular-nums">{time}</span>}
-                                  </div>
-                                );
-                              })}
-                              {matchedMetas.length > 3 && <span className="text-[9px] font-bold text-slate-400">+{matchedMetas.length - 3}</span>}
-                              {memo && (
-                                <span className="max-w-[68px] truncate rounded bg-slate-50 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500" title={memo}>
-                                  {memo}
+                        <div key={`${date}-${zone}`} className="rounded-md bg-slate-50 px-1.5 py-1">
+                          <div className="mb-1 truncate text-[9px] font-extrabold text-slate-500" title={zone}>{zone}</div>
+                          <div className="flex flex-wrap gap-1">
+                            {matchedMetas.slice(0, 2).map(([k, meta]) => {
+                              const isImportant = IMPORTANT_SCHEDULE_TYPES.has(k);
+                              return (
+                                <span
+                                  key={k}
+                                  className={`hp-sched-chip inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${isImportant ? "hp-sched-chip-priority" : ""} ${meta.bg} ${meta.text} ${meta.border}`}
+                                  style={{ animationDelay: `${cellDelayMs}ms` }}
+                                >
+                                  {meta.label}
                                 </span>
-                              )}
-                            </div>
-                          ) : type ? (
-                            <span className="inline-flex max-w-[68px] items-center justify-center truncate rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[9px] font-bold text-gray-500" title={type}>
-                              {memo || type.slice(0, 8)}
-                            </span>
-                          ) : <span className="text-gray-200">—</span>}
+                              );
+                            })}
+                            {matchedMetas.length > 2 && <span className="text-[9px] font-bold text-slate-400">+{matchedMetas.length - 2}</span>}
+                            {!matchedMetas.length && memo && <span className="truncate text-[9px] font-semibold text-slate-500">{memo}</span>}
+                          </div>
                         </div>
                       );
                     })}
+                    {typeEntries.length > 3 && <div className="text-[9px] font-bold text-slate-400">+{typeEntries.length - 3}개 구역</div>}
                   </div>
-                  );
-                })}
-              </React.Fragment>
-            ))}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -287,8 +260,8 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
             <CalendarDays className="h-4.5 w-4.5 text-slate-700" />
           </div>
           <div>
-            <h3 className="text-sm font-extrabold text-slate-900">주간 작업 일정</h3>
-            {schedule && <p className="text-[11px] font-semibold text-slate-400">이번주 구역별 작업 현황</p>}
+            <h3 className="text-sm font-extrabold text-slate-900">월간 작업 일정</h3>
+            {schedule && <p className="text-[11px] font-semibold text-slate-400">월 기준 구역별 작업 현황</p>}
           </div>
         </div>
       </div>
@@ -303,7 +276,7 @@ function WorkScheduleSection({ isAdmin }: { isAdmin: boolean }) {
             <CalendarDays className="h-6 w-6 text-slate-300" />
           </div>
           <p className="text-sm font-semibold text-slate-400">
-            {isAdmin ? "주간일정 탭에서 작업 일정을 등록하세요." : "등록된 작업 일정이 없습니다."}
+            {isAdmin ? "작업일정 탭에서 월간 작업 일정을 등록하세요." : "등록된 작업 일정이 없습니다."}
           </p>
         </div>
       ) : <ScheduleCalendar schedule={schedule} />}
