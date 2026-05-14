@@ -54,7 +54,7 @@ interface PersonDetail {
   범주: string;
   직종: string;
   firstIn: string | null;
-  lastOut: string | null;
+  departureTime: string | null;
   outings: Outing[];
   hasUnreturnedOuting: boolean;
   totalEvents: number;
@@ -72,20 +72,29 @@ function computePersonDetails(logs: LogRow[]): PersonDetail[] {
     events.sort((a, b) => a.시간.localeCompare(b.시간));
     const firstLog = events[0];
     let firstIn: string | null = null;
-    let lastOut: string | null = null;
+    let departureTime: string | null = null;
     const outings: Outing[] = [];
     let currentOutTime: string | null = null;
 
-    for (const e of events) {
+    for (let idx = 0; idx < events.length; idx++) {
+      const e = events[idx];
+      const isLastEvent = idx === events.length - 1;
+
       if (e.구분 === "IN") {
         if (firstIn === null) firstIn = e.시간;
         if (currentOutTime !== null) {
           outings.push({ outTime: currentOutTime, inTime: e.시간 });
           currentOutTime = null;
         }
+        departureTime = null;
       } else if (e.구분 === "OUT") {
-        lastOut = e.시간;
-        if (currentOutTime === null) currentOutTime = e.시간;
+        if (isLastEvent) {
+          // Last event OUT = 퇴근
+          departureTime = e.시간;
+          currentOutTime = null;
+        } else if (currentOutTime === null) {
+          currentOutTime = e.시간;
+        }
       }
     }
 
@@ -96,7 +105,7 @@ function computePersonDetails(logs: LogRow[]): PersonDetail[] {
       범주: firstLog.범주,
       직종: firstLog.직종,
       firstIn,
-      lastOut,
+      departureTime,
       outings,
       hasUnreturnedOuting,
       totalEvents: events.length,
@@ -140,13 +149,14 @@ function parseCsv(text: string, fileName: string): ParsedPmisData {
     const ins = sorted.filter((e) => e.구분 === "IN");
     const outs = sorted.filter((e) => e.구분 === "OUT");
     const first = sorted[0];
+    const lastEv = sorted[sorted.length - 1];
     persons.push({
       이름: name,
       마스킹: "",
       범주: first.범주,
       직종: first.직종,
       처음IN: ins[0]?.시간 || "",
-      마지막OUT: outs[outs.length - 1]?.시간 || "",
+      마지막OUT: lastEv?.구분 === "OUT" ? lastEv.시간 : "",
       IN횟수: ins.length,
       OUT횟수: outs.length,
       총이벤트: evs.length,
@@ -267,6 +277,90 @@ function parseXlsx(file: File): Promise<ParsedPmisData> {
   });
 }
 
+function SavedDatesCalendar({
+  savedDates,
+  activeDateLabel,
+  onLoad,
+  onDelete,
+}: {
+  savedDates: string[];
+  activeDateLabel: string | null;
+  onLoad: (date: string) => void;
+  onDelete: (date: string) => void;
+}) {
+  const savedSet = useMemo(() => new Set(savedDates), [savedDates]);
+
+  const initYM = () => {
+    const ref = savedDates[0] ?? new Date().toISOString().slice(0, 10);
+    const [y, m] = ref.split("-").map(Number);
+    return { year: y, month: m - 1 };
+  };
+  const [{ year, month }, setYM] = useState(initYM);
+
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const prevMonth = () => setYM(({ year: y, month: m }) => m === 0 ? { year: y - 1, month: 11 } : { year: y, month: m - 1 });
+  const nextMonth = () => setYM(({ year: y, month: m }) => m === 11 ? { year: y + 1, month: 0 } : { year: y, month: m + 1 });
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3 select-none w-52 shrink-0">
+      <div className="flex items-center justify-between mb-2">
+        <button type="button" onClick={prevMonth} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-500 font-bold">‹</button>
+        <span className="text-xs font-extrabold text-slate-800">{year}년 {month + 1}월</span>
+        <button type="button" onClick={nextMonth} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-500 font-bold">›</button>
+      </div>
+      <div className="grid grid-cols-7 mb-0.5">
+        {["일","월","화","수","목","금","토"].map((d, i) => (
+          <div key={d} className={`text-center text-[10px] font-extrabold py-0.5 ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-slate-400"}`}>{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {Array.from({ length: firstWeekday }, (_, i) => <div key={`e${i}`} />)}
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const day = i + 1;
+          const dateStr = `${year}-${p2(month + 1)}-${p2(day)}`;
+          const hasSaved = savedSet.has(dateStr);
+          const isActive = dateStr === activeDateLabel;
+          const isToday = dateStr === todayStr;
+          const col = (firstWeekday + i) % 7;
+          return (
+            <div key={day} className="relative group flex items-center justify-center py-0.5">
+              {hasSaved ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onLoad(dateStr)}
+                    title={`${dateStr} 로드`}
+                    className={`w-7 h-6 rounded text-[11px] font-extrabold transition-colors ${
+                      isActive ? "bg-blue-600 text-white shadow-sm" : "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                    }`}
+                  >
+                    {day}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDelete(dateStr); }}
+                    className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-400 text-white text-[9px] font-black items-center justify-center hidden group-hover:flex z-10 leading-none"
+                  >×</button>
+                </>
+              ) : (
+                <span className={`text-[11px] ${isToday ? "font-extrabold text-blue-500 underline" : col === 0 ? "text-red-300" : col === 6 ? "text-blue-300" : "text-slate-300"}`}>
+                  {day}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {savedDates.length === 0 && (
+        <p className="text-center text-[10px] text-slate-400 mt-1 font-semibold">저장된 데이터 없음</p>
+      )}
+    </div>
+  );
+}
+
 type ViewMode = "persons" | "outings" | "logs";
 
 const PMIS_LOADER_SCRIPT = `void function(){
@@ -294,6 +388,7 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
   const [hideNonXerp, setHideNonXerp] = useState(false);
   const [savedDates, setSavedDates] = useState<string[]>([]);
   const [showManual, setShowManual] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -462,67 +557,48 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
     return (
       <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-4">
         <ManualDialog />
-        {/* 저장된 날짜 목록 */}
-        {savedDates.length > 0 && (
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-4">
-            <p className="text-xs font-extrabold text-slate-600 mb-2 flex items-center gap-1.5">
-              <CalendarDays className="h-3.5 w-3.5" /> 저장된 날짜
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {savedDates.map((date) => (
-                <div key={date} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
-                  <button
-                    type="button"
-                    onClick={() => void handleLoadDate(date)}
-                    className="text-xs font-bold text-slate-800 hover:text-blue-600"
-                  >
-                    {date}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteDate(date)}
-                    className="text-slate-300 hover:text-red-500"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {/* 업로드 영역 */}
-        <div
-          onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
-          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-          onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragActive(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) void handleFile(file);
-          }}
-          onClick={() => inputRef.current?.click()}
-          className={`flex min-h-[240px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
-            dragActive ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50"
-          }`}
-        >
-          <input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            if (file) void handleFile(file);
-          }} />
-          <FileSpreadsheet className="h-12 w-12 text-slate-400" />
-          <p className="mt-4 text-base font-black text-slate-800">PMIS 출역 IN/OUT 로그 업로드</p>
-          <p className="mt-1 text-sm font-semibold text-slate-500">
-            <span className="font-mono">일일출역로그_YYYY-MM-DD.xlsx</span> 파일을 끌어다 놓거나 클릭
-          </p>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setShowManual(true); }}
-            className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-blue-600"
+        <div className="flex gap-4 items-start">
+          {/* 달력 */}
+          <SavedDatesCalendar
+            savedDates={savedDates}
+            activeDateLabel={null}
+            onLoad={(date) => void handleLoadDate(date)}
+            onDelete={(date) => void handleDeleteDate(date)}
+          />
+          {/* 업로드 영역 */}
+          <div
+            onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) void handleFile(file);
+            }}
+            onClick={() => inputRef.current?.click()}
+            className={`flex-1 flex min-h-[220px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
+              dragActive ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50"
+            }`}
           >
-            <HelpCircle className="h-4 w-4" /> 콘솔 추출 방법
-          </button>
+            <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void handleFile(file);
+            }} />
+            <FileSpreadsheet className="h-12 w-12 text-slate-400" />
+            <p className="mt-4 text-base font-black text-slate-800">PMIS 출역 IN/OUT 로그 업로드</p>
+            <p className="mt-1 text-sm font-semibold text-slate-500">
+              <span className="font-mono">.xlsx</span> 또는 <span className="font-mono">.csv</span> 파일을 끌어다 놓거나 클릭
+            </p>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowManual(true); }}
+              className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-blue-600"
+            >
+              <HelpCircle className="h-4 w-4" /> 콘솔 추출 방법
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -538,6 +614,15 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
           <p className="text-xs font-semibold text-slate-500">{data.fileName}</p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setShowCalendar((v) => !v)}
+            className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-extrabold transition-colors ${
+              showCalendar ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <CalendarDays className="h-3.5 w-3.5" /> 날짜 선택 {savedDates.length > 0 && `(${savedDates.length})`}
+          </button>
           {data.summary && (
             <>
               <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-extrabold text-slate-700">
@@ -592,6 +677,41 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
           </button>
         </div>
       </div>
+
+      {/* 달력 패널 */}
+      {showCalendar && (
+        <div className="flex gap-4 items-start">
+          <SavedDatesCalendar
+            savedDates={savedDates}
+            activeDateLabel={data.dateLabel}
+            onLoad={(date) => void handleLoadDate(date)}
+            onDelete={(date) => void handleDeleteDate(date)}
+          />
+          <div
+            onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) void handleFile(file);
+            }}
+            onClick={() => inputRef.current?.click()}
+            className={`flex-1 flex min-h-[100px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
+              dragActive ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-slate-50 hover:border-blue-400 hover:bg-blue-50"
+            }`}
+          >
+            <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void handleFile(file);
+            }} />
+            <FileSpreadsheet className="h-8 w-8 text-slate-300" />
+            <p className="mt-2 text-sm font-bold text-slate-400">다른 날짜 CSV/XLSX 업로드</p>
+          </div>
+        </div>
+      )}
 
       {/* 뷰 토글 + 검색 */}
       <div className="flex flex-wrap items-center gap-2">
@@ -704,13 +824,13 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-1 px-4 py-2.5 text-xs">
-                {/* 처음 입장 */}
+                {/* 출근 */}
                 <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-2.5 py-1 font-bold text-emerald-800">
                   <LogIn className="h-3.5 w-3.5" />
-                  입장 {d.firstIn ?? "-"}
+                  출근 {d.firstIn ?? "-"}
                 </span>
 
-                {/* 중간외출 사이클 */}
+                {/* 외출 → 복귀 사이클 */}
                 {d.outings.map((o, oi) => (
                   <span key={oi} className="inline-flex items-center gap-1">
                     <ArrowRight className="h-3 w-3 text-slate-300" />
@@ -726,22 +846,23 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
                   </span>
                 ))}
 
-                {/* 최종 퇴장 */}
-                {d.lastOut && !d.hasUnreturnedOuting && (
+                {/* 퇴근 */}
+                {d.departureTime && (
                   <>
                     <ArrowRight className="h-3 w-3 text-slate-300" />
                     <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-200 px-2.5 py-1 font-bold text-slate-700">
                       <LogOut className="h-3.5 w-3.5" />
-                      퇴장 {d.lastOut}
+                      퇴근 {d.departureTime}
                     </span>
                   </>
                 )}
+                {/* 외출중 (mid-outing unresolved, no departure yet) */}
                 {d.hasUnreturnedOuting && (
                   <>
                     <ArrowRight className="h-3 w-3 text-slate-300" />
                     <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1 font-bold text-amber-700">
-                      <LogOut className="h-3.5 w-3.5" />
-                      외출중 {d.lastOut}
+                      <Clock className="h-3 w-3" />
+                      외출중
                     </span>
                   </>
                 )}

@@ -88,9 +88,9 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
   };
 
   return (
-    <div className="flex min-h-[600px]">
-      {/* 사이드바 */}
-      <div className="w-44 shrink-0 border-r border-slate-200 bg-slate-50 py-3">
+    <div className="flex items-start">
+      {/* 사이드바 — sticky so it follows scroll */}
+      <div className="w-44 shrink-0 border-r border-slate-200 bg-slate-50 py-3 sticky top-0 max-h-screen overflow-y-auto self-start">
         {XERP_SITES.map((site) => {
           const isActive = selectedSite === site.value;
           return (
