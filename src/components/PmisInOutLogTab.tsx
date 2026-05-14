@@ -296,6 +296,7 @@ function SavedDatesCalendar({
     return { year: y, month: m - 1 };
   };
   const [{ year, month }, setYM] = useState(initYM);
+  const [deleteMode, setDeleteMode] = useState(false);
 
   const p2 = (n: number) => String(n).padStart(2, "0");
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -305,11 +306,23 @@ function SavedDatesCalendar({
   const nextMonth = () => setYM(({ year: y, month: m }) => m === 11 ? { year: y + 1, month: 0 } : { year: y, month: m + 1 });
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3 select-none w-52 shrink-0">
-      <div className="flex items-center justify-between mb-2">
+    <div className={`rounded-lg border bg-white shadow-sm p-3 select-none w-52 shrink-0 ${deleteMode ? "border-red-300" : "border-slate-200"}`}>
+      <div className="flex items-center justify-between mb-1">
         <button type="button" onClick={prevMonth} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-500 font-bold">‹</button>
         <span className="text-xs font-extrabold text-slate-800">{year}년 {month + 1}월</span>
         <button type="button" onClick={nextMonth} className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-500 font-bold">›</button>
+      </div>
+      <div className="flex justify-end mb-1.5">
+        <button
+          type="button"
+          onClick={() => setDeleteMode((v) => !v)}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+            deleteMode ? "bg-red-100 text-red-600 border border-red-300" : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-red-50 hover:text-red-500"
+          }`}
+        >
+          <Trash2 className="h-2.5 w-2.5" />
+          {deleteMode ? "삭제중 (취소)" : "삭제"}
+        </button>
       </div>
       <div className="grid grid-cols-7 mb-0.5">
         {["일","월","화","수","목","금","토"].map((d, i) => (
@@ -326,25 +339,20 @@ function SavedDatesCalendar({
           const isToday = dateStr === todayStr;
           const col = (firstWeekday + i) % 7;
           return (
-            <div key={day} className="relative group flex items-center justify-center py-0.5">
+            <div key={day} className="flex items-center justify-center py-0.5">
               {hasSaved ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onLoad(dateStr)}
-                    title={`${dateStr} 로드`}
-                    className={`w-7 h-6 rounded text-[11px] font-extrabold transition-colors ${
-                      isActive ? "bg-blue-600 text-white shadow-sm" : "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
-                    }`}
-                  >
-                    {day}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onDelete(dateStr); }}
-                    className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-400 text-white text-[9px] font-black items-center justify-center hidden group-hover:flex z-10 leading-none"
-                  >×</button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => deleteMode ? onDelete(dateStr) : onLoad(dateStr)}
+                  title={deleteMode ? `${dateStr} 삭제` : `${dateStr} 로드`}
+                  className={`w-7 h-6 rounded text-[11px] font-extrabold transition-colors ${
+                    deleteMode
+                      ? "bg-red-100 text-red-600 hover:bg-red-400 hover:text-white"
+                      : isActive ? "bg-blue-600 text-white shadow-sm" : "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                  }`}
+                >
+                  {day}
+                </button>
               ) : (
                 <span className={`text-[11px] ${isToday ? "font-extrabold text-blue-500 underline" : col === 0 ? "text-red-300" : col === 6 ? "text-blue-300" : "text-slate-300"}`}>
                   {day}
@@ -354,6 +362,9 @@ function SavedDatesCalendar({
           );
         })}
       </div>
+      {deleteMode && savedDates.length > 0 && (
+        <p className="text-center text-[10px] text-red-400 font-bold mt-1.5">날짜 클릭 시 삭제됩니다</p>
+      )}
       {savedDates.length === 0 && (
         <p className="text-center text-[10px] text-slate-400 mt-1 font-semibold">저장된 데이터 없음</p>
       )}
