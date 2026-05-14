@@ -95,6 +95,7 @@ function getShiftOption(key: string) {
 
 export function WeeklySchedule() {
   const [monthStart, setMonthStart] = useState(getMonthStart());
+  const [selectedDate, setSelectedDate] = useState(toDateStr(new Date()));
   const [zones, setZones] = useState<string[]>(["작업구역 1"]);
   const [schedule, setSchedule] = useState<Record<string, Record<string, string>>>({});
   const [loading, setLoading] = useState(true);
@@ -103,11 +104,14 @@ export function WeeklySchedule() {
   const monthDates = useMemo(() => getMonthCalendarDates(monthStart), [monthStart]);
   const selectedMonth = useMemo(() => new Date(`${monthStart}T00:00:00`).getMonth(), [monthStart]);
   const monthValue = monthStart.slice(0, 7);
+  const selectedDateLabel = `${formatDateLabel(selectedDate)} ${formatDayLabel(selectedDate)}요일`;
 
   useEffect(() => {
     loadScheduleFS().then((data) => {
       if (data?.weekStart && Array.isArray(data.zones)) {
-        setMonthStart(getMonthStart(new Date(`${data.weekStart}T00:00:00`)));
+        const nextMonthStart = getMonthStart(new Date(`${data.weekStart}T00:00:00`));
+        setMonthStart(nextMonthStart);
+        setSelectedDate(nextMonthStart);
         setZones(data.zones.length ? data.zones : ["작업구역 1"]);
         setSchedule(data.schedule ?? {});
       }
@@ -231,7 +235,11 @@ export function WeeklySchedule() {
               <input
                 type="month"
                 value={monthValue}
-                onChange={(e) => setMonthStart(`${e.target.value}-01`)}
+                onChange={(e) => {
+                  const nextMonthStart = `${e.target.value}-01`;
+                  setMonthStart(nextMonthStart);
+                  setSelectedDate(nextMonthStart);
+                }}
                 className="bg-transparent outline-none"
               />
             </label>
@@ -258,88 +266,127 @@ export function WeeklySchedule() {
         </div>
       </div>
 
-      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-100/70 p-3 shadow-sm">
-        <div className="grid grid-cols-7 gap-2 px-1">
-          {DAY_KO.map((day, idx) => (
-            <div key={day} className={`px-2 py-2 text-center text-xs font-bold ${idx === 0 ? "text-rose-500" : idx === 6 ? "text-sky-500" : "text-muted-foreground"}`}>
-              {day}
-            </div>
-          ))}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="grid grid-cols-7 border-b border-slate-100 pb-2">
+            {DAY_KO.map((day, idx) => (
+              <div key={day} className={`text-center text-xs font-bold ${idx === 0 ? "text-rose-500" : idx === 6 ? "text-sky-500" : "text-muted-foreground"}`}>
+                {day}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7">
+            {monthDates.map((date) => {
+              const dateObj = new Date(`${date}T00:00:00`);
+              const day = dateObj.getDay();
+              const isOutsideMonth = dateObj.getMonth() !== selectedMonth;
+              const isWeekend = day === 0 || day === 6;
+              const isSelected = date === selectedDate;
+              const dateEntries = zones
+                .map((zone) => {
+                  const parsed = parseCell(schedule[date]?.[zone] ?? "");
+                  const selectedKeys = SHIFT_OPTIONS.filter((option) => parsed.selected.has(option.key)).map((option) => option.key);
+                  return { zone, selectedKeys, memo: parsed.memo };
+                })
+                .filter((entry) => entry.selectedKeys.length > 0 || entry.memo);
+
+              return (
+                <button
+                  key={date}
+                  type="button"
+                  onClick={() => setSelectedDate(date)}
+                  className={`min-h-[124px] border-b border-r border-slate-100 p-2 text-left transition-colors hover:bg-slate-50 ${isSelected ? "bg-slate-900 text-white hover:bg-slate-900" : "bg-white"} ${isOutsideMonth ? "opacity-45" : ""}`}
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className={`text-sm font-extrabold ${isSelected ? "text-white" : isWeekend ? "text-sky-600" : "text-slate-800"}`}>{dateObj.getDate()}</span>
+                    {dateEntries.length > 0 && (
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${isSelected ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500"}`}>
+                        {dateEntries.length}
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {dateEntries.slice(0, 2).map((entry) => (
+                      <div key={`${date}-${entry.zone}`} className={`truncate rounded-md px-1.5 py-1 text-[10px] font-semibold ${isSelected ? "bg-white/10 text-white" : "bg-slate-50 text-slate-600"}`}>
+                        <span className="mr-1 font-extrabold">{entry.zone}</span>
+                        {entry.selectedKeys.slice(0, 2).join(", ") || entry.memo}
+                      </div>
+                    ))}
+                    {dateEntries.length > 2 && (
+                      <div className={`text-[10px] font-bold ${isSelected ? "text-white/70" : "text-slate-400"}`}>+{dateEntries.length - 2}개 더</div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-2">
-          {monthDates.map((date) => {
-            const dateObj = new Date(`${date}T00:00:00`);
-            const day = dateObj.getDay();
-            const isOutsideMonth = dateObj.getMonth() !== selectedMonth;
-            const isWeekend = day === 0 || day === 6;
-            return (
-              <div
-                key={date}
-                className={`min-h-[230px] rounded-xl border p-2 shadow-sm ${isOutsideMonth ? "border-slate-100 bg-slate-50/70 opacity-60" : "border-slate-200 bg-white"}`}
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <span className={`text-sm font-extrabold ${isWeekend ? "text-sky-600" : "text-slate-800"}`}>{formatDateLabel(date)}</span>
-                  <span className="text-[10px] font-semibold text-slate-400">{formatDayLabel(date)}</span>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-4">
+            <div className="text-xs font-bold text-muted-foreground">선택 날짜</div>
+            <div className="mt-1 text-lg font-extrabold text-slate-900">{selectedDateLabel}</div>
+          </div>
+
+          <div className="space-y-3">
+            {zones.map((zone) => {
+              const parsed = parseCell(schedule[selectedDate]?.[zone] ?? "");
+              const selectedKeys = SHIFT_OPTIONS.filter((option) => parsed.selected.has(option.key)).map((option) => option.key);
+              return (
+                <div key={`${selectedDate}-${zone}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-2 truncate text-sm font-extrabold text-slate-800" title={zone}>{zone}</div>
+                  <div className="flex min-h-[28px] flex-wrap gap-1.5">
+                    {selectedKeys.length === 0 ? (
+                      <span className="text-xs font-semibold text-slate-300">일정 없음</span>
+                    ) : (
+                      selectedKeys.map((key) => {
+                        const option = getShiftOption(key);
+                        if (!option) return null;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => toggleShift(selectedDate, zone, key)}
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-bold ${option.className}`}
+                            title="클릭하면 제거됩니다"
+                          >
+                            {option.label}
+                            <span className="opacity-60">×</span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      toggleShift(selectedDate, zone, e.target.value);
+                      e.currentTarget.value = "";
+                    }}
+                    className="mt-2 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-600 outline-none focus:border-slate-300"
+                  >
+                    <option value="">일정 추가</option>
+                    {SHIFT_OPTIONS.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label} {option.time}
+                      </option>
+                    ))}
+                  </select>
+
+                  <textarea
+                    value={parsed.memo}
+                    onChange={(e) => updateMemo(selectedDate, zone, e.target.value)}
+                    placeholder="메모"
+                    rows={2}
+                    className="mt-2 min-h-[44px] w-full resize-none rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-slate-300"
+                  />
                 </div>
-
-                <div className="space-y-2">
-                  {zones.map((zone) => {
-                    const parsed = parseCell(schedule[date]?.[zone] ?? "");
-                    const selectedKeys = SHIFT_OPTIONS.filter((option) => parsed.selected.has(option.key)).map((option) => option.key);
-                    return (
-                      <div key={`${date}-${zone}`} className="rounded-lg border border-slate-100 bg-slate-50 p-2">
-                        <div className="mb-1.5 truncate text-[11px] font-extrabold text-slate-600" title={zone}>{zone}</div>
-                        <div className="flex min-h-[24px] flex-wrap gap-1">
-                          {selectedKeys.map((key) => {
-                            const option = getShiftOption(key);
-                            if (!option) return null;
-                            return (
-                              <button
-                                key={key}
-                                type="button"
-                                onClick={() => toggleShift(date, zone, key)}
-                                className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${option.className}`}
-                                title="클릭하면 제거됩니다"
-                              >
-                                {option.label}
-                                <span className="opacity-60">×</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            if (!e.target.value) return;
-                            toggleShift(date, zone, e.target.value);
-                            e.currentTarget.value = "";
-                          }}
-                          className="mt-1.5 h-7 w-full rounded-md border border-slate-200 bg-white px-1.5 text-[10px] font-semibold text-slate-600 outline-none focus:border-slate-300"
-                        >
-                          <option value="">일정 추가</option>
-                          {SHIFT_OPTIONS.map((option) => (
-                            <option key={option.key} value={option.key}>
-                              {option.label} {option.time}
-                            </option>
-                          ))}
-                        </select>
-
-                        <textarea
-                          value={parsed.memo}
-                          onChange={(e) => updateMemo(date, zone, e.target.value)}
-                          placeholder="메모"
-                          rows={2}
-                          className="mt-1.5 min-h-[38px] w-full resize-none rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[10px] outline-none focus:border-slate-300"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
 

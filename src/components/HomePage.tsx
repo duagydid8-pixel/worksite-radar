@@ -167,13 +167,15 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
           </span>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
-          <div className="grid grid-cols-7 gap-1.5">
+        <div className="rounded-xl border border-slate-200 bg-white p-2">
+          <div className="grid grid-cols-7 border-b border-slate-100 pb-1.5">
             {WEEK_DAY.map((day, i) => (
               <div key={day} className={`px-2 py-1.5 text-center text-[10px] font-extrabold ${i === 0 ? "text-rose-400" : i === 6 ? "text-sky-500" : "text-slate-400"}`}>
                 {day}
               </div>
             ))}
+          </div>
+          <div className="grid grid-cols-7">
             {monthDates.map((date, dateIdx)=>{
               const [,m,d] = date.split("-").map(Number);
               const typeEntries = schedule.zones
@@ -185,40 +187,38 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
               return (
                 <div
                   key={date}
-                  className={`hp-sched-cell min-h-[118px] rounded-lg border px-2 py-2 ${isToday ? "hp-sched-cell-today border-slate-300 bg-white ring-1 ring-slate-300" : "border-slate-100 bg-white"} ${isOutsideMonth ? "opacity-45" : ""}`}
+                  className={`hp-sched-cell min-h-[102px] border-b border-r border-slate-100 px-2 py-2 ${isToday ? "hp-sched-cell-today bg-slate-50 ring-1 ring-inset ring-slate-300" : "bg-white"} ${isOutsideMonth ? "opacity-35" : ""}`}
                 >
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className={`text-[11px] font-extrabold ${isToday ? "text-slate-950" : "text-slate-700"}`}>{m}/{d}</span>
-                    {typeEntries.length > 0 && <span className="text-[9px] font-bold text-slate-400">{typeEntries.length}</span>}
+                    {typeEntries.length > 0 && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">{typeEntries.length}</span>}
                   </div>
                   <div className="space-y-1">
-                    {typeEntries.slice(0, 3).map(({ zone, type }, entryIdx) => {
+                    {typeEntries.slice(0, 2).map(({ zone, type }, entryIdx) => {
                       const matchedMetas = Object.entries(TYPE_META).filter(([k]) => type.includes(k));
                       const memo = type.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
                       const cellDelayMs = 780 + dateIdx * 12 + entryIdx * 40;
                       return (
-                        <div key={`${date}-${zone}`} className="rounded-md bg-slate-50 px-1.5 py-1">
-                          <div className="mb-1 truncate text-[9px] font-extrabold text-slate-500" title={zone}>{zone}</div>
-                          <div className="flex flex-wrap gap-1">
-                            {matchedMetas.slice(0, 2).map(([k, meta]) => {
+                        <div key={`${date}-${zone}`} className="truncate rounded-md bg-slate-50 px-1.5 py-1 text-[9px] font-semibold text-slate-500">
+                          <span className="mr-1 font-extrabold text-slate-600">{zone}</span>
+                          {matchedMetas.slice(0, 2).map(([k, meta]) => {
                               const isImportant = IMPORTANT_SCHEDULE_TYPES.has(k);
                               return (
                                 <span
                                   key={k}
-                                  className={`hp-sched-chip inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${isImportant ? "hp-sched-chip-priority" : ""} ${meta.bg} ${meta.text} ${meta.border}`}
+                                  className={`hp-sched-chip mr-1 inline-flex items-center justify-center rounded border px-1 py-0.5 text-[9px] font-bold ${isImportant ? "hp-sched-chip-priority" : ""} ${meta.bg} ${meta.text} ${meta.border}`}
                                   style={{ animationDelay: `${cellDelayMs}ms` }}
                                 >
                                   {meta.label}
                                 </span>
                               );
                             })}
-                            {matchedMetas.length > 2 && <span className="text-[9px] font-bold text-slate-400">+{matchedMetas.length - 2}</span>}
-                            {!matchedMetas.length && memo && <span className="truncate text-[9px] font-semibold text-slate-500">{memo}</span>}
-                          </div>
+                          {matchedMetas.length > 2 && <span className="font-bold text-slate-400">+{matchedMetas.length - 2}</span>}
+                          {!matchedMetas.length && memo && <span>{memo}</span>}
                         </div>
                       );
                     })}
-                    {typeEntries.length > 3 && <div className="text-[9px] font-bold text-slate-400">+{typeEntries.length - 3}개 구역</div>}
+                    {typeEntries.length > 2 && <div className="text-[9px] font-bold text-slate-400">+{typeEntries.length - 2}개 구역</div>}
                   </div>
                 </div>
               );
