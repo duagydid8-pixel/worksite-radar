@@ -433,23 +433,22 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
     toast.success(`${date} 삭제됨`);
   };
 
-  const handleFile = async (file: File) => {
+  const parseFile = async (file: File): Promise<ParsedPmisData | null> => {
     const name = file.name.toLowerCase();
     const isCsv = name.endsWith(".csv");
     const isXlsx = name.endsWith(".xlsx");
-    if (!isCsv && !isXlsx) {
-      toast.error("xlsx 또는 csv 파일만 업로드해 주세요.");
-      return;
+    if (!isCsv && !isXlsx) return null;
+    if (isCsv) {
+      const text = await file.text();
+      return parseCsv(text, file.name);
     }
+    return parseXlsx(file);
+  };
+
+  const handleFile = async (file: File) => {
     try {
-      let parsed: ParsedPmisData;
-      if (isCsv) {
-        const text = await file.text();
-        parsed = parseCsv(text, file.name);
-      } else {
-        parsed = await parseXlsx(file);
-      }
-      if (parsed.persons.length === 0 && parsed.logs.length === 0) {
+      const parsed = await parseFile(file);
+      if (!parsed || (parsed.persons.length === 0 && parsed.logs.length === 0)) {
         toast.error("출역 데이터를 찾지 못했습니다.");
         return;
       }
@@ -458,6 +457,34 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
       toast.success(`${parsed.dateLabel} 출역로그 로드 완료 (${parsed.persons.length}명)`);
     } catch {
       toast.error("파일 파싱 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleBatchFiles = async (files: File[]) => {
+    if (files.length === 1) { void handleFile(files[0]); return; }
+    const valid = files.filter((f) => {
+      const n = f.name.toLowerCase();
+      return n.endsWith(".csv") || n.endsWith(".xlsx");
+    });
+    if (valid.length === 0) { toast.error("xlsx 또는 csv 파일만 업로드해 주세요."); return; }
+    setSaving(true);
+    let ok = 0, skip = 0;
+    const newDates: string[] = [];
+    for (const file of valid) {
+      try {
+        const parsed = await parseFile(file);
+        if (!parsed || (parsed.persons.length === 0 && parsed.logs.length === 0)) { skip++; continue; }
+        const saved = await savePmisLogFS(site, parsed.dateLabel, parsed);
+        if (saved) { ok++; newDates.push(parsed.dateLabel); }
+        else skip++;
+      } catch { skip++; }
+    }
+    setSaving(false);
+    if (newDates.length > 0) {
+      setSavedDates((prev) => Array.from(new Set([...newDates, ...prev])).sort().reverse());
+      toast.success(`${ok}개 날짜 저장 완료${skip > 0 ? ` (실패 ${skip}개)` : ""}`);
+    } else {
+      toast.error("저장된 파일이 없습니다.");
     }
   };
 
@@ -575,23 +602,23 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
             onDrop={(e) => {
               e.preventDefault();
               setDragActive(false);
-              const file = e.dataTransfer.files?.[0];
-              if (file) void handleFile(file);
+              const files = Array.from(e.dataTransfer.files);
+              if (files.length > 0) void handleBatchFiles(files);
             }}
             onClick={() => inputRef.current?.click()}
             className={`flex-1 flex min-h-[220px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
               dragActive ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50"
             }`}
           >
-            <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => {
-              const file = e.target.files?.[0];
+            <input ref={inputRef} type="file" accept=".xlsx,.csv" multiple className="hidden" onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
               e.target.value = "";
-              if (file) void handleFile(file);
+              if (files.length > 0) void handleBatchFiles(files);
             }} />
             <FileSpreadsheet className="h-12 w-12 text-slate-400" />
             <p className="mt-4 text-base font-black text-slate-800">PMIS 출역 IN/OUT 로그 업로드</p>
             <p className="mt-1 text-sm font-semibold text-slate-500">
-              <span className="font-mono">.xlsx</span> 또는 <span className="font-mono">.csv</span> 파일을 끌어다 놓거나 클릭
+              <span className="font-mono">.xlsx</span> 또는 <span className="font-mono">.csv</span> — 여러 날짜 한번에 가능
             </p>
             <button
               type="button"
@@ -696,18 +723,18 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
             onDrop={(e) => {
               e.preventDefault();
               setDragActive(false);
-              const file = e.dataTransfer.files?.[0];
-              if (file) void handleFile(file);
+              const files = Array.from(e.dataTransfer.files);
+              if (files.length > 0) void handleBatchFiles(files);
             }}
             onClick={() => inputRef.current?.click()}
             className={`flex-1 flex min-h-[100px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors ${
               dragActive ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-slate-50 hover:border-blue-400 hover:bg-blue-50"
             }`}
           >
-            <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => {
-              const file = e.target.files?.[0];
+            <input ref={inputRef} type="file" accept=".xlsx,.csv" multiple className="hidden" onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
               e.target.value = "";
-              if (file) void handleFile(file);
+              if (files.length > 0) void handleBatchFiles(files);
             }} />
             <FileSpreadsheet className="h-8 w-8 text-slate-300" />
             <p className="mt-2 text-sm font-bold text-slate-400">다른 날짜 CSV/XLSX 업로드</p>
