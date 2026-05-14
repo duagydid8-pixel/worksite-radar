@@ -546,7 +546,8 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
             <ul className="list-disc list-inside text-amber-700 text-xs font-semibold space-y-1 mt-1">
               <li>allow pasting 입력 후 Enter해야 붙여넣기 가능</li>
               <li>비밀번호는 직접 입력 (절대 저장/공유 금지)</li>
-              <li>날짜 바꿀 때마다 collectAllPages() 다시 실행</li>
+              <li>날짜 바꿀 때마다 collectAllPagesFetch() 다시 실행</li>
+              <li>collectAllPagesFetch 실패 시 collectAllPages() 로 대체 가능</li>
             </ul>
           </div>
         </div>
