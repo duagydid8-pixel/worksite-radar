@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, X, Download, Upload, FolderOpen, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown, BarChart2, MessageSquare, TrendingUp, Award, Plus, ShieldCheck } from "lucide-react";
+import { Search, X, Download, Upload, FolderOpen, CalendarDays, Trash2, ChevronLeft, ChevronRight, AlertTriangle, Clock, CheckCircle2, XCircle, ArrowUpDown, ArrowUp, ArrowDown, BarChart2, MessageSquare, TrendingUp, Award, Plus, ShieldCheck, Clipboard } from "lucide-react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
@@ -1342,6 +1342,15 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     toast.success(`${formatLabel(date)} 데이터를 삭제했습니다.`);
   };
 
+  const handleExportForElcd = () => {
+    if (currentRows.length === 0) { toast.error("내보낼 데이터가 없습니다."); return; }
+    const workers = currentRows.map((r) => ({ name: r.성명, birth: r.생년월일 }));
+    navigator.clipboard.writeText(JSON.stringify(workers)).then(
+      () => toast.success(`전자카드 대조용 ${workers.length}명 복사됨 → eum 사이트에서 compareWithPmis(붙여넣기)`),
+      () => toast.error("클립보드 복사 실패")
+    );
+  };
+
   // ── 내보내기 (업로드 원본 템플릿 우선, 없으면 동일 구조 서식 생성) ──
   const handleExport = async () => {
     if (currentRows.length === 0) { toast.error("내보낼 데이터가 없습니다."); return; }
@@ -1599,6 +1608,13 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           )}
         </div>
 
+        <button
+          onClick={handleExportForElcd}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-blue-200 bg-blue-50 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+        >
+          <Clipboard className="h-4 w-4" />
+          전자카드 대조
+        </button>
         <button
           onClick={handleExport}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:bg-muted/50 transition-colors"
