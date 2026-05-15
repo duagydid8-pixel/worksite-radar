@@ -57,6 +57,16 @@ export function getMonthCalendarDates(monthStart: string): string[] {
   });
 }
 
+function getMonthDates(monthStart: string): string[] {
+  const month = new Date(`${monthStart}T00:00:00`);
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  return Array.from({ length: daysInMonth }, (_, i) => {
+    const d = new Date(month);
+    d.setDate(i + 1);
+    return toDateStr(d);
+  });
+}
+
 function formatDateLabel(date: string): string {
   const d = new Date(`${date}T00:00:00`);
   return `${d.getMonth() + 1}/${d.getDate()}`;
@@ -101,10 +111,21 @@ export function WeeklySchedule() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const monthDates = useMemo(() => getMonthCalendarDates(monthStart), [monthStart]);
-  const selectedMonth = useMemo(() => new Date(`${monthStart}T00:00:00`).getMonth(), [monthStart]);
+  const monthDates = useMemo(() => getMonthDates(monthStart), [monthStart]);
   const monthValue = monthStart.slice(0, 7);
   const selectedDateLabel = `${formatDateLabel(selectedDate)} ${formatDayLabel(selectedDate)}요일`;
+  const boardColumns = useMemo(() => {
+    return SHIFT_OPTIONS.map((shift) => {
+      const cards = monthDates.flatMap((date) => {
+        return zones.flatMap((zone) => {
+          const parsed = parseCell(schedule[date]?.[zone] ?? "");
+          if (!parsed.selected.has(shift.key)) return [];
+          return [{ date, zone, memo: parsed.memo }];
+        });
+      });
+      return { shift, cards };
+    });
+  }, [monthDates, schedule, zones]);
 
   useEffect(() => {
     loadScheduleFS().then((data) => {
@@ -267,59 +288,53 @@ export function WeeklySchedule() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="grid grid-cols-7 border-b border-slate-100 pb-2">
-            {DAY_KO.map((day, idx) => (
-              <div key={day} className={`text-center text-xs font-bold ${idx === 0 ? "text-rose-500" : idx === 6 ? "text-sky-500" : "text-muted-foreground"}`}>
-                {day}
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-100/70 p-3 shadow-sm">
+          <div className="grid min-w-[1120px] grid-cols-5 gap-3">
+            {boardColumns.map(({ shift, cards }) => (
+              <div key={shift.key} className="rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3">
+                  <div>
+                    <div className="text-sm font-extrabold text-slate-900">{shift.label}</div>
+                    <div className="mt-0.5 text-[11px] font-semibold text-slate-400">{shift.time}</div>
+                  </div>
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-500">{cards.length}</span>
+                </div>
+
+                <div className="max-h-[640px] space-y-2 overflow-y-auto p-2">
+                  {cards.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-slate-200 px-3 py-8 text-center text-xs font-semibold text-slate-300">
+                      일정 없음
+                    </div>
+                  ) : (
+                    cards.map((card) => {
+                      const dateObj = new Date(`${card.date}T00:00:00`);
+                      const isSelected = card.date === selectedDate;
+                      return (
+                        <button
+                          key={`${shift.key}-${card.date}-${card.zone}`}
+                          type="button"
+                          onClick={() => setSelectedDate(card.date)}
+                          className={`w-full rounded-lg border p-3 text-left transition-colors ${isSelected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white"}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className={`text-sm font-extrabold ${isSelected ? "text-white" : "text-slate-900"}`}>
+                                {formatDateLabel(card.date)} {formatDayLabel(card.date)}
+                              </div>
+                              <div className={`mt-1 text-xs font-bold ${isSelected ? "text-white/80" : "text-slate-500"}`}>{card.zone}</div>
+                            </div>
+                            <span className={`text-[10px] font-bold ${isSelected ? "text-white/60" : "text-slate-400"}`}>{dateObj.getDate()}일</span>
+                          </div>
+                          {card.memo && (
+                            <div className={`mt-2 truncate text-xs font-semibold ${isSelected ? "text-white/70" : "text-slate-400"}`}>{card.memo}</div>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             ))}
-          </div>
-
-          <div className="grid grid-cols-7">
-            {monthDates.map((date) => {
-              const dateObj = new Date(`${date}T00:00:00`);
-              const day = dateObj.getDay();
-              const isOutsideMonth = dateObj.getMonth() !== selectedMonth;
-              const isWeekend = day === 0 || day === 6;
-              const isSelected = date === selectedDate;
-              const dateEntries = zones
-                .map((zone) => {
-                  const parsed = parseCell(schedule[date]?.[zone] ?? "");
-                  const selectedKeys = SHIFT_OPTIONS.filter((option) => parsed.selected.has(option.key)).map((option) => option.key);
-                  return { zone, selectedKeys, memo: parsed.memo };
-                })
-                .filter((entry) => entry.selectedKeys.length > 0 || entry.memo);
-
-              return (
-                <button
-                  key={date}
-                  type="button"
-                  onClick={() => setSelectedDate(date)}
-                  className={`min-h-[124px] border-b border-r border-slate-100 p-2 text-left transition-colors hover:bg-slate-50 ${isSelected ? "bg-slate-900 text-white hover:bg-slate-900" : "bg-white"} ${isOutsideMonth ? "opacity-45" : ""}`}
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className={`text-sm font-extrabold ${isSelected ? "text-white" : isWeekend ? "text-sky-600" : "text-slate-800"}`}>{dateObj.getDate()}</span>
-                    {dateEntries.length > 0 && (
-                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${isSelected ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500"}`}>
-                        {dateEntries.length}
-                      </span>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    {dateEntries.slice(0, 2).map((entry) => (
-                      <div key={`${date}-${entry.zone}`} className={`truncate rounded-md px-1.5 py-1 text-[10px] font-semibold ${isSelected ? "bg-white/10 text-white" : "bg-slate-50 text-slate-600"}`}>
-                        <span className="mr-1 font-extrabold">{entry.zone}</span>
-                        {entry.selectedKeys.slice(0, 2).join(", ") || entry.memo}
-                      </div>
-                    ))}
-                    {dateEntries.length > 2 && (
-                      <div className={`text-[10px] font-bold ${isSelected ? "text-white/70" : "text-slate-400"}`}>+{dateEntries.length - 2}개 더</div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
           </div>
         </div>
 

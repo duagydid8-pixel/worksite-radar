@@ -148,13 +148,34 @@ function getMonthCalendarDates(dateStr: string) {
   });
 }
 
-// ── 월간 작업 달력 ───────────────────────────────────
+function getMonthDates(dateStr: string) {
+  const monthStart = new Date(getMonthStart(dateStr) + "T00:00:00");
+  const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
+  return Array.from({length:daysInMonth}, (_,i)=>{
+    const d = new Date(monthStart); d.setDate(i + 1);
+    return toDateStr(d);
+  });
+}
+
+// ── 월간 작업 칸반 ───────────────────────────────────
 const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleData }>(
   ({ schedule }) => {
-    const monthDates = useMemo(() => getMonthCalendarDates(schedule.weekStart), [schedule.weekStart]);
-    const todayStr  = new Date().toISOString().slice(0,10);
+    const monthDates = useMemo(() => getMonthDates(schedule.weekStart), [schedule.weekStart]);
     const monthStart = getMonthStart(schedule.weekStart);
     const [year, month] = monthStart.split("-").map(Number);
+    const boardColumns = useMemo(() => {
+      return Object.entries(TYPE_META).map(([key, meta]) => {
+        const cards = monthDates.flatMap((date) => {
+          return schedule.zones.flatMap((zone) => {
+            const value = schedule.schedule[date]?.[zone] ?? "";
+            if (!value.includes(key)) return [];
+            const memo = value.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
+            return [{ date, zone, memo }];
+          });
+        });
+        return { key, meta, cards };
+      });
+    }, [monthDates, schedule]);
 
     return (
       <div>
@@ -167,62 +188,36 @@ const ScheduleCalendar = React.forwardRef<HTMLDivElement, { schedule: ScheduleDa
           </span>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-2">
-          <div className="grid grid-cols-7 border-b border-slate-100 pb-1.5">
-            {WEEK_DAY.map((day, i) => (
-              <div key={day} className={`px-2 py-1.5 text-center text-[10px] font-extrabold ${i === 0 ? "text-rose-400" : i === 6 ? "text-sky-500" : "text-slate-400"}`}>
-                {day}
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+          <div className="grid min-w-[920px] grid-cols-6 gap-2">
+            {boardColumns.map((column) => (
+              <div key={column.key} className="rounded-lg border border-slate-200 bg-white">
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`h-2.5 w-2.5 rounded-full border ${column.meta.bg} ${column.meta.border}`} />
+                    <span className="text-xs font-extrabold text-slate-800">{column.meta.label}</span>
+                  </div>
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">{column.cards.length}</span>
+                </div>
+                <div className="space-y-2 p-2">
+                  {column.cards.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-slate-200 px-2 py-6 text-center text-[11px] font-semibold text-slate-300">일정 없음</div>
+                  ) : column.cards.slice(0, 8).map((card) => {
+                    const [,m,d] = card.date.split("-").map(Number);
+                    return (
+                      <div key={`${column.key}-${card.date}-${card.zone}`} className="rounded-md border border-slate-100 bg-slate-50 px-2 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-extrabold text-slate-900">{m}/{d}</span>
+                          <span className="truncate text-[10px] font-bold text-slate-500">{card.zone}</span>
+                        </div>
+                        {card.memo && <div className="mt-1 truncate text-[10px] font-semibold text-slate-400">{card.memo}</div>}
+                      </div>
+                    );
+                  })}
+                  {column.cards.length > 8 && <div className="px-1 text-[10px] font-bold text-slate-400">+{column.cards.length - 8}개 더</div>}
+                </div>
               </div>
             ))}
-          </div>
-          <div className="grid grid-cols-7">
-            {monthDates.map((date, dateIdx)=>{
-              const [,m,d] = date.split("-").map(Number);
-              const typeEntries = schedule.zones
-                .map((zone) => ({ zone, type: schedule.schedule[date]?.[zone] ?? "" }))
-                .filter((entry) => entry.type);
-              const dateObject = new Date(date + "T00:00:00");
-              const isToday = date === todayStr;
-              const isOutsideMonth = dateObject.getMonth() + 1 !== month;
-              return (
-                <div
-                  key={date}
-                  className={`hp-sched-cell min-h-[102px] border-b border-r border-slate-100 px-2 py-2 ${isToday ? "hp-sched-cell-today bg-slate-50 ring-1 ring-inset ring-slate-300" : "bg-white"} ${isOutsideMonth ? "opacity-35" : ""}`}
-                >
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className={`text-[11px] font-extrabold ${isToday ? "text-slate-950" : "text-slate-700"}`}>{m}/{d}</span>
-                    {typeEntries.length > 0 && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">{typeEntries.length}</span>}
-                  </div>
-                  <div className="space-y-1">
-                    {typeEntries.slice(0, 2).map(({ zone, type }, entryIdx) => {
-                      const matchedMetas = Object.entries(TYPE_META).filter(([k]) => type.includes(k));
-                      const memo = type.split("\n").find((line) => line.startsWith("메모:"))?.replace(/^메모:\s*/, "") ?? "";
-                      const cellDelayMs = 780 + dateIdx * 12 + entryIdx * 40;
-                      return (
-                        <div key={`${date}-${zone}`} className="truncate rounded-md bg-slate-50 px-1.5 py-1 text-[9px] font-semibold text-slate-500">
-                          <span className="mr-1 font-extrabold text-slate-600">{zone}</span>
-                          {matchedMetas.slice(0, 2).map(([k, meta]) => {
-                              const isImportant = IMPORTANT_SCHEDULE_TYPES.has(k);
-                              return (
-                                <span
-                                  key={k}
-                                  className={`hp-sched-chip mr-1 inline-flex items-center justify-center rounded border px-1 py-0.5 text-[9px] font-bold ${isImportant ? "hp-sched-chip-priority" : ""} ${meta.bg} ${meta.text} ${meta.border}`}
-                                  style={{ animationDelay: `${cellDelayMs}ms` }}
-                                >
-                                  {meta.label}
-                                </span>
-                              );
-                            })}
-                          {matchedMetas.length > 2 && <span className="font-bold text-slate-400">+{matchedMetas.length - 2}</span>}
-                          {!matchedMetas.length && memo && <span>{memo}</span>}
-                        </div>
-                      );
-                    })}
-                    {typeEntries.length > 2 && <div className="text-[9px] font-bold text-slate-400">+{typeEntries.length - 2}개 구역</div>}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
 

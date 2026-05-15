@@ -20,16 +20,18 @@ window.fetchElcdList=async function(startDate,endDate,grndsCd,osrccSnStr){
         credentials:"include",body:JSON.stringify(body)
       });
       var data=await resp.json();
+      var inner=data._data_||{};
+      var list=inner.rdUxElcdUseDsctnOutBVOList||data.list||data.data||[];
       if(pageNo===1){
-        totalCount=data.totalCount||data.totalCnt||data.cnt||9999;
+        totalCount=inner.totalRecordCount||data.totalCount||data.totalCnt||data.cnt||9999;
         console.log("총 건수:"+totalCount+" 응답키:"+Object.keys(data));
-        var list0=data.list||data.data||[];
-        if(list0[0])console.log("항목키:"+Object.keys(list0[0]));
+        if(list[0])console.log("항목키:"+Object.keys(list[0]));
       }
-      var list=data.list||data.data||[];
       if(!list.length)break;
       window.__elcd_rows=window.__elcd_rows.concat(list);
       console.log("p"+pageNo+": "+list.length+"건 / 누적:"+window.__elcd_rows.length+"/"+totalCount);
+      if(!inner.next&&pageNo>1)break;
+      if(window.__elcd_rows.length>=totalCount)break;
       if(list.length<recordCount)break;
       pageNo++;
     }catch(e){return JSON.stringify({error:e.message,collected:window.__elcd_rows.length})}
@@ -46,9 +48,9 @@ window.parseElcd=function(){
       birthday:  r.birthday ||r.brdt     ||r.birthYmd||"",
       tagDate:   r.tagYmd   ||r.lbrYmd   ||r.wkYmd   ||"",
       tagType:   r.tagSeNm  ||r.inOutNm  ||r.tagNm   ||r.tagSeCd||"",
-      inTime:    r.workStrTm||r.inTm     ||r.strTm   ||"",
-      outTime:   r.workEndTm||r.outTm    ||r.endTm   ||"",
-      authMethod:r.authMtdNm||r.tagMtdNm ||r.tagMtdCd||""
+      inTime:    r.gtwkDt   ||r.workStrTm||r.inTm    ||r.strTm   ||"",
+      outTime:   r.lvwkDt   ||r.workEndTm||r.outTm   ||r.endTm   ||"",
+      authMethod:r.tagNm    ||r.authMtdNm||r.tagMtdNm||r.tagMtdCd||""
     };
   });
   var s=window.__elcd_parsed[0];
@@ -57,23 +59,37 @@ window.parseElcd=function(){
   return JSON.stringify({total:window.__elcd_parsed.length,sample:s});
 };
 
-// PMIS 명단과 전자카드 타각 여부 대조
-// pmisJson: exportForElcdCompare() 로 복사한 JSON 문자열
+// PMIS/XERP 명단과 전자카드 타각 여부 대조
+// pmisJson: worksite-radar 앱 "전자카드 대조" 버튼으로 복사한 JSON 문자열
 window.compareWithPmis=function(pmisJson){
   var elcd=window.__elcd_parsed;
   if(!elcd)return JSON.stringify({error:"먼저 parseElcd() 실행"});
   var pmis;
   try{pmis=typeof pmisJson==="string"?JSON.parse(pmisJson):pmisJson;}
-  catch(e){return JSON.stringify({error:"PMIS 데이터 파싱 실패:"+e.message});}
-  // 타각자 Set: 이름+생년월일
+  catch(e){return JSON.stringify({error:"데이터 파싱 실패:"+e.message});}
+  // 생년월일 정규화: 숫자만 추출 후 6자리(YYMMDD)로 통일
+  function nb(s){s=(s||"").replace(/\D/g,"");return s.length>=8?s.slice(2,8):s.slice(0,6);}
+  // 타각자 Set: 이름+생년월일(6자리)
   var tapped=new Set();
-  elcd.forEach(function(r){tapped.add(r.name+"|"+r.birthday);});
+  elcd.forEach(function(r){tapped.add(r.name+"|"+nb(r.birthday));});
   window.__compare_result=pmis.map(function(p){
-    var key=(p.name||"")+("|")+(p.birth||p.birthday||"");
+    var key=(p.name||"")+"|"+nb(p.birth||p.birthday||"");
     return Object.assign({},p,{타각여부:tapped.has(key)?"Y":"N"});
   });
   var y=window.__compare_result.filter(function(r){return r.타각여부==="Y";}).length;
   return JSON.stringify({total:window.__compare_result.length,타각:y,미타각:window.__compare_result.length-y});
+};
+
+// 워크사이트레이더 "전자카드 조회" 탭에 붙여넣을 JSON 클립보드 복사
+window.copyForCompare=function(){
+  var rows=window.__elcd_parsed;
+  if(!rows||!rows.length)return JSON.stringify({error:"먼저 parseElcd() 실행"});
+  var json=JSON.stringify(rows);
+  navigator.clipboard.writeText(json).then(
+    function(){console.log("✅ "+rows.length+"명 복사됨 → 워크사이트레이더 전자카드 조회 탭에 붙여넣기");},
+    function(){console.log("클립보드 복사 실패 — 직접 복사: JSON.stringify(window.__elcd_parsed)");}
+  );
+  return JSON.stringify({copied:rows.length});
 };
 
 window.downloadElcdCsv=function(filename){
@@ -110,16 +126,12 @@ window.downloadCompareCsv=function(filename){
 
 (function(){
   var help=[
-    "OK elcd v1 ──────────────────────────────────────────",
-    "[ eum.cw.or.kr 에서 실행 ]",
+    "OK elcd v2 ──────────────────────────────────────────",
+    "[ eum.cw.or.kr 콘솔에서 실행 순서 ]",
     "1. await fetchElcdList('20260514','20260515','공사코드','osrccSnStr')",
-    "   전자카드 사용내역 전체 수집",
-    "2. parseElcd()              이름/생년월일/태그일자/출퇴근/인증방식 정리",
-    "3. downloadElcdCsv()        전자카드 CSV 다운로드",
-    "── PMIS 대조 ────────────────────────────────────────",
-    "4. compareWithPmis(JSON)    PMIS 명단 붙여넣기 → 타각여부(Y/N) 대조",
-    "   JSON은 PMIS에서 exportForElcdCompare() 로 복사",
-    "5. downloadCompareCsv()     대조 결과 CSV 다운로드",
+    "2. parseElcd()",
+    "3. copyForCompare()   ← 클립보드에 복사됨",
+    "   → 워크사이트레이더 '전자카드 조회' 탭에 붙여넣기",
     "────────────────────────────────────────────────────"
   ].join("\n");
   console.log(help);

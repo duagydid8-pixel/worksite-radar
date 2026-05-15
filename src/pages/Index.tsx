@@ -36,6 +36,7 @@ const LazyXerpWorkReflection = lazy(() => import("@/components/XerpWorkReflectio
 const LazyPmisInOutLogTab = lazy(() => import("@/components/PmisInOutLogTab"));
 const LazyWeeklySchedule = lazy(() => import("@/components/WeeklySchedule").then((module) => ({ default: module.WeeklySchedule })));
 const LazyPdfSplitter = lazy(() => import("@/components/tabs/PdfSplitter"));
+const LazyElcdComparePage = lazy(() => import("@/components/ElcdComparePage"));
 const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMailRequest"));
 const LazyOrgChart = lazy(() => import("@/components/OrgChart"));
 const LazyPayrollPage = lazy(() => import("@/components/PayrollPage"));
@@ -2083,17 +2084,9 @@ const Index = () => {
         )}
 
         {activeTab === "전자카드 조회" && (
-          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
-                <CreditCard className="h-5 w-5" />
-              </div>
-              <h2 className="text-lg font-extrabold text-slate-900">전자카드 조회</h2>
-              <p className="mt-2 text-sm font-semibold text-slate-500">
-                전자카드 조회 화면을 준비 중입니다.
-              </p>
-            </div>
-          </div>
+          <LazyPanel>
+            <LazyElcdComparePage isAdmin={isAdmin} />
+          </LazyPanel>
         )}
 
           {/* XERP 공수 반영 */}
