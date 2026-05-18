@@ -189,7 +189,8 @@ try {
   $excel.DisplayAlerts = $false
   $excel.ScreenUpdating = $false
 
-  $workbook = $excel.Workbooks.Open($InputPath, 3, $true)
+  $workbook = $excel.Workbooks.Open($InputPath, 0, $true)
+  $excel.CalculateFull()
 
   foreach ($worksheet in $workbook.Worksheets) {
     $sheetName = [string]$worksheet.Name
