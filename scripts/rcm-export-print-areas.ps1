@@ -190,7 +190,6 @@ try {
   $excel.ScreenUpdating = $false
 
   $workbook = $excel.Workbooks.Open($InputPath, 0, $true)
-  $excel.CalculateFull()
 
   foreach ($worksheet in $workbook.Worksheets) {
     $sheetName = [string]$worksheet.Name
