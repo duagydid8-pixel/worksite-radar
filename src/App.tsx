@@ -5,22 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Component, type ReactNode } from "react";
 import { Analytics } from "@vercel/analytics/react";
-import { Loader2 } from "lucide-react";
-import { UIProvider } from "@/contexts/UIContext";
-import { AttendanceProvider } from "@/contexts/AttendanceContext";
-import { useAttendance } from "@/hooks/useAttendance";
-import Layout from "@/components/Layout";
-
-import HomePage from "@/pages/HomePage";
-import AttendancePage from "@/pages/AttendancePage";
-import LeavePage from "@/pages/LeavePage";
-import OrgChartPage from "@/pages/OrgChartPage";
-import XerpPage from "@/pages/XerpPage";
-import WeeklySchedulePage from "@/pages/WeeklySchedulePage";
-import NewEmployeePage from "@/pages/NewEmployeePage";
-import XerpReflectionPage from "@/pages/XerpReflectionPage";
-import PdfSplitterPage from "@/pages/PdfSplitterPage";
-import NotFound from "@/pages/NotFound";
+import Index from "./pages/Index.tsx";
+import NotFound from "./pages/NotFound.tsx";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null };
@@ -46,21 +32,6 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
-function LoadingGate({ children }: { children: ReactNode }) {
-  const { isLoading } = useAttendance();
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">데이터 로딩 중...</p>
-        </div>
-      </div>
-    );
-  }
-  return <>{children}</>;
-}
-
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -69,28 +40,13 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <UIProvider>
-          <AttendanceProvider>
-            <BrowserRouter>
-              <LoadingGate>
-                <Layout>
-                  <Routes>
-                    <Route path="/" element={<HomePage />} />
-                    <Route path="/attendance" element={<AttendancePage />} />
-                    <Route path="/leave" element={<LeavePage />} />
-                    <Route path="/org-chart" element={<OrgChartPage />} />
-                    <Route path="/xerp" element={<XerpPage />} />
-                    <Route path="/weekly-schedule" element={<WeeklySchedulePage />} />
-                    <Route path="/new-employees" element={<NewEmployeePage />} />
-                    <Route path="/xerp-reflection" element={<XerpReflectionPage />} />
-                    <Route path="/pdf-splitter" element={<PdfSplitterPage />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </Layout>
-              </LoadingGate>
-            </BrowserRouter>
-          </AttendanceProvider>
-        </UIProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
         <Analytics />
       </TooltipProvider>
     </QueryClientProvider>
