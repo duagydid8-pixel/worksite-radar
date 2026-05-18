@@ -3,7 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Component, type ReactNode } from "react";
+import { Component, lazy, Suspense, type ReactNode } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { Loader2 } from "lucide-react";
 import { UIProvider } from "@/contexts/UIContext";
@@ -11,16 +11,16 @@ import { AttendanceProvider } from "@/contexts/AttendanceContext";
 import { useAttendance } from "@/hooks/useAttendance";
 import Layout from "@/components/Layout";
 
-import HomePage from "@/pages/HomePage";
-import AttendancePage from "@/pages/AttendancePage";
-import LeavePage from "@/pages/LeavePage";
-import OrgChartPage from "@/pages/OrgChartPage";
-import XerpPage from "@/pages/XerpPage";
-import WeeklySchedulePage from "@/pages/WeeklySchedulePage";
-import NewEmployeePage from "@/pages/NewEmployeePage";
-import XerpReflectionPage from "@/pages/XerpReflectionPage";
-import PdfSplitterPage from "@/pages/PdfSplitterPage";
-import NotFound from "@/pages/NotFound";
+const HomePage = lazy(() => import("@/pages/HomePage"));
+const AttendancePage = lazy(() => import("@/pages/AttendancePage"));
+const LeavePage = lazy(() => import("@/pages/LeavePage"));
+const OrgChartPage = lazy(() => import("@/pages/OrgChartPage"));
+const XerpPage = lazy(() => import("@/pages/XerpPage"));
+const WeeklySchedulePage = lazy(() => import("@/pages/WeeklySchedulePage"));
+const NewEmployeePage = lazy(() => import("@/pages/NewEmployeePage"));
+const XerpReflectionPage = lazy(() => import("@/pages/XerpReflectionPage"));
+const PdfSplitterPage = lazy(() => import("@/pages/PdfSplitterPage"));
+const NotFound = lazy(() => import("@/pages/NotFound"));
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null };
@@ -74,18 +74,24 @@ const App = () => (
             <BrowserRouter>
               <LoadingGate>
                 <Layout>
-                  <Routes>
-                    <Route path="/" element={<HomePage />} />
-                    <Route path="/attendance" element={<AttendancePage />} />
-                    <Route path="/leave" element={<LeavePage />} />
-                    <Route path="/org-chart" element={<OrgChartPage />} />
-                    <Route path="/xerp" element={<XerpPage />} />
-                    <Route path="/weekly-schedule" element={<WeeklySchedulePage />} />
-                    <Route path="/new-employees" element={<NewEmployeePage />} />
-                    <Route path="/xerp-reflection" element={<XerpReflectionPage />} />
-                    <Route path="/pdf-splitter" element={<PdfSplitterPage />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
+                  <Suspense fallback={
+                    <div className="min-h-screen bg-background flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                    </div>
+                  }>
+                    <Routes>
+                      <Route path="/" element={<HomePage />} />
+                      <Route path="/attendance" element={<AttendancePage />} />
+                      <Route path="/leave" element={<LeavePage />} />
+                      <Route path="/org-chart" element={<OrgChartPage />} />
+                      <Route path="/xerp" element={<XerpPage />} />
+                      <Route path="/weekly-schedule" element={<WeeklySchedulePage />} />
+                      <Route path="/new-employees" element={<NewEmployeePage />} />
+                      <Route path="/xerp-reflection" element={<XerpReflectionPage />} />
+                      <Route path="/pdf-splitter" element={<PdfSplitterPage />} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </Suspense>
                 </Layout>
               </LoadingGate>
             </BrowserRouter>
