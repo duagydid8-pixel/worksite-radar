@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from "react";
 import { toast } from "sonner";
-import { Download, RefreshCw, CheckCircle2, XCircle, AlertCircle, BookOpen, Image, Upload } from "lucide-react";
+import { Download, RefreshCw, CheckCircle2, XCircle, AlertCircle, BookOpen, Image, Upload, Share2 } from "lucide-react";
 import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import * as XLSX from "xlsx";
@@ -302,6 +302,53 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
     a.click();
   };
 
+  const exportShareImage = async () => {
+    const missingRows = result?.filter((r) => r.타각여부 === "N" && !excludedTeams.has(r.팀명)) ?? [];
+    if (!missingRows.length) { toast.error("미타각 인원이 없습니다."); return; }
+
+    const byTeam = missingRows.reduce<Record<string, CompareRow[]>>((acc, r) => {
+      (acc[r.팀명] ??= []).push(r);
+      return acc;
+    }, {});
+
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:640px;background:#ffffff;font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;border-radius:20px;overflow:hidden;";
+
+    wrap.innerHTML = `
+      <div style="background:#1e293b;color:#fff;padding:28px 32px 22px;text-align:center;">
+        <div style="font-size:28px;font-weight:900;letter-spacing:-0.5px;margin-bottom:6px;">미타각 명단</div>
+        <div style="font-size:15px;color:#94a3b8;">${selectedDate} &nbsp;·&nbsp; 총 ${missingRows.length}명 미타각</div>
+      </div>
+      ${Object.entries(byTeam).map(([team, rows]) => `
+        <div style="padding:18px 24px 14px;border-bottom:1px solid #f1f5f9;">
+          <div style="font-size:12px;font-weight:800;color:#64748b;margin-bottom:12px;letter-spacing:0.08em;">${team} · ${rows.length}명</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${rows.map((r) => `
+              <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;padding:10px 16px;text-align:center;min-width:72px;">
+                <div style="font-size:20px;font-weight:900;color:#dc2626;line-height:1.2;">${r.성명}</div>
+                ${r.직종 ? `<div style="font-size:11px;color:#f87171;margin-top:2px;font-weight:500;">${r.직종}</div>` : ""}
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `).join("")}
+      <div style="background:#f8fafc;padding:10px;text-align:center;">
+        <span style="font-size:11px;color:#cbd5e1;">worksite-radar</span>
+      </div>
+    `;
+
+    document.body.appendChild(wrap);
+    try {
+      const canvas = await html2canvas(wrap, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+      const a = document.createElement("a");
+      a.href = canvas.toDataURL("image/png");
+      a.download = `미타각명단_${selectedDate.replace(/-/g, "")}.png`;
+      a.click();
+    } finally {
+      document.body.removeChild(wrap);
+    }
+  };
+
   const tappedCount = result?.filter((r) => r.타각여부 === "Y").length ?? 0;
   const wrongTagCount = result?.filter((r) => r.타각여부 === "착오").length ?? 0;
   const notTappedCount = result
@@ -508,6 +555,13 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
               >
                 <Download className="h-3.5 w-3.5" /> 엑셀
+              </button>
+              <button
+                onClick={exportShareImage}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-xs font-bold text-red-600 hover:bg-red-100 transition-colors"
+                title="미타각 명단 공유용 이미지 (모바일 최적화)"
+              >
+                <Share2 className="h-3.5 w-3.5" /> 미타각 공유
               </button>
               <button
                 onClick={exportImage}
