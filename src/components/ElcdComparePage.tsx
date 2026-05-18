@@ -7,6 +7,8 @@ import * as XLSX from "xlsx";
 import html2canvas from "html2canvas";
 import { decryptExcelPassword } from "@/utils/xlsxDecrypt";
 
+const EXCLUDED_STORAGE_KEY = "elcd_excluded_keys";
+
 type SiteKey = "PH4" | "PH2" | "P5PH1";
 const SITES: { value: SiteKey; label: string }[] = [
   { value: "PH4", label: "P4-PH4" },
@@ -33,6 +35,7 @@ interface CompareRow {
   직종: string;
   성명: string;
   생년월일: string;
+  excludeKey: string;
   타각여부: "Y" | "N";
   출근: string;
   퇴근: string;
@@ -63,8 +66,28 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   const [filter, setFilter] = useState<"전체" | "타각" | "미타각">("전체");
   const [showGuide, setShowGuide] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [excludedKeys, setExcludedKeys] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(EXCLUDED_STORAGE_KEY);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
   const tableRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const saveExclusions = () => {
+    localStorage.setItem(EXCLUDED_STORAGE_KEY, JSON.stringify([...excludedKeys]));
+    toast.success("제외 목록이 저장되었습니다.");
+  };
+
+  const toggleExcluded = (key: string) => {
+    setExcludedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const loadXerp = async () => {
     setLoading(true);
@@ -193,6 +216,8 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
       }
     });
 
+    const xerpKeys = new Set(currentRows.map((r) => r.성명 + "|" + normBirth(r.생년월일)));
+
     const rows: CompareRow[] = currentRows.map((r) => {
       const key = r.성명 + "|" + normBirth(r.생년월일);
       const hit = tappedMap.get(key);
@@ -201,6 +226,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
         직종: r.직종,
         성명: r.성명,
         생년월일: maskBirth(r.생년월일),
+        excludeKey: key,
         타각여부: hit ? "Y" : "N",
         출근: hit?.inTime ?? "",
         퇴근: hit?.outTime ?? "",
@@ -208,22 +234,43 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
       };
     });
 
-    setResult(rows);
-    const y = rows.filter((r) => r.타각여부 === "Y").length;
-    toast.success(`대조 완료 — 타각 ${y}명 / 미타각 ${rows.length - y}명`);
+    // XERP에 없지만 전자카드에선 타각된 인원 추가
+    const extraTappers: CompareRow[] = elcdRows
+      .filter((r) => r.name && !xerpKeys.has((r.name || "") + "|" + normBirth(r.birthday || "")))
+      .map((r) => ({
+        팀명: "미등록",
+        직종: "—",
+        성명: r.name,
+        생년월일: maskBirth(r.birthday || ""),
+        excludeKey: (r.name || "") + "|" + normBirth(r.birthday || ""),
+        타각여부: "Y" as const,
+        출근: r.inTime ?? "",
+        퇴근: r.outTime ?? "",
+        인증방식: r.authMethod ?? "",
+      }));
+
+    const allRows = [...rows, ...extraTappers];
+    setResult(allRows);
+    const y = allRows.filter((r) => r.타각여부 === "Y").length;
+    const extra = extraTappers.length;
+    toast.success(
+      `대조 완료 — 타각 ${y}명 / 미타각 ${allRows.length - y}명` +
+      (extra > 0 ? ` (XERP 미등록 타각 ${extra}명 포함)` : "")
+    );
   };
 
   const filtered = useMemo(() => {
     if (!result) return [];
     if (filter === "타각") return result.filter((r) => r.타각여부 === "Y");
-    if (filter === "미타각") return result.filter((r) => r.타각여부 === "N");
+    if (filter === "미타각") return result.filter((r) => r.타각여부 === "N" && !excludedKeys.has(r.excludeKey));
     return result;
-  }, [result, filter]);
+  }, [result, filter, excludedKeys]);
 
   const exportExcel = () => {
     if (!result) return;
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(result);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const ws = XLSX.utils.json_to_sheet(result.map(({ excludeKey: _, ...rest }) => rest));
     XLSX.utils.book_append_sheet(wb, ws, "전자카드대조");
     XLSX.writeFile(wb, `전자카드대조_${selectedDate.replace(/-/g, "")}.xlsx`);
   };
@@ -244,7 +291,9 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const tappedCount = result?.filter((r) => r.타각여부 === "Y").length ?? 0;
-  const notTappedCount = result ? result.length - tappedCount : 0;
+  const notTappedCount = result
+    ? result.filter((r) => r.타각여부 === "N" && !excludedKeys.has(r.excludeKey)).length
+    : 0;
 
   const GuideDialog = () => (
     <Dialog open={showGuide} onOpenChange={setShowGuide}>
@@ -428,6 +477,14 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
                   {f}
                 </button>
               ))}
+              {isAdmin && (
+                <button
+                  onClick={saveExclusions}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-xs font-bold text-blue-700 hover:bg-blue-100 transition-colors"
+                >
+                  저장
+                </button>
+              )}
               <button
                 onClick={exportExcel}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
@@ -448,31 +505,51 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
             <table className="min-w-full text-xs border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
+                  {isAdmin && <th className="px-3 py-2 text-center font-extrabold text-slate-600 whitespace-nowrap">제외</th>}
                   {["팀명","직종","성명","생년월일","타각여부","출근","퇴근","인증방식"].map((h) => (
                     <th key={h} className="px-3 py-2 text-center font-extrabold text-slate-600 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r, i) => (
-                  <tr key={i} className={`border-b border-slate-100 ${r.타각여부 === "N" ? "bg-red-50/60" : ""}`}>
-                    <td className="px-3 py-1.5 text-center text-slate-600">{r.팀명}</td>
-                    <td className="px-3 py-1.5 text-center text-slate-600">{r.직종}</td>
-                    <td className="px-3 py-1.5 text-center font-semibold text-slate-800">{r.성명}</td>
-                    <td className="px-3 py-1.5 text-center text-slate-500">{r.생년월일}</td>
-                    <td className="px-3 py-1.5 text-center">
-                      {r.타각여부 === "Y"
-                        ? <span className="inline-flex items-center gap-0.5 text-emerald-600 font-bold"><CheckCircle2 className="h-3.5 w-3.5" /> 타각</span>
-                        : <span className="inline-flex items-center gap-0.5 text-red-500 font-bold"><XCircle className="h-3.5 w-3.5" /> 미타각</span>
-                      }
-                    </td>
-                    <td className="px-3 py-1.5 text-center tabular-nums text-slate-600">{r.출근}</td>
-                    <td className="px-3 py-1.5 text-center tabular-nums text-slate-600">{r.퇴근}</td>
-                    <td className="px-3 py-1.5 text-center text-slate-500">{r.인증방식}</td>
-                  </tr>
-                ))}
+                {filtered.map((r, i) => {
+                  const isExcluded = excludedKeys.has(r.excludeKey);
+                  return (
+                    <tr key={i} className={`border-b border-slate-100 ${
+                      r.타각여부 === "N" && isExcluded
+                        ? "opacity-40 bg-slate-50"
+                        : r.타각여부 === "N"
+                        ? "bg-red-50/60"
+                        : ""
+                    }`}>
+                      {isAdmin && (
+                        <td className="px-3 py-1.5 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isExcluded}
+                            onChange={() => toggleExcluded(r.excludeKey)}
+                            className="h-4 w-4 rounded border-slate-300 cursor-pointer"
+                          />
+                        </td>
+                      )}
+                      <td className="px-3 py-1.5 text-center text-slate-600">{r.팀명}</td>
+                      <td className="px-3 py-1.5 text-center text-slate-600">{r.직종}</td>
+                      <td className="px-3 py-1.5 text-center font-semibold text-slate-800">{r.성명}</td>
+                      <td className="px-3 py-1.5 text-center text-slate-500">{r.생년월일}</td>
+                      <td className="px-3 py-1.5 text-center">
+                        {r.타각여부 === "Y"
+                          ? <span className="inline-flex items-center gap-0.5 text-emerald-600 font-bold"><CheckCircle2 className="h-3.5 w-3.5" /> 타각</span>
+                          : <span className="inline-flex items-center gap-0.5 text-red-500 font-bold"><XCircle className="h-3.5 w-3.5" /> 미타각</span>
+                        }
+                      </td>
+                      <td className="px-3 py-1.5 text-center tabular-nums text-slate-600">{r.출근}</td>
+                      <td className="px-3 py-1.5 text-center tabular-nums text-slate-600">{r.퇴근}</td>
+                      <td className="px-3 py-1.5 text-center text-slate-500">{r.인증방식}</td>
+                    </tr>
+                  );
+                })}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={8} className="py-12 text-center text-sm text-slate-400">해당하는 결과가 없습니다.</td></tr>
+                  <tr><td colSpan={isAdmin ? 9 : 8} className="py-12 text-center text-sm text-slate-400">해당하는 결과가 없습니다.</td></tr>
                 )}
               </tbody>
             </table>
