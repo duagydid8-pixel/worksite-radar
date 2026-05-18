@@ -55,8 +55,13 @@ function summaryIssueBadgeClass(type: "late" | "missingCheck" | "missingPunchOut
   return getAttendanceIssuePresentation(type).summaryClassName;
 }
 
+function normalizeName(name: string): string {
+  return name.replace(/\s+/g, "").trim();
+}
+
 function requiresPunchOut(emp: Employee): boolean {
   if (emp.attendanceSource === "fingerprint") return false;
+  if (normalizeName(emp.name) === "박시언") return false;
   if (emp.attendanceSource === "xerp") return true;
   return emp.team !== "한성_F";
 }

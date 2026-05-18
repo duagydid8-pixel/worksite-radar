@@ -184,6 +184,20 @@ function parseKnownRosterRows(sheetName: string, rows: SheetRow[], roster: Map<s
       continue;
     }
 
+    // NO | 현장명 | 성명 | 직종 | 직급 형식 (row[0]이 순번인 경우)
+    const noVal = String(row[0] ?? "").trim();
+    const col1Team = parseTeam(row[1]);
+    const col2Name = String(row[2] ?? "").trim();
+    if (/^\d+$/.test(noVal) && col1Team && col2Name && !isNameHeader(col2Name)) {
+      addRosterEmployee(roster, {
+        team: col1Team,
+        name: col2Name,
+        jobTitle: String(row[3] ?? "").trim(),
+        rank: String(row[4] ?? "").trim(),
+      });
+      continue;
+    }
+
     const listName = String(row[1] ?? "").trim();
     if (inferredTeam && listName && !isNameHeader(listName)) {
       addRosterEmployee(roster, {
