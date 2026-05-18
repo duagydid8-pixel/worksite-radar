@@ -167,7 +167,7 @@ function isAttendanceNoCheck(emp: Employee, year: number, month: number, day: nu
   if (!rec) return true;
   if (!rec.punchIn && !rec.punchOut) return true;
   if (!rec.punchIn) return true;
-  if (!rec.punchOut && emp.team !== "한성_F") return true;
+  if (!rec.punchOut && emp.team !== "한성_F" && normalizeName(emp.name) !== "박시언") return true;
   return false;
 }
 
