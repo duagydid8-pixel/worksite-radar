@@ -264,27 +264,51 @@ export function createCertificateTableText(certificateName: string, rows: Certif
 }
 
 export function createCertificateTableHtml(certificateName: string, rows: CertificateRequestRow[]): string {
-  const cellStyle = "border:1px solid #000;padding:8px 10px;text-align:center;font-size:13px;";
-  const headerStyle = `${cellStyle}background:#d9e2f3;font-weight:700;`;
-  const addressStyle = "border:1px solid #000;padding:8px 10px;text-align:center;font-size:13px;min-width:260px;";
-  const siteStyle = "border:1px solid #000;padding:8px 10px;text-align:center;font-size:13px;min-width:260px;";
+  const baseCellStyle = [
+    "border:1px solid #000",
+    "padding:8px 12px",
+    "text-align:center",
+    "vertical-align:middle",
+    "font-family:Arial,'Malgun Gothic',sans-serif",
+    "font-size:12px",
+    "line-height:1.35",
+    "color:#020617",
+    "mso-number-format:'\\@'",
+  ].join(";");
+  const headerStyle = `${baseCellStyle};background:#d9e2f3;font-weight:800;white-space:nowrap;`;
+  const noStyle = `${baseCellStyle};width:48px;white-space:nowrap;`;
+  const nameStyle = `${baseCellStyle};width:88px;font-weight:700;white-space:nowrap;`;
+  const residentStyle = `${baseCellStyle};width:104px;white-space:nowrap;`;
+  const addressStyle = `${baseCellStyle};width:280px;min-width:280px;`;
+  const siteStyle = `${baseCellStyle};width:280px;min-width:280px;`;
+  const dateStyle = `${baseCellStyle};width:96px;white-space:nowrap;`;
+  const noteStyle = `${baseCellStyle};width:72px;`;
 
   const body = rows.map((row) => `
     <tr>
-      <td style="${cellStyle}">${row.no}</td>
-      <td style="${cellStyle}">${escapeHtml(row.name)}</td>
-      <td style="${cellStyle}">${escapeHtml(row.residentNo)}</td>
+      <td style="${noStyle}">${row.no}</td>
+      <td style="${nameStyle}">${escapeHtml(row.name)}</td>
+      <td style="${residentStyle}">${escapeHtml(row.residentNo)}</td>
       <td style="${addressStyle}">${escapeHtml(row.address)}</td>
       <td style="${siteStyle}">${escapeHtml(row.siteName)}</td>
-      <td style="${cellStyle}">${escapeHtml(row.joinDate)}</td>
-      <td style="${cellStyle}">${escapeHtml(row.note)}</td>
+      <td style="${dateStyle}">${escapeHtml(row.joinDate)}</td>
+      <td style="${noteStyle}">${escapeHtml(row.note)}</td>
     </tr>
   `).join("");
 
   return `
-    <div style="font-family:Arial,'Malgun Gothic',sans-serif;">
-      <p style="margin:0 0 10px 0;font-size:18px;font-weight:700;"><strong>${escapeHtml(certificateName)}</strong></p>
-      <table style="border-collapse:collapse;">
+    <div style="font-family:Arial,'Malgun Gothic',sans-serif;color:#020617;">
+      <p style="margin:0 0 12px 0;font-size:18px;line-height:1.25;font-weight:800;"><strong>${escapeHtml(certificateName)}</strong></p>
+      <table style="border-collapse:collapse;table-layout:fixed;width:968px;border:1px solid #000;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+        <colgroup>
+          <col style="width:48px;" />
+          <col style="width:88px;" />
+          <col style="width:104px;" />
+          <col style="width:280px;" />
+          <col style="width:280px;" />
+          <col style="width:96px;" />
+          <col style="width:72px;" />
+        </colgroup>
         <thead>
           <tr>
             <th style="${headerStyle}">NO.</th>
