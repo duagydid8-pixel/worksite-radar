@@ -21,9 +21,10 @@ import type { ParsedData } from "@/lib/parseExcel";
 import type { ParsedPmisData } from "@/components/PmisInOutLogTab";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreService";
+import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -1439,6 +1440,18 @@ const Index = () => {
           </nav>
 
           <div className="ops-topmeta">
+            <button
+              type="button"
+              onClick={() => {
+                openLocalServicesLauncher();
+                toast.info("로컬 서비스 실행 요청을 보냈습니다. 처음 사용 시 등록 파일을 먼저 실행해야 합니다.");
+              }}
+              className="ops-todo-button"
+              title="로컬 서비스 켜기"
+            >
+              <Power className="h-3.5 w-3.5" />
+              로컬서비스
+            </button>
             {isAdmin && (
               <button
                 type="button"

@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Classes\worksite-radar]
+@="URL:Worksite Radar Local Services"
+"URL Protocol"=""
+
+[HKEY_CURRENT_USER\Software\Classes\worksite-radar\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\worksite-radar\shell\open]
+
+[HKEY_CURRENT_USER\Software\Classes\worksite-radar\shell\open\command]
+@="\"C:\\Users\\bongryong\\worksite-radar\\start-worksite-radar.cmd\" \"%1\""
