@@ -307,7 +307,7 @@ export function WeeklySchedule() {
                   <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">{cards.length}</span>
                 </div>
 
-                <div className="max-h-[640px] space-y-1.5 overflow-y-auto p-1.5">
+                <div className="max-h-[calc(100dvh-390px)] min-h-[180px] space-y-1.5 overflow-y-auto p-1.5">
                   {cards.length === 0 ? (
                     <div className="rounded-md border border-dashed border-slate-200 px-1 py-6 text-center text-[11px] font-semibold text-slate-300">
                       일정 없음
@@ -345,7 +345,7 @@ export function WeeklySchedule() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="max-h-[calc(100dvh-320px)] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-4">
             <div className="text-xs font-bold text-muted-foreground">선택 날짜</div>
             <div className="mt-1 text-lg font-extrabold text-slate-900">{selectedDateLabel}</div>
