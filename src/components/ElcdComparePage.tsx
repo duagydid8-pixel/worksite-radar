@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import html2canvas from "html2canvas";
 import { decryptExcelPassword } from "@/utils/xlsxDecrypt";
 import { detectSensitiveInfo, summarizeSensitiveInfoFindings } from "@/lib/sensitiveInfoGuard";
+import { canCopyResidentNumber, displayResidentNumber } from "@/lib/elcdResidentNumber";
 
 const EXCLUDED_STORAGE_KEY = "elcd_excluded_teams";
 
@@ -37,6 +38,7 @@ interface CompareRow {
   직종: string;
   성명: string;
   생년월일: string;
+  rawResidentNumber?: string;
   타각여부: "Y" | "N" | "착오" | "이름불일치";
   출근: string;
   퇴근: string;
@@ -52,10 +54,7 @@ function normBirth(s: string): string {
 }
 
 function maskBirth(s: string): string {
-  const t = (s || "").trim();
-  if (t.includes("-")) return t.slice(0, 7) + "******";
-  if (t.length >= 7) return t.slice(0, 6) + "-******";
-  return t;
+  return displayResidentNumber(s, false);
 }
 
 export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
@@ -263,6 +262,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
           return {
             팀명: r.팀명, 직종: r.직종, 성명: r.성명,
             생년월일: maskBirth(r.생년월일),
+            rawResidentNumber: r.생년월일,
             타각여부: "이름불일치" as const,
             출근: bHit.inTime ?? "", 퇴근: bHit.outTime ?? "", 인증방식: bHit.authMethod ?? "",
             elcdName: bHit.name,
@@ -275,6 +275,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
         직종: r.직종,
         성명: r.성명,
         생년월일: maskBirth(r.생년월일),
+        rawResidentNumber: r.생년월일,
         타각여부: hit ? (wrongCompany ? "착오" : "Y") : "N",
         출근: hit?.inTime ?? "",
         퇴근: hit?.outTime ?? "",
@@ -294,6 +295,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
         직종: "—",
         성명: r.name,
         생년월일: maskBirth(r.birthday || ""),
+        rawResidentNumber: r.birthday || "",
         타각여부: "Y" as const,
         출근: r.inTime ?? "",
         퇴근: r.outTime ?? "",
@@ -329,7 +331,8 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   const exportExcel = () => {
     if (!result) return;
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(result);
+    const exportRows = result.map(({ rawResidentNumber: _rawResidentNumber, ...row }) => row);
+    const ws = XLSX.utils.json_to_sheet(exportRows);
     XLSX.utils.book_append_sheet(wb, ws, "전자카드대조");
     XLSX.writeFile(wb, `전자카드대조_${selectedDate.replace(/-/g, "")}.xlsx`);
   };
@@ -352,7 +355,8 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   const exportShareImage = async () => {
     const missingRows = result?.filter((r) => r.타각여부 === "N" && !excludedTeams.has(r.팀명)) ?? [];
     if (!missingRows.length) { toast.error("미타각 인원이 없습니다."); return; }
-    const sensitiveFindings = detectSensitiveInfo(JSON.stringify(missingRows));
+    const visibleShareRows = missingRows.map(({ rawResidentNumber: _rawResidentNumber, ...row }) => row);
+    const sensitiveFindings = detectSensitiveInfo(JSON.stringify(visibleShareRows));
     if (sensitiveFindings.length > 0) {
       toast.warning(`공유 이미지에 민감정보 의심 항목이 있습니다: ${summarizeSensitiveInfoFindings(sensitiveFindings)}`);
     }
@@ -398,6 +402,12 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
     } finally {
       document.body.removeChild(wrap);
     }
+  };
+
+  const copyResidentNumber = async (value: string) => {
+    if (!canCopyResidentNumber(value, isAdmin)) return;
+    await navigator.clipboard.writeText(displayResidentNumber(value, true));
+    toast.success("주민번호를 복사했습니다.");
   };
 
   const tappedCount = result?.filter((r) => r.타각여부 === "Y").length ?? 0;
@@ -673,7 +683,20 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
                     <td className="px-3 py-1.5 text-center text-slate-600">{r.팀명}</td>
                     <td className="px-3 py-1.5 text-center text-slate-600">{r.직종}</td>
                     <td className="px-3 py-1.5 text-center font-semibold text-slate-800">{r.성명}</td>
-                    <td className="px-3 py-1.5 text-center text-slate-500">{r.생년월일}</td>
+                    <td className="px-3 py-1.5 text-center text-slate-500">
+                      {canCopyResidentNumber(r.rawResidentNumber ?? r.생년월일, isAdmin) ? (
+                        <button
+                          type="button"
+                          onClick={() => copyResidentNumber(r.rawResidentNumber ?? r.생년월일)}
+                          className="rounded px-1.5 py-0.5 font-semibold text-slate-700 underline decoration-dotted underline-offset-2 hover:bg-slate-100 hover:text-slate-950"
+                          title="클릭하면 주민번호가 복사됩니다."
+                        >
+                          {displayResidentNumber(r.rawResidentNumber ?? r.생년월일, true)}
+                        </button>
+                      ) : (
+                        r.생년월일
+                      )}
+                    </td>
                     <td className="px-3 py-1.5 text-center">
                       {r.타각여부 === "Y"
                         ? <span className="inline-flex items-center gap-0.5 text-emerald-600 font-bold"><CheckCircle2 className="h-3.5 w-3.5" /> 타각</span>
