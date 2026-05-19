@@ -1,12 +1,27 @@
 import { spawn } from "node:child_process";
 
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const networkMode = process.argv.includes("--network");
 const viteArgs = process.argv.slice(2).filter((a) => a !== "--network");
 const children = [];
 
+function quoteCmdArg(arg) {
+  if (!/[ \t"&|<>^]/.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
+function npmSpawnOptions(args) {
+  if (process.platform !== "win32") {
+    return { command: "npm", args };
+  }
+  return {
+    command: "cmd.exe",
+    args: ["/d", "/s", "/c", ["npm", ...args].map(quoteCmdArg).join(" ")],
+  };
+}
+
 function start(name, args) {
-  const child = spawn(npmCommand, args, {
+  const npmCommand = npmSpawnOptions(args);
+  const child = spawn(npmCommand.command, npmCommand.args, {
     cwd: process.cwd(),
     env: process.env,
     stdio: "inherit",
