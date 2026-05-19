@@ -109,8 +109,8 @@ describe("head office mail helpers", () => {
   });
 
   it("masks resident numbers after the first back digit", () => {
-    expect(maskResidentNo("940901-1234567")).toBe("940901-1******");
-    expect(maskResidentNo("9001012345678")).toBe("900101-2******");
+    expect(maskResidentNo("940901-1234567")).toBe("940901-1");
+    expect(maskResidentNo("9001012345678")).toBe("900101-2");
   });
 
   it("builds certificate rows from employee data and selected site", () => {
@@ -120,7 +120,7 @@ describe("head office mail helpers", () => {
       {
         no: 1,
         name: "조성진",
-        residentNo: "940901-1******",
+        residentNo: "940901-1",
         address: "충청남도 천안시 서북구 한들3로 78-19",
         siteName: "사업팀[삼성전자 평택 P4-PH4 초순수 현장]",
         joinDate: "2025.11.01",

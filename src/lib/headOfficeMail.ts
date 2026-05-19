@@ -58,7 +58,7 @@ function normalizeName(name: string): string {
 export function maskResidentNo(value: string): string {
   const digits = value.replace(/\D/g, "");
   if (digits.length < 7) return value.trim();
-  return `${digits.slice(0, 6)}-${digits[6]}******`;
+  return `${digits.slice(0, 6)}-${digits[6]}`;
 }
 
 export function splitNames(input: string): string[] {
