@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[HOOK] 세션 종료 전 CLAUDE.md에 오늘 작업 내용을 추가했는지 확인하세요.\""
+          }
+        ]
+      }
+    ]
+  }
+}
