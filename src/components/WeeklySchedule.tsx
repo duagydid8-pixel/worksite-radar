@@ -77,6 +77,12 @@ function formatMonthLabel(date: string): string {
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
 }
 
+export function getMonthRange(monthStart: string): { min: string; max: string } {
+  const start = new Date(`${monthStart}T00:00:00`);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+  return { min: toDateStr(start), max: toDateStr(end) };
+}
+
 export function formatDayLabel(date: string): string {
   return DAY_KO[new Date(`${date}T00:00:00`).getDay()];
 }
@@ -112,6 +118,7 @@ export function WeeklySchedule() {
   const [saving, setSaving] = useState(false);
 
   const monthDates = useMemo(() => getMonthDates(monthStart), [monthStart]);
+  const monthRange = useMemo(() => getMonthRange(monthStart), [monthStart]);
   const monthValue = monthStart.slice(0, 7);
   const selectedDateLabel = `${formatDateLabel(selectedDate)} ${formatDayLabel(selectedDate)}요일`;
   const boardColumns = useMemo(() => {
@@ -342,6 +349,14 @@ export function WeeklySchedule() {
           <div className="mb-4">
             <div className="text-xs font-bold text-muted-foreground">선택 날짜</div>
             <div className="mt-1 text-lg font-extrabold text-slate-900">{selectedDateLabel}</div>
+            <input
+              type="date"
+              value={selectedDate}
+              min={monthRange.min}
+              max={monthRange.max}
+              onChange={(event) => setSelectedDate(event.target.value || monthStart)}
+              className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-900 outline-none focus:border-slate-400"
+            />
           </div>
 
           <div className="space-y-3">

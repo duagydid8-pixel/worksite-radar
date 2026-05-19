@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDayLabel, getMonthCalendarDates, getMonthStart } from "./WeeklySchedule";
+import { formatDayLabel, getMonthCalendarDates, getMonthRange, getMonthStart } from "./WeeklySchedule";
 
 describe("monthly schedule date helpers", () => {
   it("normalizes any selected date to the first day of that month", () => {
@@ -18,5 +18,9 @@ describe("monthly schedule date helpers", () => {
 
   it("labels May 22, 2026 as Friday", () => {
     expect(formatDayLabel("2026-05-22")).toBe("금");
+  });
+
+  it("builds the selectable date range for a month", () => {
+    expect(getMonthRange("2026-05-01")).toEqual({ min: "2026-05-01", max: "2026-05-31" });
   });
 });
