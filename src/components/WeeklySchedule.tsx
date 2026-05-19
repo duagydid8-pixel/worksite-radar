@@ -294,22 +294,22 @@ export function WeeklySchedule() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-100/70 p-3 shadow-sm">
-          <div className="grid min-w-[1120px] grid-cols-5 gap-3">
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100/70 p-2 shadow-sm">
+          <div className="grid min-w-0 grid-cols-5 gap-2">
             {boardColumns.map(({ shift, cards }) => (
-              <div key={shift.key} className="rounded-xl border border-slate-200 bg-white shadow-sm">
-                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-3">
-                  <div>
-                    <div className="text-sm font-extrabold text-slate-900">{shift.label}</div>
-                    <div className="mt-0.5 text-[11px] font-semibold text-slate-400">{shift.time}</div>
+              <div key={shift.key} className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
+                <div className="flex min-w-0 items-center justify-between gap-1 border-b border-slate-100 px-2 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-extrabold text-slate-900">{shift.label}</div>
+                    <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">{shift.time}</div>
                   </div>
-                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-500">{cards.length}</span>
+                  <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">{cards.length}</span>
                 </div>
 
-                <div className="max-h-[640px] space-y-2 overflow-y-auto p-2">
+                <div className="max-h-[640px] space-y-1.5 overflow-y-auto p-1.5">
                   {cards.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-200 px-3 py-8 text-center text-xs font-semibold text-slate-300">
+                    <div className="rounded-md border border-dashed border-slate-200 px-1 py-6 text-center text-[11px] font-semibold text-slate-300">
                       일정 없음
                     </div>
                   ) : (
@@ -321,16 +321,16 @@ export function WeeklySchedule() {
                           key={`${shift.key}-${card.date}-${card.zone}`}
                           type="button"
                           onClick={() => setSelectedDate(card.date)}
-                          className={`w-full rounded-lg border p-3 text-left transition-colors ${isSelected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white"}`}
+                          className={`w-full rounded-md border p-2 text-left transition-colors ${isSelected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white"}`}
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className={`text-sm font-extrabold ${isSelected ? "text-white" : "text-slate-900"}`}>
+                          <div className="flex min-w-0 items-start justify-between gap-1.5">
+                            <div className="min-w-0">
+                              <div className={`truncate text-xs font-extrabold ${isSelected ? "text-white" : "text-slate-900"}`}>
                                 {formatDateLabel(card.date)} {formatDayLabel(card.date)}
                               </div>
-                              <div className={`mt-1 text-xs font-bold ${isSelected ? "text-white/80" : "text-slate-500"}`}>{card.zone}</div>
+                              <div className={`mt-1 truncate text-[11px] font-bold ${isSelected ? "text-white/80" : "text-slate-500"}`}>{card.zone}</div>
                             </div>
-                            <span className={`text-[10px] font-bold ${isSelected ? "text-white/60" : "text-slate-400"}`}>{dateObj.getDate()}일</span>
+                            <span className={`shrink-0 text-[10px] font-bold ${isSelected ? "text-white/60" : "text-slate-400"}`}>{dateObj.getDate()}일</span>
                           </div>
                           {card.memo && (
                             <div className={`mt-2 truncate text-xs font-semibold ${isSelected ? "text-white/70" : "text-slate-400"}`}>{card.memo}</div>
