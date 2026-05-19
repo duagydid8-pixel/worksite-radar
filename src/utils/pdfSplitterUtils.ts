@@ -37,6 +37,26 @@ export async function renderHiRes(pdfBytes: Uint8Array, pageNum: number): Promis
   return canvas.toDataURL("image/jpeg", 0.92);
 }
 
+export async function extractPageTexts(
+  pdfBytes: Uint8Array,
+  onProgress?: (done: number, total: number) => void
+): Promise<string[]> {
+  const pdf = await pdfjsLib.getDocument({ data: pdfBytes.slice() }).promise;
+  const texts: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text = content.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    texts.push(text);
+    onProgress?.(i, pdf.numPages);
+  }
+  return texts;
+}
+
 export async function splitPdf(
   pdfBytes: Uint8Array,
   sections: PdfSection[],
@@ -69,7 +89,7 @@ export async function splitPdf(
       const baseName = s.name || `계약서_${i + 1}`;
       results.push({
         name: baseName,
-        fileName: `[${baseName}]_p${s.startPage}-p${s.endPage}`,
+        fileName: s.fileName || `[${baseName}]_p${s.startPage}-p${s.endPage}`,
         blob: new Blob([bytes], { type: "application/pdf" }),
         pageCount: indices.length,
         startPage: s.startPage,

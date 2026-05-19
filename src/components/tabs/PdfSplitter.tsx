@@ -8,9 +8,14 @@ import {
   splitPdf,
   downloadAsZip,
   downloadSingle,
+  extractPageTexts,
 } from "@/utils/pdfSplitterUtils";
+import { buildPayrollPdfSections } from "@/utils/payrollPdfSplitter";
+
+type PdfSplitterMode = "manual" | "payroll";
 
 export default function PdfSplitter() {
+  const [mode, setMode] = useState<PdfSplitterMode>("manual");
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [pdfBaseName, setPdfBaseName] = useState("분리");
   const [totalPages, setTotalPages] = useState(0);
@@ -22,6 +27,7 @@ export default function PdfSplitter() {
   const [isSplitting, setIsSplitting] = useState(false);
   const [splitProgress, setSplitProgress] = useState(0);
   const [results, setResults] = useState<SplitResult[]>([]);
+  const [payrollStatus, setPayrollStatus] = useState("");
 
   const [preview, setPreview] = useState<{ pageNum: number; dataUrl: string } | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -40,6 +46,7 @@ export default function PdfSplitter() {
     setThumbs([]);
     setSections([]);
     setResults([]);
+    setPayrollStatus("");
     setIsRendering(true);
     setRenderProgress(0);
 
@@ -70,6 +77,7 @@ export default function PdfSplitter() {
     setThumbs([]);
     setSections([]);
     setResults([]);
+    setPayrollStatus("");
     setTotalPages(0);
   };
 
@@ -129,6 +137,42 @@ export default function PdfSplitter() {
     }
   };
 
+  const handlePayrollSplit = async () => {
+    if (!pdfBytes) return;
+    setIsSplitting(true);
+    setSplitProgress(0);
+    setResults([]);
+    setPayrollStatus("페이지별 이름을 읽는 중...");
+
+    try {
+      const pageTexts = await extractPageTexts(pdfBytes, (done, total) => {
+        setSplitProgress(Math.round((done / total) * 45));
+        setPayrollStatus(`이름 인식 중... ${done}/${total}`);
+      });
+      const autoSections = buildPayrollPdfSections(pageTexts);
+      const missingCount = autoSections.filter((section) => section.name.startsWith("이름미인식")).length;
+      setSections(autoSections);
+      setPayrollStatus(`PDF 분리 중... 0/${autoSections.length}`);
+      const splitResults = await splitPdf(pdfBytes, autoSections, (done, total) => {
+        setSplitProgress(45 + Math.round((done / total) * 55));
+        setPayrollStatus(`PDF 분리 중... ${done}/${total}`);
+      });
+      setResults(splitResults);
+      setPayrollStatus(`${splitResults.length}개 파일 분리 완료`);
+      toast.success(
+        missingCount > 0
+          ? `${splitResults.length}개 파일 분리 완료 — 이름 미인식 ${missingCount}건`
+          : `${splitResults.length}개 파일 분리 완료`
+      );
+    } catch (e) {
+      console.error("[PdfSplitter] 급여명세서 분리 실패:", e);
+      toast.error(`급여명세서 분리 실패: ${e instanceof Error ? e.message : String(e)}`);
+      setPayrollStatus("");
+    } finally {
+      setIsSplitting(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-[1200px] mx-auto space-y-5">
       {/* 헤더 */}
@@ -143,6 +187,28 @@ export default function PdfSplitter() {
             전체 ZIP 다운로드
           </button>
         )}
+      </div>
+
+      <div className="rounded-2xl border border-border bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-2 gap-1">
+          {[
+            { value: "manual" as const, label: "수동 분리" },
+            { value: "payroll" as const, label: "급여명세서 분리" },
+          ].map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => setMode(item.value)}
+              className={`h-10 rounded-xl text-sm font-extrabold transition-colors ${
+                mode === item.value
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 업로드 존 */}
@@ -176,7 +242,69 @@ export default function PdfSplitter() {
       )}
 
       {/* 썸네일 + 구간 설정 */}
-      {thumbs.length > 0 && (
+      {thumbs.length > 0 && mode === "payroll" && (
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-5">
+          <div className="bg-white border border-border rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold">
+                페이지 미리보기
+                <span className="text-muted-foreground font-normal ml-1">({thumbs.length}/{totalPages})</span>
+              </h3>
+              <button onClick={reset} className="text-xs text-muted-foreground hover:text-destructive transition-colors">
+                파일 제거
+              </button>
+            </div>
+            <div className="grid grid-cols-4 md:grid-cols-6 gap-2 max-h-[520px] overflow-y-auto pr-1">
+              {thumbs.map((t) => (
+                <div
+                  key={t.pageNum}
+                  onClick={() => openPreview(t.pageNum)}
+                  className="relative group cursor-zoom-in rounded-lg overflow-hidden border border-border hover:border-primary transition-colors"
+                >
+                  <img src={t.dataUrl} alt={`p${t.pageNum}`} className="w-full object-contain bg-gray-50" />
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] text-center py-0.5">
+                    {t.pageNum}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white border border-border rounded-2xl p-4 space-y-4">
+            <div>
+              <h3 className="text-sm font-bold">급여명세서 자동 분리</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                각 페이지의 `성명` 뒤 이름을 읽어서 1페이지씩 `이름.pdf`로 분리합니다.
+              </p>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              주민번호는 파일명에 쓰지 않습니다. 이름을 못 읽은 페이지는 `이름미인식_페이지번호.pdf`로 저장됩니다.
+            </div>
+            <button
+              type="button"
+              onClick={handlePayrollSplit}
+              disabled={isSplitting || !pdfBytes}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {isSplitting ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />{payrollStatus || `분리 중... ${splitProgress}%`}</>
+              ) : (
+                <><Scissors className="h-4 w-4" />이름으로 1개씩 분리</>
+              )}
+            </button>
+            {(payrollStatus || splitProgress > 0) && (
+              <div>
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${splitProgress}%` }} />
+                </div>
+                <p className="mt-1 text-[11px] font-semibold text-muted-foreground">{payrollStatus}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {thumbs.length > 0 && mode === "manual" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
           {/* 왼쪽: 썸네일 그리드 */}

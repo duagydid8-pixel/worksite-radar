@@ -3,6 +3,7 @@ export interface PdfSection {
   startPage: number;
   endPage: number;
   name: string;
+  fileName?: string;
 }
 
 export interface SplitResult {
