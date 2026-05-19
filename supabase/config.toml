@@ -1,1 +1,4 @@
 project_id = "fdiriurwojdixzecbllt"
+
+[functions.extract-additional-work]
+verify_jwt = false

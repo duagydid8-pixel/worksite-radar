@@ -1,4 +1,5 @@
 import type { AdditionalWorkEntry } from "./additionalWorkProcessor";
+import { auth } from "./firebase";
 
 export interface VisionRow {
   name?: unknown;
@@ -100,8 +101,16 @@ export async function extractAdditionalWorkWithVision(
     throw new Error("Vision 추출에 보낼 이미지가 없습니다.");
   }
 
+  const token = await auth?.currentUser?.getIdToken();
+  if (!token) {
+    throw new Error("관리자 로그인 후 OpenAI Vision 추출을 사용할 수 있습니다.");
+  }
+
   const { supabase } = await import("@/integrations/supabase/client");
   const { data, error } = await supabase.functions.invoke("extract-additional-work", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
     body: {
       images,
       knownNames,

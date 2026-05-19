@@ -1,7 +1,44 @@
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { createRemoteJWKSet, jwtVerify } from "npm:jose@5.9.6";
+
+const firebaseJwks = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"),
+);
+
+const defaultAllowedOrigins = [
+  "https://worksite-radar.vercel.app",
+  "http://localhost:8080",
+  "http://localhost:8081",
+  "http://127.0.0.1:8080",
+  "http://127.0.0.1:8081",
+];
+
+function allowedOrigins(): Set<string> {
+  const extra = (Deno.env.get("WORKSITE_ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return new Set([...defaultAllowedOrigins, ...extra]);
+}
+
+function corsHeadersFor(req: Request): HeadersInit {
+  const origin = req.headers.get("Origin") ?? "";
+  const headers: Record<string, string> = {
+    "Vary": "Origin",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+
+  if (origin && allowedOrigins().has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+
+  return headers;
+}
+
+function isAllowedOrigin(req: Request): boolean {
+  const origin = req.headers.get("Origin");
+  return !origin || allowedOrigins().has(origin);
+}
 
 interface RequestImage {
   dataUrl?: unknown;
@@ -14,11 +51,44 @@ interface VisionRow {
   units?: unknown;
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
   });
+}
+
+async function requireFirebaseAdmin(req: Request): Promise<void> {
+  const projectId = Deno.env.get("FIREBASE_PROJECT_ID");
+  const adminUids = new Set(
+    (Deno.env.get("FIREBASE_ADMIN_UIDS") ?? "")
+      .split(",")
+      .map((uid) => uid.trim())
+      .filter(Boolean),
+  );
+
+  if (!projectId || adminUids.size === 0) {
+    throw new Error("admin_auth_not_configured");
+  }
+
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const token = authHeader.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!token) {
+    throw new Error("missing_token");
+  }
+
+  const { payload } = await jwtVerify(token, firebaseJwks, {
+    audience: projectId,
+    issuer: `https://securetoken.google.com/${projectId}`,
+  });
+
+  if (typeof payload.sub !== "string" || !adminUids.has(payload.sub)) {
+    throw new Error("admin_required");
+  }
+
+  if (payload.email_verified !== true) {
+    throw new Error("verified_email_required");
+  }
 }
 
 function cleanText(value: unknown): string {
@@ -103,16 +173,28 @@ function parseRowsFromOutput(outputText: string): Array<{ name: string; date: st
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: corsHeadersFor(req) });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "Method not allowed" }, 405);
+    return jsonResponse(req, { error: "Method not allowed" }, 405);
+  }
+
+  if (!isAllowedOrigin(req)) {
+    return jsonResponse(req, { error: "Origin not allowed" }, 403);
+  }
+
+  try {
+    await requireFirebaseAdmin(req);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unauthorized";
+    const status = message === "admin_auth_not_configured" ? 500 : 401;
+    return jsonResponse(req, { error: message }, status);
   }
 
   const apiKey = Deno.env.get("OPENAI_API_KEY");
   if (!apiKey) {
-    return jsonResponse({ error: "OPENAI_API_KEY is not configured" }, 500);
+    return jsonResponse(req, { error: "OPENAI_API_KEY is not configured" }, 500);
   }
 
   const body = await req.json().catch(() => null) as {
@@ -126,7 +208,11 @@ Deno.serve(async (req) => {
   const prompt = cleanText(body?.prompt);
 
   if (images.length === 0) {
-    return jsonResponse({ error: "No valid images were provided" }, 400);
+    return jsonResponse(req, { error: "No valid images were provided" }, 400);
+  }
+
+  if (images.some((image) => String(image.dataUrl).length > 5_000_000)) {
+    return jsonResponse(req, { error: "Image payload is too large" }, 413);
   }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -182,14 +268,14 @@ Deno.serve(async (req) => {
 
   const openAiPayload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    return jsonResponse({
+    return jsonResponse(req, {
       error: "OpenAI extraction failed",
       detail: openAiPayload,
     }, response.status);
   }
 
   const rawText = extractOutputText(openAiPayload as Record<string, unknown>);
-  return jsonResponse({
+  return jsonResponse(req, {
     rows: parseRowsFromOutput(rawText),
     rawText,
   });

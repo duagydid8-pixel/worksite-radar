@@ -1,31 +1,56 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 
-const ADMIN_ID = "duagydid";
-const ADMIN_PW = "1234";
-const STORAGE_KEY = "admin_logged_in";
-const EXPIRE_KEY = "admin_expire";
+async function checkAdminUser(user: User | null): Promise<boolean> {
+  if (!user || !db) return false;
+  if (user.emailVerified === false) return false;
+  const adminDoc = await getDoc(doc(db, "admin_users", user.uid));
+  return adminDoc.exists();
+}
 
 export function useAdminAuth() {
-  const [isAdmin, setIsAdmin] = useState(() => {
-    const expire = localStorage.getItem(EXPIRE_KEY);
-    return localStorage.getItem(STORAGE_KEY) === "true" && expire !== null && Date.now() < Number(expire);
-  });
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(!auth);
 
-  const login = (id: string, pw: string): boolean => {
-    if (id === ADMIN_ID && pw === ADMIN_PW) {
-      localStorage.setItem(STORAGE_KEY, "true");
-      localStorage.setItem(EXPIRE_KEY, String(Date.now() + 7 * 24 * 60 * 60 * 1000));
-      setIsAdmin(true);
-      return true;
+  useEffect(() => {
+    if (!auth) {
+      setIsAdmin(false);
+      setAdminEmail(null);
+      setAuthReady(true);
+      return;
     }
-    return false;
+
+    return onAuthStateChanged(auth, async (user) => {
+      setAuthReady(false);
+      const allowed = await checkAdminUser(user).catch(() => false);
+      setIsAdmin(allowed);
+      setAdminEmail(allowed ? user?.email ?? null : null);
+      setAuthReady(true);
+      if (user && !allowed) await signOut(auth).catch(() => {});
+    });
+  }, []);
+
+  const login = async (email: string, password: string): Promise<boolean> => {
+    if (!auth) return false;
+    const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+    const allowed = await checkAdminUser(credential.user);
+    if (!allowed) {
+      await signOut(auth);
+      return false;
+    }
+    setIsAdmin(true);
+    setAdminEmail(credential.user.email ?? null);
+    return true;
   };
 
-  const logout = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(EXPIRE_KEY);
+  const logout = async () => {
+    if (auth) await signOut(auth).catch(() => {});
     setIsAdmin(false);
+    setAdminEmail(null);
   };
 
-  return { isAdmin, login, logout };
+  return { isAdmin, login, logout, authReady, adminEmail };
 }
