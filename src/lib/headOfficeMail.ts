@@ -55,6 +55,12 @@ function normalizeName(name: string): string {
   return name.replace(/\s+/g, "").trim();
 }
 
+export function maskResidentNo(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 7) return value.trim();
+  return `${digits.slice(0, 6)}-${digits[6]}******`;
+}
+
 export function splitNames(input: string): string[] {
   return input
     .split(/[\s,，;；/]+/)
@@ -221,7 +227,7 @@ export function buildCertificateRows(
     return {
       no: index + 1,
       name: found ? readEmployeeField(employee, "이름") : typedName,
-      residentNo: found ? readEmployeeField(employee, "주민번호") : "",
+      residentNo: found ? maskResidentNo(readEmployeeField(employee, "주민번호")) : "",
       address: found ? readEmployeeField(employee, "주소") : "",
       siteName,
       joinDate: found ? formatDateDots(readEmployeeField(employee, "입사일")) : "",
