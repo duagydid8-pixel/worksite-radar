@@ -392,6 +392,7 @@ const Index = () => {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
+  const [rememberLogin, setRememberLogin] = useState(true);
   const [publicGuideDialogOpen, setPublicGuideDialogOpen] = useState(false);
   const [adminTodoDialogOpen, setAdminTodoDialogOpen] = useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] = useState(false);
@@ -414,7 +415,7 @@ const Index = () => {
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (await login(loginId, loginPw)) {
+      if (await login(loginId, loginPw, rememberLogin)) {
         toast.success("관리자로 로그인되었습니다.");
         setLoginDialogOpen(false);
         setLoginId("");
@@ -1119,6 +1120,15 @@ const Index = () => {
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               />
             </div>
+            <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={rememberLogin}
+                onChange={(event) => setRememberLogin(event.target.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+              자동 로그인 유지
+            </label>
             <button
               type="submit"
               disabled={!authReady}
