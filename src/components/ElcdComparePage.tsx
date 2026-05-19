@@ -370,9 +370,9 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
           <div style="font-size:12px;font-weight:800;color:#64748b;margin-bottom:12px;letter-spacing:0.08em;">${team} · ${rows.length}명</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
             ${rows.map((r) => `
-              <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;padding:10px 16px;text-align:center;min-width:72px;">
-                <div style="font-size:20px;font-weight:900;color:#dc2626;line-height:1.2;">${r.성명}</div>
-                ${r.생년월일 ? `<div style="font-size:11px;color:#f87171;margin-top:2px;font-weight:500;">${r.생년월일}</div>` : ""}
+              <div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 16px;text-align:center;min-width:72px;">
+                <div style="font-size:20px;font-weight:900;color:#1e293b;line-height:1.2;">${r.성명}</div>
+                ${r.생년월일 ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;font-weight:500;">${r.생년월일.slice(0, 6)}</div>` : ""}
               </div>
             `).join("")}
           </div>
