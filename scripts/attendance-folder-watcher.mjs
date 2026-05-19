@@ -5,6 +5,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { existsSync, watch } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { rejectDisallowedOrigin, writeCorsHeaders } from "./local-service-cors.mjs";
 
 export const DEFAULT_WATCH_DIR = "C:\\Users\\bongryong\\Desktop\\염효양\\8. 상용,현채,서드 근태관리";
 export const DEFAULT_PORT = 8787;
@@ -125,13 +126,10 @@ async function readSourcePayload(watchDir) {
   };
 }
 
-function sendJson(res, statusCode, body) {
+function sendJson(req, res, statusCode, body) {
+  writeCorsHeaders(req, res);
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Cache-Control": "no-store",
   });
   res.end(JSON.stringify(body));
 }
@@ -152,25 +150,27 @@ export async function startAttendanceFolderWatcher({
   const localIPs = networkMode ? certs.ips : [];
 
   const makeHandler = () => async (req, res) => {
+    if (rejectDisallowedOrigin(req, res)) return;
+
     if (req.method === "OPTIONS") {
-      sendJson(res, 204, {});
+      sendJson(req, res, 204, {});
       return;
     }
 
     try {
       if (req.url === "/status") {
         const status = await scanWatchDir(watchDir);
-        sendJson(res, 200, { ...status, networkMode, localIPs });
+        sendJson(req, res, 200, { ...status, networkMode, localIPs });
         return;
       }
       if (req.url === "/source-files") {
         const payload = await readSourcePayload(watchDir);
-        sendJson(res, payload.ready ? 200 : 404, payload);
+        sendJson(req, res, payload.ready ? 200 : 404, payload);
         return;
       }
-      sendJson(res, 404, { error: "지원하지 않는 경로입니다.", paths: ["/status", "/source-files"] });
+      sendJson(req, res, 404, { error: "지원하지 않는 경로입니다.", paths: ["/status", "/source-files"] });
     } catch (error) {
-      sendJson(res, 500, { error: error instanceof Error ? error.message : "알 수 없는 오류" });
+      sendJson(req, res, 500, { error: error instanceof Error ? error.message : "알 수 없는 오류" });
     }
   };
 

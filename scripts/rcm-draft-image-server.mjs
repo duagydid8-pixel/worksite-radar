@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { getLocalIPs, getNetworkCerts } from "./network-certs.mjs";
+import { rejectDisallowedOrigin, writeCorsHeaders } from "./local-service-cors.mjs";
 
 export const DEFAULT_PORT = 8791;
 
@@ -14,14 +15,10 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const EXPORT_SCRIPT = path.join(SCRIPT_DIR, "rcm-export-print-areas.ps1");
 const MAX_UPLOAD_BYTES = 40 * 1024 * 1024;
 
-function sendJson(res, statusCode, body) {
+function sendJson(req, res, statusCode, body) {
+  writeCorsHeaders(req, res);
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Private-Network": "true",
-    "Cache-Control": "no-store",
   });
   res.end(JSON.stringify(body));
 }
@@ -143,14 +140,16 @@ export async function startRcmDraftImageServer({
   const localIPs = networkMode ? certs.ips : [];
 
   const makeHandler = (servedPort) => async (req, res) => {
+    if (rejectDisallowedOrigin(req, res)) return;
+
     if (req.method === "OPTIONS") {
-      sendJson(res, 204, {});
+      sendJson(req, res, 204, {});
       return;
     }
 
     try {
       if (req.method === "GET" && req.url === "/status") {
-        sendJson(res, 200, {
+        sendJson(req, res, 200, {
           ready: true,
           engine: "Microsoft Excel",
           port: servedPort,
@@ -163,13 +162,13 @@ export async function startRcmDraftImageServer({
 
       if (req.method === "POST" && req.url === "/convert") {
         const payload = await readRequestJson(req);
-        sendJson(res, 200, await convertWorkbook(payload));
+        sendJson(req, res, 200, await convertWorkbook(payload));
         return;
       }
 
-      sendJson(res, 404, { error: "지원하지 않는 경로입니다.", paths: ["/status", "/convert"] });
+      sendJson(req, res, 404, { error: "지원하지 않는 경로입니다.", paths: ["/status", "/convert"] });
     } catch (error) {
-      sendJson(res, 500, { error: error instanceof Error ? error.message : "알 수 없는 오류" });
+      sendJson(req, res, 500, { error: error instanceof Error ? error.message : "알 수 없는 오류" });
     }
   };
 
