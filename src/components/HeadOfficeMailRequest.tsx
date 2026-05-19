@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle, Clipboard, Loader2, Mail, Search, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { loadEmployeesP5PH1FS, loadEmployeesPH2FS, loadEmployeesPH4FS } from "@/lib/firestoreService";
+import { detectSensitiveInfo, summarizeSensitiveInfoFindings } from "@/lib/sensitiveInfoGuard";
 import {
   buildCertificateRows,
   CERTIFICATE_OPTIONS,
@@ -61,6 +62,12 @@ async function copyRichTable(html: string, text: string) {
   }
 
   await navigator.clipboard.writeText(text);
+}
+
+function warnIfSensitiveCopy(text: string) {
+  const findings = detectSensitiveInfo(text);
+  if (findings.length === 0) return;
+  toast.warning(`민감정보 의심 항목이 있습니다: ${summarizeSensitiveInfoFindings(findings)}`);
 }
 
 interface HeadOfficeMailRequestProps {
@@ -156,11 +163,13 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
   const activeMenuLabel = MAIL_REQUEST_MENU_OPTIONS.find((option) => option.value === activeMenu)?.label ?? "증명서";
 
   const handleCopySubject = async () => {
+    warnIfSensitiveCopy(mailSubject);
     await navigator.clipboard.writeText(mailSubject);
     toast.success("메일 제목을 복사했습니다.");
   };
 
   const handleCopyBody = async () => {
+    warnIfSensitiveCopy(mailBody);
     await navigator.clipboard.writeText(mailBody);
     toast.success("메일 본문을 복사했습니다.");
   };
@@ -171,6 +180,7 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
       return;
     }
     try {
+      warnIfSensitiveCopy(tableText);
       await copyRichTable(tableHtml, tableText);
       toast.success("증명서 요청 표를 복사했습니다.");
     } catch {
@@ -179,21 +189,25 @@ export default function HeadOfficeMailRequest({ activeMenu: controlledActiveMenu
   };
 
   const handleCopyOrgChartSubject = async () => {
+    warnIfSensitiveCopy(orgChartMailSubject);
     await navigator.clipboard.writeText(orgChartMailSubject);
     toast.success("조직도 송부메일 제목을 복사했습니다.");
   };
 
   const handleCopyOrgChartBody = async () => {
+    warnIfSensitiveCopy(orgChartMailBody);
     await navigator.clipboard.writeText(orgChartMailBody);
     toast.success("조직도 송부메일 본문을 복사했습니다.");
   };
 
   const handleCopyExtraWorkSubject = async () => {
+    warnIfSensitiveCopy(extraWorkMailSubject);
     await navigator.clipboard.writeText(extraWorkMailSubject);
     toast.success("가산공수 메일 제목을 복사했습니다.");
   };
 
   const handleCopyExtraWorkBody = async () => {
+    warnIfSensitiveCopy(extraWorkMailBody);
     await navigator.clipboard.writeText(extraWorkMailBody);
     toast.success("가산공수 메일 본문을 복사했습니다.");
   };

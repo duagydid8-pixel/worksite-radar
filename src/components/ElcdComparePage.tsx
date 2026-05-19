@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import * as XLSX from "xlsx";
 import html2canvas from "html2canvas";
 import { decryptExcelPassword } from "@/utils/xlsxDecrypt";
+import { detectSensitiveInfo, summarizeSensitiveInfoFindings } from "@/lib/sensitiveInfoGuard";
 
 const EXCLUDED_STORAGE_KEY = "elcd_excluded_teams";
 
@@ -351,6 +352,10 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   const exportShareImage = async () => {
     const missingRows = result?.filter((r) => r.타각여부 === "N" && !excludedTeams.has(r.팀명)) ?? [];
     if (!missingRows.length) { toast.error("미타각 인원이 없습니다."); return; }
+    const sensitiveFindings = detectSensitiveInfo(JSON.stringify(missingRows));
+    if (sensitiveFindings.length > 0) {
+      toast.warning(`공유 이미지에 민감정보 의심 항목이 있습니다: ${summarizeSensitiveInfoFindings(sensitiveFindings)}`);
+    }
 
     const byTeam = missingRows.reduce<Record<string, CompareRow[]>>((acc, r) => {
       (acc[r.팀명] ??= []).push(r);
