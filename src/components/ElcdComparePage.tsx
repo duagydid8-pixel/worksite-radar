@@ -8,6 +8,7 @@ import html2canvas from "html2canvas";
 import { decryptExcelPassword } from "@/utils/xlsxDecrypt";
 import { detectSensitiveInfo, summarizeSensitiveInfoFindings } from "@/lib/sensitiveInfoGuard";
 import { canCopyResidentNumber, displayResidentNumber } from "@/lib/elcdResidentNumber";
+import { buildElcdCompareRows, normBirth, type CompareRow, type ElcdRow, type XerpCompareRow } from "@/lib/elcdCompare";
 
 const EXCLUDED_STORAGE_KEY = "elcd_excluded_teams";
 
@@ -18,40 +19,7 @@ const SITES: { value: SiteKey; label: string }[] = [
   { value: "P5PH1", label: "P5-PH1" },
 ];
 
-interface XerpRow {
-  id: string;
-  팀명: string; 직종: string; 사번: string; 성명: string; 생년월일: string;
-  [key: string]: string;
-}
-
-interface ElcdRow {
-  name: string;
-  birthday: string;
-  company?: string;
-  inTime?: string;
-  outTime?: string;
-  authMethod?: string;
-}
-
-interface CompareRow {
-  팀명: string;
-  직종: string;
-  성명: string;
-  생년월일: string;
-  rawResidentNumber?: string;
-  타각여부: "Y" | "N" | "착오" | "이름불일치";
-  출근: string;
-  퇴근: string;
-  인증방식: string;
-  소속업체?: string;
-  elcdName?: string;
-}
-
-function normBirth(s: string): string {
-  const d = (s || "").replace(/\D/g, "");
-  if (d.length >= 13) return d.slice(0, 6);
-  return d.length >= 8 ? d.slice(2, 8) : d.slice(0, 6);
-}
+type ResultFilter = "전체" | "타각" | "미타각" | "착오태그" | "이름불일치" | "XERP출근미타각";
 
 function maskBirth(s: string): string {
   return displayResidentNumber(s, false);
@@ -59,13 +27,13 @@ function maskBirth(s: string): string {
 
 export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   const [site, setSite] = useState<SiteKey>("PH4");
-  const [dateMap, setDateMap] = useState<Record<string, XerpRow[]> | null>(null);
+  const [dateMap, setDateMap] = useState<Record<string, XerpCompareRow[]> | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [elcdRows, setElcdRows] = useState<ElcdRow[] | null>(null);
   const [elcdFileName, setElcdFileName] = useState("");
   const [result, setResult] = useState<CompareRow[] | null>(null);
-  const [filter, setFilter] = useState<"전체" | "타각" | "미타각" | "착오태그" | "이름불일치">("전체");
+  const [filter, setFilter] = useState<ResultFilter>("전체");
   const [showGuide, setShowGuide] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [excludedTeams, setExcludedTeams] = useState<Set<string>>(() => {
@@ -99,7 +67,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
       const fn = site === "PH4" ? loadXerpFS : site === "PH2" ? loadXerpPH2FS : loadXerpP5PH1FS;
       const data = await fn();
       if (!data) { toast.error("XERP 데이터가 없습니다."); return; }
-      setDateMap(data as Record<string, XerpRow[]>);
+      setDateMap(data as Record<string, XerpCompareRow[]>);
       const dates = Object.keys(data).sort().reverse();
       setSelectedDate(dates[0] ?? "");
       toast.success(`${Object.keys(data).length}개 날짜 로드됨`);
@@ -110,7 +78,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
     }
   };
 
-  const currentRows: XerpRow[] = useMemo(
+  const currentRows: XerpCompareRow[] = useMemo(
     () => (dateMap && selectedDate ? (dateMap[selectedDate] ?? []) : []),
     [dateMap, selectedDate]
   );
@@ -205,111 +173,20 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
     if (!currentRows.length) { toast.error("먼저 XERP 데이터를 로드하세요."); return; }
     if (!elcdRows?.length) { toast.error("전자카드 엑셀을 업로드하세요."); return; }
 
-    const tappedMap = new Map<string, ElcdRow>();
-    elcdRows.forEach((r) => {
-      const key = (r.name || "") + "|" + normBirth(r.birthday || "");
-      const existing = tappedMap.get(key);
-      if (existing) {
-        tappedMap.set(key, {
-          ...existing,
-          inTime: existing.inTime || r.inTime,
-          outTime: existing.outTime || r.outTime,
-          authMethod: existing.authMethod || r.authMethod,
-        });
-      } else {
-        tappedMap.set(key, r);
-      }
+    const allRows = buildElcdCompareRows({
+      xerpRows: currentRows,
+      elcdRows,
+      maskBirth,
     });
-
-    const xerpKeys = new Set(currentRows.map((r) => r.성명 + "|" + normBirth(r.생년월일)));
-
-    const isHanseong = (company?: string) =>
-      !company || company.includes("한성크린텍") || company.includes("한성");
-
-    // 이름 매칭된 ELCD 행 키 수집
-    const nameMatchedElcdKeys = new Set<string>();
-    currentRows.forEach((r) => {
-      const key = r.성명 + "|" + normBirth(r.생년월일);
-      const hit = tappedMap.get(key);
-      if (hit) nameMatchedElcdKeys.add((hit.name || "") + "|" + normBirth(hit.birthday || ""));
-    });
-
-    // 생년월일 → ELCD 행 폴백 맵 (이름 매칭 안 된 행만)
-    const birthOnlyMap = new Map<string, ElcdRow[]>();
-    elcdRows.forEach((r) => {
-      const ek = (r.name || "") + "|" + normBirth(r.birthday || "");
-      if (nameMatchedElcdKeys.has(ek)) return;
-      const bk = normBirth(r.birthday || "");
-      if (!bk) return;
-      const arr = birthOnlyMap.get(bk) ?? [];
-      arr.push(r);
-      birthOnlyMap.set(bk, arr);
-    });
-
-    const usedBirthKeys = new Set<string>();
-
-    const rows: CompareRow[] = currentRows.map((r) => {
-      const key = r.성명 + "|" + normBirth(r.생년월일);
-      const hit = tappedMap.get(key);
-      const wrongCompany = hit && !isHanseong(hit.company);
-
-      if (!hit) {
-        const bk = normBirth(r.생년월일);
-        const birthMatches = bk ? birthOnlyMap.get(bk) : undefined;
-        if (birthMatches?.length === 1) {
-          const bHit = birthMatches[0];
-          usedBirthKeys.add((bHit.name || "") + "|" + normBirth(bHit.birthday || ""));
-          return {
-            팀명: r.팀명, 직종: r.직종, 성명: r.성명,
-            생년월일: maskBirth(r.생년월일),
-            rawResidentNumber: r.생년월일,
-            타각여부: "이름불일치" as const,
-            출근: bHit.inTime ?? "", 퇴근: bHit.outTime ?? "", 인증방식: bHit.authMethod ?? "",
-            elcdName: bHit.name,
-          };
-        }
-      }
-
-      return {
-        팀명: r.팀명,
-        직종: r.직종,
-        성명: r.성명,
-        생년월일: maskBirth(r.생년월일),
-        rawResidentNumber: r.생년월일,
-        타각여부: hit ? (wrongCompany ? "착오" : "Y") : "N",
-        출근: hit?.inTime ?? "",
-        퇴근: hit?.outTime ?? "",
-        인증방식: hit?.authMethod ?? "",
-        소속업체: wrongCompany ? hit!.company : undefined,
-      };
-    });
-
-    // XERP에 없지만 전자카드에서 타각된 인원 추가 (이름불일치로 매칭된 행 제외)
-    const extraTappers: CompareRow[] = elcdRows
-      .filter((r) => {
-        const k = (r.name || "") + "|" + normBirth(r.birthday || "");
-        return r.name && !xerpKeys.has(r.name + "|" + normBirth(r.birthday || "")) && !usedBirthKeys.has(k);
-      })
-      .map((r) => ({
-        팀명: "미등록",
-        직종: "—",
-        성명: r.name,
-        생년월일: maskBirth(r.birthday || ""),
-        rawResidentNumber: r.birthday || "",
-        타각여부: "Y" as const,
-        출근: r.inTime ?? "",
-        퇴근: r.outTime ?? "",
-        인증방식: r.authMethod ?? "",
-      }));
-
-    const allRows = [...rows, ...extraTappers];
     setResult(allRows);
     const y = allRows.filter((r) => r.타각여부 === "Y").length;
     const nm = allRows.filter((r) => r.타각여부 === "이름불일치").length;
-    const extra = extraTappers.length;
+    const missedXerp = allRows.filter((r) => r.타각여부 === "XERP출근미타각").length;
+    const extra = allRows.filter((r) => r.팀명 === "미등록").length;
     toast.success(
       `대조 완료 — 타각 ${y}명 / 미타각 ${allRows.filter((r) => r.타각여부 === "N").length}명` +
       (nm > 0 ? ` / 이름불일치 ${nm}명` : "") +
+      (missedXerp > 0 ? ` / XERP출근미타각 ${missedXerp}명` : "") +
       (extra > 0 ? ` (XERP 미등록 ${extra}명 포함)` : "")
     );
   };
@@ -325,6 +202,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
     if (filter === "미타각") return result.filter((r) => r.타각여부 === "N" && !excludedTeams.has(r.팀명));
     if (filter === "착오태그") return result.filter((r) => r.타각여부 === "착오");
     if (filter === "이름불일치") return result.filter((r) => r.타각여부 === "이름불일치");
+    if (filter === "XERP출근미타각") return result.filter((r) => r.타각여부 === "XERP출근미타각");
     return result;
   }, [result, filter, excludedTeams]);
 
@@ -413,6 +291,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   const tappedCount = result?.filter((r) => r.타각여부 === "Y").length ?? 0;
   const wrongTagCount = result?.filter((r) => r.타각여부 === "착오").length ?? 0;
   const nameMismatchCount = result?.filter((r) => r.타각여부 === "이름불일치").length ?? 0;
+  const missedXerpCheckInCount = result?.filter((r) => r.타각여부 === "XERP출근미타각").length ?? 0;
   const notTappedCount = result
     ? result.filter((r) => r.타각여부 === "N" && !excludedTeams.has(r.팀명)).length
     : 0;
@@ -594,9 +473,14 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
                   <CheckCircle2 className="h-4 w-4" /> 이름불일치 {nameMismatchCount}명
                 </span>
               )}
+              {missedXerpCheckInCount > 0 && (
+                <span className="flex items-center gap-1 text-sm font-bold text-blue-600">
+                  <AlertCircle className="h-4 w-4" /> XERP출근미타각 {missedXerpCheckInCount}명
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
-              {(["전체", "타각", "미타각", "착오태그", "이름불일치"] as const).map((f) => (
+              {(["전체", "타각", "미타각", "XERP출근미타각", "착오태그", "이름불일치"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -676,6 +560,8 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
                       ? "bg-amber-50/60"
                       : r.타각여부 === "이름불일치"
                       ? "bg-violet-50/60"
+                      : r.타각여부 === "XERP출근미타각"
+                      ? "bg-blue-50/60"
                       : r.타각여부 === "N"
                       ? "bg-red-50/60"
                       : ""
@@ -709,6 +595,11 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
                         ? <span className="inline-flex flex-col items-center gap-0 text-violet-600 font-bold">
                             <span className="inline-flex items-center gap-0.5"><CheckCircle2 className="h-3.5 w-3.5" /> 이름불일치 타각</span>
                             {r.elcdName && <span className="text-xs font-normal text-violet-400">전자카드: {r.elcdName}</span>}
+                          </span>
+                        : r.타각여부 === "XERP출근미타각"
+                        ? <span className="inline-flex flex-col items-center gap-0 text-blue-600 font-bold">
+                            <span className="inline-flex items-center gap-0.5"><AlertCircle className="h-3.5 w-3.5" /> XERP출근미타각</span>
+                            {r.elcdName && <span className="text-xs font-normal text-blue-400">전자카드: {r.elcdName}</span>}
                           </span>
                         : <span className="inline-flex items-center gap-0.5 text-red-500 font-bold"><XCircle className="h-3.5 w-3.5" /> 미타각</span>
                       }
