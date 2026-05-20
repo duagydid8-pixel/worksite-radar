@@ -34,6 +34,14 @@ export interface FlaggedPmisOuting {
   reasons: string[];
 }
 
+export interface PmisOutingShareRow {
+  name: string;
+  meta: string;
+  outTime: string;
+  inTime: string;
+  reasonText: string;
+}
+
 function timeToMinutes(value: string | null | undefined): number | null {
   const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})/);
   if (!match) return null;
@@ -123,4 +131,14 @@ export function getFlaggedPmisOutings(details: PersonDetail[]): FlaggedPmisOutin
       }];
     });
   });
+}
+
+export function buildPmisOutingShareRows(rows: FlaggedPmisOuting[]): PmisOutingShareRow[] {
+  return rows.map((row) => ({
+    name: row.이름,
+    meta: [row.범주, row.직종].filter(Boolean).join(" · "),
+    outTime: row.outTime,
+    inTime: row.inTime ?? "-",
+    reasonText: row.reasons.join(" / "),
+  }));
 }

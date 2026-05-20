@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computePersonDetails, getFlaggedPmisOutings } from "./pmisInOutLog";
+import { buildPmisOutingShareRows, computePersonDetails, getFlaggedPmisOutings } from "./pmisInOutLog";
 
 describe("getFlaggedPmisOutings", () => {
   it("selects technical workers who left before 11:00 or returned at/after 13:00", () => {
@@ -26,6 +26,29 @@ describe("getFlaggedPmisOutings", () => {
     }))).toEqual([
       { 이름: "조기출문", outTime: "10:59", inTime: "11:20", reasons: ["11시 이전 출문"] },
       { 이름: "늦은복귀", outTime: "11:30", inTime: "13:00", reasons: ["13시 이후 복귀"] },
+    ]);
+  });
+});
+
+describe("buildPmisOutingShareRows", () => {
+  it("formats flagged outings for share images", () => {
+    expect(buildPmisOutingShareRows([
+      {
+        이름: "홍길동",
+        범주: "기술인",
+        직종: "배관",
+        outTime: "10:40",
+        inTime: "13:10",
+        reasons: ["11시 이전 출문", "13시 이후 복귀"],
+      },
+    ])).toEqual([
+      {
+        name: "홍길동",
+        meta: "기술인 · 배관",
+        outTime: "10:40",
+        inTime: "13:10",
+        reasonText: "11시 이전 출문 / 13시 이후 복귀",
+      },
     ]);
   });
 });

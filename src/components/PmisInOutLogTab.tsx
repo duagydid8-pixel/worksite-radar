@@ -1,10 +1,11 @@
 import { useRef, useState, useMemo, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { FileSpreadsheet, Search, X, LogIn, LogOut, Users, AlertTriangle, ArrowRight, Clock, HelpCircle, Trash2, CalendarDays, Save } from "lucide-react";
+import html2canvas from "html2canvas";
+import { FileSpreadsheet, Search, X, LogIn, LogOut, Users, AlertTriangle, ArrowRight, Clock, HelpCircle, Trash2, CalendarDays, Save, Image } from "lucide-react";
 import { toast } from "sonner";
 import { savePmisLogFS, loadPmisLogFS, listPmisLogDatesFS, deletePmisLogFS } from "@/lib/firestoreService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { computePersonDetails, getFlaggedPmisOutings, type LogRow } from "@/lib/pmisInOutLog";
+import { buildPmisOutingShareRows, computePersonDetails, getFlaggedPmisOutings, type LogRow } from "@/lib/pmisInOutLog";
 
 export interface PersonRow {
   이름: string;
@@ -321,11 +322,24 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
   const [showManual, setShowManual] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [flaggedMemo, setFlaggedMemo] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const flaggedShareRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     listPmisLogDatesFS(site).then(setSavedDates).catch(() => {});
   }, [site]);
+
+  useEffect(() => {
+    const key = `pmis_flagged_outing_memo_${site}_${data?.dateLabel ?? "none"}`;
+    setFlaggedMemo(localStorage.getItem(key) ?? "");
+  }, [site, data?.dateLabel]);
+
+  const updateFlaggedMemo = (value: string) => {
+    setFlaggedMemo(value);
+    if (!data?.dateLabel) return;
+    localStorage.setItem(`pmis_flagged_outing_memo_${site}_${data.dateLabel}`, value);
+  };
 
   const isInXerp = (name: string) => !xerpNames || !hideNonXerp || xerpNames.has(name);
   const nonXerpCount = xerpNames && data
@@ -441,6 +455,24 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
   }, [personDetails, outingsOnly, search, hideNonXerp, xerpNames]);
 
   const flaggedOutings = useMemo(() => getFlaggedPmisOutings(filteredDetails), [filteredDetails]);
+  const flaggedShareRows = useMemo(() => buildPmisOutingShareRows(flaggedOutings), [flaggedOutings]);
+
+  const exportFlaggedOutingsImage = async () => {
+    if (!flaggedShareRows.length) {
+      toast.error("조건대상 중간외출 기록이 없습니다.");
+      return;
+    }
+    if (!flaggedShareRef.current) return;
+    try {
+      const canvas = await html2canvas(flaggedShareRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+      const a = document.createElement("a");
+      a.href = canvas.toDataURL("image/png");
+      a.download = `조건대상_중간외출_${(data?.dateLabel || "pmis").replace(/-/g, "")}.png`;
+      a.click();
+    } catch (err) {
+      toast.error("이미지 저장 실패: " + String(err));
+    }
+  };
 
   const ManualDialog = () => (
     <Dialog open={showManual} onOpenChange={setShowManual}>
@@ -775,40 +807,123 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
               </span>
               <span className="text-xs font-bold text-rose-500">기술인만 · 관리자 제외 · 출문 11:00 이전 또는 복귀 13:00 이후</span>
               <span className="ml-auto rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-extrabold text-rose-800">{flaggedOutings.length}건</span>
+              <button
+                type="button"
+                onClick={() => void exportFlaggedOutingsImage()}
+                disabled={flaggedOutings.length === 0}
+                className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-white px-2.5 py-1 text-xs font-extrabold text-rose-700 hover:bg-rose-100 disabled:opacity-40"
+              >
+                <Image className="h-3.5 w-3.5" /> 이미지 저장
+              </button>
             </div>
             {flaggedOutings.length === 0 ? (
               <div className="px-4 py-5 text-center text-sm font-semibold text-rose-300">조건에 해당하는 중간외출 기록이 없습니다.</div>
             ) : (
-              <div className="overflow-x-auto bg-white">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-rose-100 bg-rose-50">
-                      {["이름", "범주", "직종", "외출", "복귀", "분류"].map((h) => (
-                        <th key={h} className="whitespace-nowrap px-3 py-2 text-left text-xs font-extrabold text-rose-700">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {flaggedOutings.map((row, idx) => (
-                      <tr key={`${row.이름}-${row.outTime}-${idx}`} className="border-b border-rose-50">
-                        <td className="px-3 py-2 font-bold text-slate-900">{row.이름}</td>
-                        <td className="px-3 py-2 text-slate-600">{row.범주}</td>
-                        <td className="px-3 py-2 text-slate-600">{row.직종}</td>
-                        <td className="px-3 py-2 font-mono font-bold text-orange-700">{row.outTime}</td>
-                        <td className="px-3 py-2 font-mono font-bold text-emerald-700">{row.inTime ?? "-"}</td>
-                        <td className="px-3 py-2">
-                          <span className="inline-flex flex-wrap gap-1">
-                            {row.reasons.map((reason) => (
-                              <span key={reason} className="rounded-full bg-rose-100 px-2 py-0.5 font-extrabold text-rose-700">{reason}</span>
-                            ))}
-                          </span>
-                        </td>
+              <div className="grid gap-3 bg-white p-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+                <div className="overflow-x-auto rounded-md border border-rose-100">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-rose-100 bg-rose-50">
+                        {["이름", "범주", "직종", "외출", "복귀", "분류"].map((h) => (
+                          <th key={h} className="whitespace-nowrap px-3 py-2 text-left text-xs font-extrabold text-rose-700">{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {flaggedOutings.map((row, idx) => (
+                        <tr key={`${row.이름}-${row.outTime}-${idx}`} className="border-b border-rose-50">
+                          <td className="px-3 py-2 font-bold text-slate-900">{row.이름}</td>
+                          <td className="px-3 py-2 text-slate-600">{row.범주}</td>
+                          <td className="px-3 py-2 text-slate-600">{row.직종}</td>
+                          <td className="px-3 py-2 font-mono font-bold text-orange-700">{row.outTime}</td>
+                          <td className="px-3 py-2 font-mono font-bold text-emerald-700">{row.inTime ?? "-"}</td>
+                          <td className="px-3 py-2">
+                            <span className="inline-flex flex-wrap gap-1">
+                              {row.reasons.map((reason) => (
+                                <span key={reason} className="rounded-full bg-rose-100 px-2 py-0.5 font-extrabold text-rose-700">{reason}</span>
+                              ))}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="rounded-md border border-rose-100 bg-rose-50/60 p-3">
+                  <label className="text-xs font-black text-rose-800">공유 메모</label>
+                  <textarea
+                    value={flaggedMemo}
+                    onChange={(e) => updateFlaggedMemo(e.target.value)}
+                    placeholder="공유 이미지에 같이 넣을 메모를 입력하세요."
+                    className="mt-2 min-h-[118px] w-full resize-y rounded-md border border-rose-100 bg-white p-2 text-sm font-semibold text-slate-800 outline-none focus:border-rose-300"
+                  />
+                  <p className="mt-1 text-[11px] font-semibold text-rose-400">날짜별로 이 브라우저에 저장됩니다.</p>
+                </div>
               </div>
             )}
+          </div>
+
+          <div className="fixed -left-[9999px] top-0" aria-hidden="true">
+            <div
+              ref={flaggedShareRef}
+              style={{
+                width: "720px",
+                background: "#ffffff",
+                fontFamily: "'Apple SD Gothic Neo','Noto Sans KR',sans-serif",
+                borderRadius: "20px",
+                overflow: "hidden",
+                border: "1px solid #fecdd3",
+              }}
+            >
+              <div style={{ background: "#9f1239", color: "#fff", padding: "26px 30px 20px", textAlign: "center" }}>
+                <div style={{ fontSize: "26px", fontWeight: 900, marginBottom: "6px" }}>조건대상 중간외출</div>
+                <div style={{ fontSize: "14px", color: "#ffe4e6", fontWeight: 700 }}>
+                  {data.dateLabel} · 기술인 / 관리자 제외 · 총 {flaggedShareRows.length}건
+                </div>
+              </div>
+              <div style={{ padding: "16px 22px", background: "#fff1f2", color: "#9f1239", fontSize: "13px", fontWeight: 800 }}>
+                출문 11:00 이전 또는 복귀 13:00 이후 기록만 표시
+              </div>
+              {flaggedMemo.trim() && (
+                <div style={{ padding: "16px 22px", background: "#ffffff", borderBottom: "1px solid #ffe4e6" }}>
+                  <div style={{ fontSize: "12px", fontWeight: 900, color: "#be123c", marginBottom: "6px" }}>메모</div>
+                  <div style={{ whiteSpace: "pre-wrap", fontSize: "15px", lineHeight: 1.45, fontWeight: 700, color: "#334155" }}>{flaggedMemo.trim()}</div>
+                </div>
+              )}
+              <div style={{ padding: "10px 18px 18px", background: "#ffffff" }}>
+                {flaggedShareRows.map((row, idx) => (
+                  <div
+                    key={`${row.name}-${row.outTime}-${idx}`}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      gap: "12px",
+                      alignItems: "center",
+                      padding: "14px 12px",
+                      borderBottom: idx === flaggedShareRows.length - 1 ? "none" : "1px solid #ffe4e6",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "22px", lineHeight: 1.15, fontWeight: 900, color: "#0f172a" }}>{row.name}</div>
+                      <div style={{ marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "#64748b" }}>{row.meta}</div>
+                      <div style={{ marginTop: "7px", fontSize: "12px", fontWeight: 900, color: "#be123c" }}>{row.reasonText}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "16px", fontWeight: 900 }}>
+                      <span style={{ border: "1px solid #fed7aa", background: "#fff7ed", color: "#c2410c", borderRadius: "10px", padding: "8px 10px" }}>
+                        외출 {row.outTime}
+                      </span>
+                      <span style={{ color: "#cbd5e1" }}>→</span>
+                      <span style={{ border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", borderRadius: "10px", padding: "8px 10px" }}>
+                        복귀 {row.inTime}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ background: "#f8fafc", padding: "10px", textAlign: "center", fontSize: "11px", color: "#cbd5e1", fontWeight: 700 }}>
+                worksite-radar
+              </div>
+            </div>
           </div>
 
           {filteredDetails.length === 0 ? (
