@@ -4,6 +4,7 @@ import { FileSpreadsheet, Search, X, LogIn, LogOut, Users, AlertTriangle, ArrowR
 import { toast } from "sonner";
 import { savePmisLogFS, loadPmisLogFS, listPmisLogDatesFS, deletePmisLogFS } from "@/lib/firestoreService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { computePersonDetails, getFlaggedPmisOutings, type LogRow } from "@/lib/pmisInOutLog";
 
 export interface PersonRow {
   이름: string;
@@ -16,17 +17,6 @@ export interface PersonRow {
   OUT횟수: number;
   총이벤트: number;
   비고: string;
-}
-
-export interface LogRow {
-  회사: string;
-  범주: string;
-  이름: string;
-  일자: string;
-  시간: string;
-  구분: "IN" | "OUT" | string;
-  출역형태: string;
-  직종: string;
 }
 
 export interface Summary {
@@ -42,77 +32,6 @@ export interface ParsedPmisData {
   persons: PersonRow[];
   logs: LogRow[];
   summary: Summary | null;
-}
-
-interface Outing {
-  outTime: string;
-  inTime: string | null;
-}
-
-interface PersonDetail {
-  이름: string;
-  범주: string;
-  직종: string;
-  firstIn: string | null;
-  departureTime: string | null;
-  outings: Outing[];
-  hasUnreturnedOuting: boolean;
-  totalEvents: number;
-}
-
-function computePersonDetails(logs: LogRow[]): PersonDetail[] {
-  const byPerson = new Map<string, LogRow[]>();
-  for (const log of logs) {
-    if (!byPerson.has(log.이름)) byPerson.set(log.이름, []);
-    byPerson.get(log.이름)!.push(log);
-  }
-
-  const result: PersonDetail[] = [];
-  for (const [name, events] of byPerson) {
-    events.sort((a, b) => a.시간.localeCompare(b.시간));
-    const firstLog = events[0];
-    let firstIn: string | null = null;
-    let departureTime: string | null = null;
-    const outings: Outing[] = [];
-    let currentOutTime: string | null = null;
-
-    for (let idx = 0; idx < events.length; idx++) {
-      const e = events[idx];
-      const isLastEvent = idx === events.length - 1;
-
-      if (e.구분 === "IN") {
-        if (firstIn === null) firstIn = e.시간;
-        if (currentOutTime !== null) {
-          outings.push({ outTime: currentOutTime, inTime: e.시간 });
-          currentOutTime = null;
-        }
-        departureTime = null;
-      } else if (e.구분 === "OUT") {
-        if (isLastEvent) {
-          // Last event OUT = 퇴근
-          departureTime = e.시간;
-          currentOutTime = null;
-        } else if (currentOutTime === null) {
-          currentOutTime = e.시간;
-        }
-      }
-    }
-
-    const hasUnreturnedOuting = currentOutTime !== null;
-
-    result.push({
-      이름: name,
-      범주: firstLog.범주,
-      직종: firstLog.직종,
-      firstIn,
-      departureTime,
-      outings,
-      hasUnreturnedOuting,
-      totalEvents: events.length,
-    });
-  }
-
-  return result.sort((a, b) => (a.firstIn ?? "").localeCompare(b.firstIn ?? ""));
 }
 
 // CSV(파이프 구분) → ParsedPmisData (Python build_xlsx 없이 앱에서 직접 변환)
@@ -521,6 +440,8 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
     return list;
   }, [personDetails, outingsOnly, search, hideNonXerp, xerpNames]);
 
+  const flaggedOutings = useMemo(() => getFlaggedPmisOutings(filteredDetails), [filteredDetails]);
+
   const ManualDialog = () => (
     <Dialog open={showManual} onOpenChange={setShowManual}>
       <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
@@ -678,6 +599,9 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 text-xs font-extrabold text-violet-800">
                 <ArrowRight className="h-3.5 w-3.5" /> 중간외출 {personDetails.filter((d) => d.outings.length > 0).length}명
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-extrabold text-rose-800">
+                <AlertTriangle className="h-3.5 w-3.5" /> 조건대상 {flaggedOutings.length}건
               </span>
             </>
           )}
@@ -844,6 +768,49 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
       {/* 중간외출 뷰 */}
       {view === "outings" && (
         <div className="space-y-2">
+          <div className="rounded-lg border border-rose-200 bg-rose-50/70 shadow-sm overflow-hidden">
+            <div className="flex flex-wrap items-center gap-2 border-b border-rose-100 bg-white/70 px-4 py-2.5">
+              <span className="inline-flex items-center gap-1 text-sm font-black text-rose-800">
+                <AlertTriangle className="h-4 w-4" /> 조건대상 중간외출
+              </span>
+              <span className="text-xs font-bold text-rose-500">기술인만 · 관리자 제외 · 출문 11:00 이전 또는 복귀 13:00 이후</span>
+              <span className="ml-auto rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-extrabold text-rose-800">{flaggedOutings.length}건</span>
+            </div>
+            {flaggedOutings.length === 0 ? (
+              <div className="px-4 py-5 text-center text-sm font-semibold text-rose-300">조건에 해당하는 중간외출 기록이 없습니다.</div>
+            ) : (
+              <div className="overflow-x-auto bg-white">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-rose-100 bg-rose-50">
+                      {["이름", "범주", "직종", "외출", "복귀", "분류"].map((h) => (
+                        <th key={h} className="whitespace-nowrap px-3 py-2 text-left text-xs font-extrabold text-rose-700">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {flaggedOutings.map((row, idx) => (
+                      <tr key={`${row.이름}-${row.outTime}-${idx}`} className="border-b border-rose-50">
+                        <td className="px-3 py-2 font-bold text-slate-900">{row.이름}</td>
+                        <td className="px-3 py-2 text-slate-600">{row.범주}</td>
+                        <td className="px-3 py-2 text-slate-600">{row.직종}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-orange-700">{row.outTime}</td>
+                        <td className="px-3 py-2 font-mono font-bold text-emerald-700">{row.inTime ?? "-"}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex flex-wrap gap-1">
+                            {row.reasons.map((reason) => (
+                              <span key={reason} className="rounded-full bg-rose-100 px-2 py-0.5 font-extrabold text-rose-700">{reason}</span>
+                            ))}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {filteredDetails.length === 0 ? (
             <div className="rounded-lg border border-slate-200 bg-white py-12 text-center text-sm font-semibold text-slate-400">
               {outingsOnly ? "중간외출 기록이 없습니다." : "데이터 없음"}
