@@ -467,7 +467,7 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
       const canvas = await html2canvas(flaggedShareRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
       const a = document.createElement("a");
       a.href = canvas.toDataURL("image/png");
-      a.download = `조건대상_중간외출_${(data?.dateLabel || "pmis").replace(/-/g, "")}.png`;
+      a.download = `PMIS_외출_대상자_${(data?.dateLabel || "pmis").replace(/-/g, "")}.png`;
       a.click();
     } catch (err) {
       toast.error("이미지 저장 실패: " + String(err));
@@ -803,7 +803,7 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
           <div className="rounded-lg border border-rose-200 bg-rose-50/70 shadow-sm overflow-hidden">
             <div className="flex flex-wrap items-center gap-2 border-b border-rose-100 bg-white/70 px-4 py-2.5">
               <span className="inline-flex items-center gap-1 text-sm font-black text-rose-800">
-                <AlertTriangle className="h-4 w-4" /> 조건대상 중간외출
+                <AlertTriangle className="h-4 w-4" /> PMIS 외출 대상자
               </span>
               <span className="text-xs font-bold text-rose-500">기술인만 · 관리자 제외 · 출문 11:00 이전 또는 복귀 13:00 이후</span>
               <span className="ml-auto rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-extrabold text-rose-800">{flaggedOutings.length}건</span>
@@ -876,7 +876,7 @@ export default function PmisInOutLogTab({ site, data, onDataLoaded, onClear, xer
               }}
             >
               <div style={{ background: "#9f1239", color: "#fff", padding: "26px 30px 20px", textAlign: "center" }}>
-                <div style={{ fontSize: "26px", fontWeight: 900, marginBottom: "6px" }}>조건대상 중간외출</div>
+                <div style={{ fontSize: "26px", fontWeight: 900, marginBottom: "6px" }}>PMIS 외출 대상자</div>
                 <div style={{ fontSize: "14px", color: "#ffe4e6", fontWeight: 700 }}>
                   {data.dateLabel} · 기술인 / 관리자 제외 · 총 {flaggedShareRows.length}건
                 </div>
