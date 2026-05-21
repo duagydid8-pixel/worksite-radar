@@ -12,6 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "elcd:config": "node scripts/electronic-card-sync.mjs config",
+    "elcd:sync": "node scripts/electronic-card-sync.mjs sync",
     "attendance:watch": "node scripts/attendance-folder-watcher.mjs",
     "attendance:watch:network": "node scripts/attendance-folder-watcher.mjs --network",
     "rcm:image": "node scripts/rcm-draft-image-server.mjs",
