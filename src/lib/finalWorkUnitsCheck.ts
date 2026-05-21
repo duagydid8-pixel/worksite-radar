@@ -58,6 +58,15 @@ export interface FinalWorkUnitsRow extends MonthlyXerpAttendanceRecord {
   status: FinalWorkUnitsStatus;
   statusLabel: string;
   statusTone: "danger" | "warning" | "info" | "success" | "muted";
+  expectedWorkUnits: number | null;
+  reflectedWorkUnits: number | null;
+  missingWorkUnits: number;
+  evidenceSource: string;
+  autoReason: string;
+  xerpPmisExtraUnits: number;
+  xerpPmisReason: string;
+  hasXerpPmisMatch: boolean;
+  hasXerpPmisPhoto: boolean;
   pmisIn: string;
   pmisOut: string;
   pmisEvents: number;
@@ -78,6 +87,7 @@ export interface AnalyzeFinalWorkUnitsInput {
   monthlyRecords: MonthlyXerpAttendanceRecord[];
   pmisByDate?: Record<string, FinalWorkUnitsPmisData | null | undefined>;
   electronicCardByDate?: Record<string, FinalWorkUnitsElectronicCardData | null | undefined>;
+  xerpPmisByDate?: Record<string, unknown[] | null | undefined>;
   startDate: string;
   endDate: string;
 }
@@ -94,6 +104,83 @@ function parseTimeMinutes(value: string): number | null {
   const match = value.trim().match(/^(\d{1,2}):(\d{2})/);
   if (!match) return null;
   return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function formatWorkUnits(value: number | null): string {
+  if (value === null) return "";
+  const rounded = Math.round(value * 1000) / 1000;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+function roundWorkUnits(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function normalizeFieldKey(key: string): string {
+  return key.replace(/\s+/g, "").toLowerCase();
+}
+
+function recordValue(record: Record<string, unknown>, names: string[]): string {
+  const normalizedNames = names.map(normalizeFieldKey);
+  for (const [key, value] of Object.entries(record)) {
+    if (!normalizedNames.includes(normalizeFieldKey(key))) continue;
+    const textValue = text(value as CellValue);
+    if (textValue && !["-", "—", "–", "기타"].includes(textValue.replace(/\s+/g, ""))) return textValue;
+  }
+  return "";
+}
+
+function parseWorkUnitsText(value: string): number | null {
+  const parsed = Number(value.replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function roundOutMinutesForWorkUnits(value: string): number | null {
+  const minutes = parseTimeMinutes(value);
+  if (minutes === null) return null;
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  return (minute >= 49 ? hour + 1 : hour) * 60;
+}
+
+function isWeekendDate(date: string): boolean {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const parsed = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const day = parsed.getDay();
+  return day === 0 || day === 6;
+}
+
+function standardStartMinutes(team: string): number {
+  return team.includes("태화_S") ? 7 * 60 + 30 : 7 * 60;
+}
+
+function calculateExpectedWorkUnits(date: string, team: string, inTime: string, outTime: string): number | null {
+  const inMinutes = parseTimeMinutes(inTime);
+  const outMinutes = roundOutMinutesForWorkUnits(outTime);
+  if (inMinutes === null || outMinutes === null || outMinutes <= inMinutes) return null;
+
+  if (isWeekendDate(date)) {
+    const workStart = 8 * 60;
+    const workEnd = 17 * 60;
+    const workedMinutes = Math.max(0, Math.min(outMinutes, workEnd) - Math.max(inMinutes, workStart));
+    if (workedMinutes >= 8 * 60) return 1;
+    return roundWorkUnits((workedMinutes / 60) * 0.125);
+  }
+
+  const start = standardStartMinutes(team);
+  const lunchEnd = 13 * 60;
+  const standardEnd = 17 * 60;
+  const morningUnits = inMinutes <= start ? 0.5 : 0;
+  const afternoonUnits = (() => {
+    if (inMinutes > lunchEnd) return 0;
+    if (outMinutes >= standardEnd) return 0.5;
+    if (outMinutes <= lunchEnd) return 0;
+    const missingHours = Math.ceil((standardEnd - outMinutes) / 60);
+    return Math.max(0, 0.5 - missingHours * 0.125);
+  })();
+  const overtimeUnits = outMinutes > standardEnd ? ((outMinutes - standardEnd) / 60) * 0.25 : 0;
+  return roundWorkUnits(morningUnits + afternoonUnits + overtimeUnits);
 }
 
 function parseWorkUnits(value: CellValue): number | null {
@@ -223,17 +310,82 @@ function findElectronicCardPerson(
   );
 }
 
+function findXerpPmisEvidence(rows: unknown[] | null | undefined, record: MonthlyXerpAttendanceRecord) {
+  const empty = {
+    extraUnits: 0,
+    reason: "",
+    matched: false,
+    hasPhoto: false,
+  };
+  if (!Array.isArray(rows)) return empty;
+
+  const nameKey = normalizeName(record.name);
+  const birthKey = record.birthDate.replace(/\D/g, "").slice(0, 6);
+  const matched = rows.find((row) => {
+    if (!row || typeof row !== "object") return false;
+    const data = row as Record<string, unknown>;
+    const rowName = recordValue(data, ["성명", "이름", "name"]);
+    const rowBirth = recordValue(data, ["생년월일", "생년", "birthDate"]);
+    return normalizeName(rowName) === nameKey || Boolean(birthKey && rowBirth.replace(/\D/g, "").slice(0, 6) === birthKey);
+  });
+  if (!matched || typeof matched !== "object") return empty;
+
+  const data = matched as Record<string, unknown>;
+  const extraCandidates = [
+    parseWorkUnitsText(recordValue(data, ["가산신청", "가산 신청", "extraWork", "gasan"])),
+    parseWorkUnitsText(recordValue(data, ["가산승인", "가산 승인", "approvedExtraWork"])),
+  ].filter((value): value is number => value !== null && value > 0);
+  const xerpPmisTotal = parseWorkUnitsText(recordValue(data, ["공수합계AB", "공수합계(A+B)", "공수합계"]));
+  if (xerpPmisTotal !== null && record.systemWorkUnits !== null && xerpPmisTotal > record.systemWorkUnits) {
+    extraCandidates.push(roundWorkUnits(xerpPmisTotal - record.systemWorkUnits));
+  }
+
+  const reason = recordValue(data, ["가산사유", "가산 사유", "gasanReason", "reason"]);
+  const hasPhoto = Object.entries(data).some(([key, value]) => {
+    const normalized = normalizeFieldKey(key);
+    const looksLikePhoto = normalized.includes("사진") || normalized.includes("증빙") || normalized.includes("photo") || normalized.includes("image");
+    return looksLikePhoto && Boolean(text(value as CellValue));
+  });
+
+  return {
+    extraUnits: extraCandidates.length ? Math.max(...extraCandidates) : 0,
+    reason,
+    matched: true,
+    hasPhoto,
+  };
+}
+
 function hasTimes(record: MonthlyXerpAttendanceRecord): boolean {
   return Boolean(record.xerpIn || record.xerpOut);
+}
+
+function chooseEvidenceTime(
+  kind: "in" | "out",
+  record: MonthlyXerpAttendanceRecord,
+  pmisPerson: FinalWorkUnitsPmisPerson | null,
+  electronicCardPerson: FinalWorkUnitsElectronicCardPerson | null
+): { value: string; source: string; fromFallback: boolean } {
+  const xerpValue = kind === "in" ? record.xerpIn : record.xerpOut;
+  if (xerpValue) return { value: xerpValue, source: "XERP", fromFallback: false };
+
+  const pmisValue = kind === "in" ? pmisPerson?.firstIn : pmisPerson?.lastOut;
+  if (pmisValue) return { value: pmisValue, source: "PMIS", fromFallback: true };
+
+  const electronicCardValue = kind === "in" ? electronicCardPerson?.inTime : electronicCardPerson?.outTime;
+  if (electronicCardValue) return { value: electronicCardValue, source: "전자카드", fromFallback: true };
+
+  return { value: "", source: "", fromFallback: false };
 }
 
 function classifyRow(
   record: MonthlyXerpAttendanceRecord,
   pmisData: FinalWorkUnitsPmisData | null | undefined,
-  electronicCardData: FinalWorkUnitsElectronicCardData | null | undefined
+  electronicCardData: FinalWorkUnitsElectronicCardData | null | undefined,
+  xerpPmisRows: unknown[] | null | undefined
 ): Omit<FinalWorkUnitsRow, keyof MonthlyXerpAttendanceRecord | "id"> {
   const pmisPerson = findPmisPerson(pmisData, record.name);
   const electronicCardPerson = findElectronicCardPerson(electronicCardData, record);
+  const xerpPmisEvidence = findXerpPmisEvidence(xerpPmisRows, record);
   const pmisUploaded = Boolean(pmisData);
   const electronicCardSaved = Boolean(electronicCardData);
   const pmisIn = pmisPerson?.firstIn ?? "";
@@ -244,52 +396,88 @@ function classifyRow(
 
   const units = record.systemWorkUnits;
   const outMinutes = parseTimeMinutes(record.xerpOut);
-  const missingUnits = hasTimes(record) && (units === null || units === 0);
+  const selectedIn = chooseEvidenceTime("in", record, pmisPerson, electronicCardPerson);
+  const selectedOut = chooseEvidenceTime("out", record, pmisPerson, electronicCardPerson);
+  const expectedWorkUnits = calculateExpectedWorkUnits(record.date, record.team, selectedIn.value, selectedOut.value);
+  const xerpPmisExtraUnits = xerpPmisEvidence.extraUnits;
+  const reflectedWorkUnits = units === null && xerpPmisExtraUnits === 0 ? null : roundWorkUnits((units ?? 0) + xerpPmisExtraUnits);
+  const missingWorkUnits =
+    expectedWorkUnits !== null && reflectedWorkUnits !== null && expectedWorkUnits - reflectedWorkUnits > 0.001
+      ? roundWorkUnits(expectedWorkUnits - reflectedWorkUnits)
+      : 0;
+  const missingUnits = missingWorkUnits > 0 || (hasTimes(record) && (units === null || units === 0));
   const overtimeNeedsReview = outMinutes !== null && outMinutes > 17 * 60 && (units === null || units <= 1);
-  const hasGasanReason = Boolean(record.gasanReason?.trim());
+  const xerpPmisReason = xerpPmisEvidence.reason;
+  const hasGasanReason = Boolean(record.gasanReason?.trim() || xerpPmisReason);
+  const fallbackSources = [selectedIn, selectedOut]
+    .filter((item) => item.fromFallback)
+    .map((item) => item.source);
+  const evidenceSource = [...new Set(fallbackSources)].join(", ") || "XERP";
+  const autoReason = [
+    selectedIn.fromFallback ? `${selectedIn.source} 출근 증빙` : "",
+    selectedOut.fromFallback ? `${selectedOut.source} 퇴근 증빙` : "",
+    expectedWorkUnits !== null && expectedWorkUnits > 1 ? "연장근무" : "",
+    missingWorkUnits > 0 ? "공수반영누락" : "",
+  ].filter(Boolean).join(" / ");
 
   if (record.xerpIn) checks.push(`XERP 출근 ${record.xerpIn}`);
   if (record.xerpOut) {
     checks.push(`XERP 퇴근 ${record.xerpOut}`);
     checks.push(`퇴근 ${record.xerpOut}`);
   }
-  if (pmisIn) checks.push(`PMIS 출근 ${pmisIn}`);
-  if (pmisOut) checks.push(`PMIS 퇴근 ${pmisOut}`);
-  if (electronicCardIn) checks.push(`전자카드 출근 ${electronicCardIn}`);
-  if (electronicCardOut) checks.push(`전자카드 퇴근 ${electronicCardOut}`);
-  if (hasGasanReason) checks.push(`가산사유 ${record.gasanReason}`);
+  if (pmisIn) checks.push(`${selectedIn.source === "PMIS" ? "PMIS 출근 증빙" : "PMIS 출근"} ${pmisIn}`);
+  if (pmisOut) checks.push(`${selectedOut.source === "PMIS" ? "PMIS 퇴근 증빙" : "PMIS 퇴근"} ${pmisOut}`);
+  if (electronicCardIn) checks.push(`${selectedIn.source === "전자카드" ? "전자카드 출근 증빙" : "전자카드 출근"} ${electronicCardIn}`);
+  if (electronicCardOut) checks.push(`${selectedOut.source === "전자카드" ? "전자카드 퇴근 증빙" : "전자카드 퇴근"} ${electronicCardOut}`);
+  if (expectedWorkUnits !== null) checks.push(`예상공수 ${formatWorkUnits(expectedWorkUnits)}`);
+  if (reflectedWorkUnits !== null) checks.push(`반영공수 ${formatWorkUnits(reflectedWorkUnits)}`);
+  if (missingWorkUnits > 0) checks.push(`부족공수 ${formatWorkUnits(missingWorkUnits)}`);
+  if (xerpPmisExtraUnits > 0) checks.push(`XERP&PMIS 가산 ${formatWorkUnits(xerpPmisExtraUnits)}`);
+  if (xerpPmisEvidence.hasPhoto) checks.push("사진증빙 있음");
+  if (hasGasanReason) checks.push(`가산사유 ${record.gasanReason || xerpPmisReason}`);
+
+  const baseDetails = {
+    expectedWorkUnits,
+    reflectedWorkUnits,
+    missingWorkUnits,
+    evidenceSource,
+    autoReason,
+    xerpPmisExtraUnits,
+    xerpPmisReason,
+    hasXerpPmisMatch: xerpPmisEvidence.matched,
+    hasXerpPmisPhoto: xerpPmisEvidence.hasPhoto,
+    pmisIn,
+    pmisOut,
+    pmisEvents: pmisPerson?.totalEvents ?? 0,
+    pmisUploaded,
+    electronicCardIn,
+    electronicCardOut,
+    electronicCardSaved,
+    checks,
+  };
 
   if (missingUnits) {
     return {
       status: "missing-work-units",
-      statusLabel: "공수누락",
+      statusLabel: "공수반영누락",
       statusTone: "danger",
-      pmisIn,
-      pmisOut,
-      pmisEvents: pmisPerson?.totalEvents ?? 0,
-      pmisUploaded,
-      electronicCardIn,
-      electronicCardOut,
-      electronicCardSaved,
-      checks,
-      message: "출퇴근 시간이 있는데 시스템 공수가 0 또는 빈칸입니다.",
+      ...baseDetails,
+      message:
+        expectedWorkUnits !== null && reflectedWorkUnits !== null
+          ? `예상 ${formatWorkUnits(expectedWorkUnits)}공 대비 반영 ${formatWorkUnits(reflectedWorkUnits)}공입니다.`
+          : "출퇴근 시간이 있는데 시스템 공수가 0 또는 빈칸입니다.",
     };
   }
 
-  if (hasGasanReason && (units === null || units <= 1)) {
+  if (hasGasanReason || xerpPmisExtraUnits > 0) {
     return {
       status: "gasan-review",
       statusLabel: "가산확인",
       statusTone: "warning",
-      pmisIn,
-      pmisOut,
-      pmisEvents: pmisPerson?.totalEvents ?? 0,
-      pmisUploaded,
-      electronicCardIn,
-      electronicCardOut,
-      electronicCardSaved,
-      checks,
-      message: "가산사유가 있으므로 공수 반영 여부를 확인하세요.",
+      ...baseDetails,
+      message: xerpPmisExtraUnits > 0
+        ? "XERP&PMIS에 가산공수 또는 증빙이 있으므로 최종 반영 여부를 확인하세요."
+        : "가산사유가 있으므로 공수 반영 여부를 확인하세요.",
     };
   }
 
@@ -298,14 +486,7 @@ function classifyRow(
       status: "overtime-review",
       statusLabel: "연장확인",
       statusTone: "warning",
-      pmisIn,
-      pmisOut,
-      pmisEvents: pmisPerson?.totalEvents ?? 0,
-      pmisUploaded,
-      electronicCardIn,
-      electronicCardOut,
-      electronicCardSaved,
-      checks,
+      ...baseDetails,
       message: "퇴근이 17:00 이후인데 시스템 공수가 1.0 이하입니다.",
     };
   }
@@ -315,14 +496,7 @@ function classifyRow(
       status: "pmis-not-uploaded",
       statusLabel: "PMIS미업로드",
       statusTone: "muted",
-      pmisIn,
-      pmisOut,
-      pmisEvents: 0,
-      pmisUploaded,
-      electronicCardIn,
-      electronicCardOut,
-      electronicCardSaved,
-      checks,
+      ...baseDetails,
       message: "해당 날짜의 PMIS 기록이 아직 로드되지 않았습니다.",
     };
   }
@@ -332,14 +506,7 @@ function classifyRow(
       status: electronicCardPerson ? "electronic-card-reference" : "pmis-review",
       statusLabel: electronicCardPerson ? "전자카드참고" : "PMIS확인",
       statusTone: electronicCardPerson ? "info" : "warning",
-      pmisIn,
-      pmisOut,
-      pmisEvents: 0,
-      pmisUploaded,
-      electronicCardIn,
-      electronicCardOut,
-      electronicCardSaved,
-      checks,
+      ...baseDetails,
       message: electronicCardPerson
         ? "PMIS는 없지만 전자카드 출퇴근 시간이 있습니다."
         : "시스템 공수는 있으나 PMIS 출퇴근 기록이 없습니다.",
@@ -350,14 +517,7 @@ function classifyRow(
     status: "normal",
     statusLabel: "정상",
     statusTone: "success",
-    pmisIn,
-    pmisOut,
-    pmisEvents: pmisPerson?.totalEvents ?? 0,
-    pmisUploaded,
-    electronicCardIn,
-    electronicCardOut,
-    electronicCardSaved,
-    checks,
+    ...baseDetails,
     message: "XERP와 증빙 시간이 크게 어긋나지 않습니다.",
   };
 }
@@ -370,6 +530,7 @@ export function analyzeFinalWorkUnits({
   monthlyRecords,
   pmisByDate = {},
   electronicCardByDate = {},
+  xerpPmisByDate = {},
   startDate,
   endDate,
 }: AnalyzeFinalWorkUnitsInput): FinalWorkUnitsAnalysis {
@@ -384,10 +545,10 @@ export function analyzeFinalWorkUnits({
         record.birthDate.replace(/\D/g, ""),
         String(index),
       ].join("|"),
-      ...classifyRow(record, pmisByDate[record.date], electronicCardByDate[record.date]),
+      ...classifyRow(record, pmisByDate[record.date], electronicCardByDate[record.date], xerpPmisByDate[record.date]),
     }));
 
-  const gasanRows = rows.filter((row) => Boolean(row.gasanReason?.trim()));
+  const gasanRows = rows.filter((row) => Boolean(row.gasanReason?.trim() || row.xerpPmisReason?.trim() || row.xerpPmisExtraUnits > 0));
   const summary = {
     total: rows.length,
     needsReview: rows.filter((row) => row.status !== "normal" && row.status !== "pmis-not-uploaded").length,

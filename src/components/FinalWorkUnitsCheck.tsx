@@ -11,9 +11,14 @@ import {
   type MonthlyXerpAttendanceRecord,
 } from "@/lib/finalWorkUnitsCheck";
 import { coerceElectronicCardData, type ElectronicCardDateData } from "@/lib/electronicCardSync";
-import { listElectronicCardDatesFS, listPmisLogDatesFS, loadElectronicCardFS, loadPmisLogFS } from "@/lib/firestoreService";
+import {
+  loadElectronicCardFS,
+  loadPmisLogFS,
+  loadXerpDateFS,
+} from "@/lib/firestoreService";
 
 type StatusFilter = "all" | FinalWorkUnitsStatus;
+type XerpPmisLoadStatus = "loading" | "loaded" | "missing" | "error";
 
 interface Props {
   site: string;
@@ -27,9 +32,10 @@ interface ReviewState {
 
 const REVIEW_KEY = "final_work_units_review_v1";
 const REVIEW_FLAGS = ["확인완료", "특이사항", "문의필요", "수정필요", "보류"] as const;
+const INITIAL_VISIBLE_ROWS = 200;
 
 const STATUS_META: Record<FinalWorkUnitsStatus, { label: string; className: string }> = {
-  "missing-work-units": { label: "공수누락", className: "bg-rose-100 text-rose-700 border-rose-200" },
+  "missing-work-units": { label: "공수반영누락", className: "bg-rose-100 text-rose-700 border-rose-200" },
   "overtime-review": { label: "연장", className: "bg-orange-100 text-orange-700 border-orange-200" },
   "gasan-review": { label: "가산사유", className: "bg-violet-100 text-violet-700 border-violet-200" },
   "pmis-review": { label: "PMIS", className: "bg-amber-100 text-amber-700 border-amber-200" },
@@ -41,7 +47,7 @@ const STATUS_META: Record<FinalWorkUnitsStatus, { label: string; className: stri
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "전체" },
-  { value: "missing-work-units", label: "공수누락" },
+  { value: "missing-work-units", label: "공수반영누락" },
   { value: "overtime-review", label: "연장" },
   { value: "gasan-review", label: "가산사유" },
   { value: "pmis-review", label: "PMIS" },
@@ -84,11 +90,36 @@ function defaultEndDate(records: MonthlyXerpAttendanceRecord[]): string {
 
 function displayUnits(value: number | null): string {
   if (value === null) return "";
-  return Number.isInteger(value) ? String(value) : String(value);
+  const rounded = Math.round(value * 1000) / 1000;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+function xerpPmisLoadLabel(status: XerpPmisLoadStatus | undefined): string {
+  if (status === "loading" || !status) return "XERP&PMIS 확인 중";
+  if (status === "error") return "XERP&PMIS 로드 실패";
+  if (status === "missing") return "XERP&PMIS 자료 없음";
+  return "로드됨";
+}
+
+function displayGasanReason(row: FinalWorkUnitsRow, xerpPmisStatus: XerpPmisLoadStatus | undefined): string {
+  const reasons = [row.gasanReason, row.xerpPmisReason]
+    .map((value) => value?.trim() ?? "")
+    .filter(Boolean);
+  const uniqueReasons = [...new Set(reasons)];
+  if (uniqueReasons.length > 0) return uniqueReasons.join(" / ");
+  if (row.xerpPmisExtraUnits > 0) return `가산 ${displayUnits(row.xerpPmisExtraUnits)} · 사유 없음`;
+  if (xerpPmisStatus !== "loaded") return xerpPmisLoadLabel(xerpPmisStatus);
+  if (!row.hasXerpPmisMatch) return "XERP&PMIS 매칭 없음";
+  return "";
 }
 
 function reviewFor(row: FinalWorkUnitsRow, reviews: Record<string, ReviewState>): ReviewState {
   return reviews[row.id] ?? { flags: [], memo: "" };
+}
+
+function datesInRange(records: MonthlyXerpAttendanceRecord[], startDate: string, endDate: string): string[] {
+  if (!startDate || !endDate) return [];
+  return [...new Set(records.filter((record) => record.date >= startDate && record.date <= endDate).map((record) => record.date))].sort();
 }
 
 export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
@@ -97,58 +128,85 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   const [records, setRecords] = useState<MonthlyXerpAttendanceRecord[]>([]);
   const [savedPmisByDate, setSavedPmisByDate] = useState<Record<string, FinalWorkUnitsPmisData>>({});
   const [savedElectronicCardByDate, setSavedElectronicCardByDate] = useState<Record<string, ElectronicCardDateData>>({});
+  const [savedXerpPmisByDate, setSavedXerpPmisByDate] = useState<Record<string, unknown[]>>({});
+  const [xerpPmisLoadStatusByDate, setXerpPmisLoadStatusByDate] = useState<Record<string, XerpPmisLoadStatus>>({});
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [query, setQuery] = useState("");
+  const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_ROWS);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, ReviewState>>(() => loadReviewState());
 
-  useEffect(() => {
-    let active = true;
-    async function loadSavedPmis() {
-      try {
-        const dates = await listPmisLogDatesFS(site);
-        const entries = await Promise.all(
-          dates.map(async (date) => {
-            const loaded = await loadPmisLogFS(site, date);
-            return [date, coercePmisData(loaded)] as const;
-          })
-        );
-        if (!active) return;
-        setSavedPmisByDate(Object.fromEntries(entries.filter((entry): entry is readonly [string, FinalWorkUnitsPmisData] => Boolean(entry[1]))));
-      } catch {
-        if (active) setSavedPmisByDate({});
-      }
-    }
-    loadSavedPmis();
-    return () => {
-      active = false;
-    };
-  }, [site]);
+  const requiredDates = useMemo(() => datesInRange(records, startDate, endDate), [records, startDate, endDate]);
 
   useEffect(() => {
+    if (requiredDates.length === 0) {
+      setSavedPmisByDate({});
+      setSavedElectronicCardByDate({});
+      setSavedXerpPmisByDate({});
+      setXerpPmisLoadStatusByDate({});
+      return;
+    }
+
     let active = true;
-    async function loadSavedElectronicCards() {
+    setXerpPmisLoadStatusByDate(Object.fromEntries(requiredDates.map((date) => [date, "loading" as const])));
+    async function loadNeededEvidence() {
       try {
-        const dates = await listElectronicCardDatesFS(site);
-        const entries = await Promise.all(
-          dates.map(async (date) => {
-            const loaded = await loadElectronicCardFS(site, date);
-            return [date, coerceElectronicCardData(loaded)] as const;
-          })
-        );
+        const [pmisEntries, electronicCardEntries, xerpPmisEntries] = await Promise.all([
+          Promise.all(
+            requiredDates.map(async (date) => {
+              try {
+                const loaded = await loadPmisLogFS(site, date);
+                return [date, coercePmisData(loaded)] as const;
+              } catch {
+                return [date, null] as const;
+              }
+            })
+          ),
+          Promise.all(
+            requiredDates.map(async (date) => {
+              try {
+                const loaded = await loadElectronicCardFS(site, date);
+                return [date, coerceElectronicCardData(loaded)] as const;
+              } catch {
+                return [date, null] as const;
+              }
+            })
+          ),
+          Promise.all(
+            requiredDates.map(async (date) => {
+              try {
+                const loaded = await loadXerpDateFS(site, date);
+                return {
+                  date,
+                  rows: Array.isArray(loaded) ? loaded : null,
+                  status: Array.isArray(loaded) ? "loaded" as const : "missing" as const,
+                };
+              } catch {
+                return { date, rows: null, status: "error" as const };
+              }
+            })
+          ),
+        ]);
         if (!active) return;
-        setSavedElectronicCardByDate(Object.fromEntries(entries.filter((entry): entry is readonly [string, ElectronicCardDateData] => Boolean(entry[1]))));
+        setSavedPmisByDate(Object.fromEntries(pmisEntries.filter((entry): entry is readonly [string, FinalWorkUnitsPmisData] => Boolean(entry[1]))));
+        setSavedElectronicCardByDate(Object.fromEntries(electronicCardEntries.filter((entry): entry is readonly [string, ElectronicCardDateData] => Boolean(entry[1]))));
+        setSavedXerpPmisByDate(Object.fromEntries(xerpPmisEntries.filter((entry) => Array.isArray(entry.rows)).map((entry) => [entry.date, entry.rows as unknown[]])));
+        setXerpPmisLoadStatusByDate(Object.fromEntries(xerpPmisEntries.map((entry) => [entry.date, entry.status])));
       } catch {
-        if (active) setSavedElectronicCardByDate({});
+        if (!active) return;
+        setSavedPmisByDate({});
+        setSavedElectronicCardByDate({});
+        setSavedXerpPmisByDate({});
+        setXerpPmisLoadStatusByDate(Object.fromEntries(requiredDates.map((date) => [date, "error" as const])));
       }
     }
-    loadSavedElectronicCards();
+    void loadNeededEvidence();
     return () => {
       active = false;
     };
-  }, [site]);
+  }, [requiredDates, site]);
 
   const pmisByDate = useMemo(() => {
     const next = { ...savedPmisByDate };
@@ -163,17 +221,18 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
       monthlyRecords: records,
       pmisByDate,
       electronicCardByDate: savedElectronicCardByDate,
+      xerpPmisByDate: savedXerpPmisByDate,
       startDate,
       endDate,
     });
-  }, [records, pmisByDate, savedElectronicCardByDate, startDate, endDate]);
+  }, [records, pmisByDate, savedElectronicCardByDate, savedXerpPmisByDate, startDate, endDate]);
 
   const filteredRows = useMemo(() => {
     const rows = analysis?.rows ?? [];
     const normalizedQuery = query.replace(/\s+/g, "").trim();
     return rows.filter((row) => {
       if (statusFilter === "gasan-review") {
-        if (!row.gasanReason?.trim()) return false;
+        if (!row.gasanReason?.trim() && !row.xerpPmisReason?.trim() && row.xerpPmisExtraUnits <= 0) return false;
       } else if (statusFilter !== "all" && row.status !== statusFilter) {
         return false;
       }
@@ -182,9 +241,23 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     });
   }, [analysis, query, statusFilter]);
 
+  useEffect(() => {
+    setVisibleLimit(INITIAL_VISIBLE_ROWS);
+  }, [analysis, query, statusFilter, startDate, endDate]);
+
+  const visibleRows = useMemo(() => filteredRows.slice(0, visibleLimit), [filteredRows, visibleLimit]);
+
   const completedCount = useMemo(
     () => (analysis?.rows ?? []).filter((row) => reviewFor(row, reviews).flags.includes("확인완료")).length,
     [analysis, reviews]
+  );
+  const xerpPmisLoadedDateCount = useMemo(
+    () => Object.values(xerpPmisLoadStatusByDate).filter((status) => status === "loaded").length,
+    [xerpPmisLoadStatusByDate]
+  );
+  const xerpPmisLoadingDateCount = useMemo(
+    () => Object.values(xerpPmisLoadStatusByDate).filter((status) => status === "loading").length,
+    [xerpPmisLoadStatusByDate]
   );
 
   const handleUpload = async (file: File) => {
@@ -260,12 +333,24 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
             <span>PMIS 저장 날짜 {Object.keys(pmisByDate).length}개</span>
             <span className="text-slate-300">|</span>
             <span>전자카드 저장 날짜 {Object.keys(savedElectronicCardByDate).length}개</span>
+            <span className="text-slate-300">|</span>
+            <span>
+              XERP&PMIS 로드 {xerpPmisLoadedDateCount}/{requiredDates.length}개
+              {xerpPmisLoadingDateCount > 0 ? ` · 확인 중 ${xerpPmisLoadingDateCount}개` : ""}
+            </span>
           </div>
         )}
       </section>
 
       {analysis ? (
         <>
+          {requiredDates.length > 0 && xerpPmisLoadingDateCount === 0 && xerpPmisLoadedDateCount === 0 && (
+            <section className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+              XERP&PMIS 저장자료가 로드되지 않았습니다. 로컬 브라우저 로그인 상태, 현장 선택(PH4/PH2/P5), 저장 날짜를 확인하세요.
+              자료가 로드되지 않은 날짜는 가산사유 칸에 사유 없음 대신 XERP&PMIS 자료 없음으로 표시합니다.
+            </section>
+          )}
+
           <section className="grid gap-2 md:grid-cols-5">
             <SummaryCard label="확인 기간" value={`${startDate.slice(5)}~${endDate.slice(5)}`} />
             <SummaryCard label="전체" value={analysis.summary.total} />
@@ -332,21 +417,25 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
 
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-3 py-2 text-xs font-bold text-slate-500">
-              {filteredRows.length}건 표시 중
+              {filteredRows.length}건 중 {visibleRows.length}건 표시 중
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-[1500px] w-full border-collapse text-xs">
-                <thead className="bg-slate-50 text-left text-[11px] font-extrabold text-slate-500">
+              <table className="min-w-[2100px] w-full border-collapse text-xs">
+                <thead className="whitespace-nowrap bg-slate-50 text-left text-[11px] font-extrabold text-slate-500">
                   <tr>
-                    <th className="px-2 py-2">상태</th>
-                    <th className="px-2 py-2">이름</th>
-                    <th className="px-2 py-2">팀</th>
-                    <th className="px-2 py-2">날짜</th>
+                    <th className="min-w-[96px] px-2 py-2">상태</th>
+                    <th className="min-w-[96px] px-2 py-2">이름</th>
+                    <th className="min-w-[120px] px-2 py-2">팀</th>
+                    <th className="min-w-[56px] px-2 py-2">날짜</th>
                     <th className="px-2 py-2">XERP 출근</th>
                     <th className="px-2 py-2">XERP 퇴근</th>
                     <th className="px-2 py-2">시스템 공수</th>
+                    <th className="px-2 py-2">예상공수</th>
+                    <th className="px-2 py-2">반영공수</th>
+                    <th className="px-2 py-2">부족</th>
+                    <th className="px-2 py-2">증빙</th>
                     <th className="px-2 py-2">근무시간</th>
-                    <th className="px-2 py-2">가산사유</th>
+                    <th className="min-w-[220px] px-2 py-2">가산사유</th>
                     <th className="px-2 py-2">PMIS 출근</th>
                     <th className="px-2 py-2">PMIS 퇴근</th>
                     <th className="px-2 py-2">전자카드 출근</th>
@@ -358,12 +447,13 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((row) => (
+                  {visibleRows.map((row) => (
                     <WorkUnitRow
                       key={row.id}
                       row={row}
                       expanded={expandedId === row.id}
                       review={reviewFor(row, reviews)}
+                      xerpPmisLoadStatus={xerpPmisLoadStatusByDate[row.date]}
                       onToggleExpanded={() => setExpandedId((current) => (current === row.id ? null : row.id))}
                       onToggleFlag={(flag) =>
                         updateReview(row.id, (current) => ({
@@ -377,6 +467,24 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                 </tbody>
               </table>
             </div>
+            {visibleRows.length < filteredRows.length && (
+              <div className="flex flex-wrap items-center justify-center gap-2 border-t border-slate-200 px-3 py-3">
+                <button
+                  type="button"
+                  onClick={() => setVisibleLimit((current) => Math.min(current + INITIAL_VISIBLE_ROWS, filteredRows.length))}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+                >
+                  200건 더 보기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVisibleLimit(filteredRows.length)}
+                  className="rounded-md bg-slate-900 px-3 py-2 text-xs font-extrabold text-white hover:bg-slate-800"
+                >
+                  전체 표시
+                </button>
+              </div>
+            )}
           </section>
         </>
       ) : (
@@ -407,6 +515,7 @@ function WorkUnitRow({
   row,
   expanded,
   review,
+  xerpPmisLoadStatus,
   onToggleExpanded,
   onToggleFlag,
   onMemoChange,
@@ -414,11 +523,14 @@ function WorkUnitRow({
   row: FinalWorkUnitsRow;
   expanded: boolean;
   review: ReviewState;
+  xerpPmisLoadStatus: XerpPmisLoadStatus | undefined;
   onToggleExpanded: () => void;
   onToggleFlag: (flag: string) => void;
   onMemoChange: (memo: string) => void;
 }) {
   const meta = STATUS_META[row.status];
+  const gasanReason = displayGasanReason(row, xerpPmisLoadStatus);
+  const gasanReasonIsWarning = !row.gasanReason?.trim() && !row.xerpPmisReason?.trim() && row.xerpPmisExtraUnits <= 0 && gasanReason !== "";
   return (
     <>
       <tr
@@ -426,23 +538,43 @@ function WorkUnitRow({
         className="cursor-pointer border-b border-slate-100 align-middle hover:bg-slate-50"
         title="클릭하면 상세정보를 확인합니다."
       >
-        <td className="px-2 py-2">
-          <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-extrabold ${meta.className}`}>{meta.label}</span>
+        <td className="whitespace-nowrap px-2 py-2">
+          <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-1 text-[11px] font-extrabold ${meta.className}`}>{meta.label}</span>
         </td>
-        <td className="px-2 py-2 font-extrabold text-slate-900">{row.name}</td>
-        <td className="px-2 py-2 text-slate-600">{row.team}</td>
-        <td className="px-2 py-2 tabular-nums text-slate-700">{row.date.slice(5)}</td>
-        <td className="px-2 py-2 tabular-nums">{row.xerpIn || "-"}</td>
-        <td className="px-2 py-2 tabular-nums">{row.xerpOut || "-"}</td>
-        <td className="px-2 py-2 font-black tabular-nums">{displayUnits(row.systemWorkUnits) || "-"}</td>
-        <td className="px-2 py-2 tabular-nums">{row.workTime || "-"}</td>
-        <td className="px-2 py-2">
-          {row.gasanReason ? <span className="rounded-md bg-violet-50 px-1.5 py-1 font-bold text-violet-700">{row.gasanReason}</span> : "-"}
+        <td className="whitespace-nowrap px-2 py-2 font-extrabold text-slate-900">{row.name}</td>
+        <td className="whitespace-nowrap px-2 py-2 text-slate-600">{row.team}</td>
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-700">{row.date.slice(5)}</td>
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.xerpIn || "-"}</td>
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.xerpOut || "-"}</td>
+        <td className="whitespace-nowrap px-2 py-2 font-black tabular-nums">{displayUnits(row.systemWorkUnits) || "-"}</td>
+        <td className="whitespace-nowrap px-2 py-2 font-black tabular-nums text-emerald-700">{displayUnits(row.expectedWorkUnits) || "-"}</td>
+        <td className="whitespace-nowrap px-2 py-2 font-black tabular-nums text-slate-800">{displayUnits(row.reflectedWorkUnits) || "-"}</td>
+        <td className={`whitespace-nowrap px-2 py-2 font-black tabular-nums ${row.missingWorkUnits > 0 ? "text-rose-600" : "text-slate-400"}`}>
+          {row.missingWorkUnits > 0 ? displayUnits(row.missingWorkUnits) : "-"}
         </td>
-        <td className="px-2 py-2 tabular-nums">{row.pmisUploaded ? row.pmisIn || "없음" : "미업로드"}</td>
-        <td className="px-2 py-2 tabular-nums">{row.pmisUploaded ? row.pmisOut || "없음" : "미업로드"}</td>
-        <td className="px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardIn || "없음" : "미저장"}</td>
-        <td className="px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardOut || "없음" : "미저장"}</td>
+        <td className="px-2 py-2">
+          <span className={`rounded-md px-1.5 py-1 font-bold ${row.evidenceSource === "XERP" ? "bg-slate-100 text-slate-600" : "bg-sky-50 text-sky-700"}`}>
+            {row.evidenceSource}
+          </span>
+        </td>
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.workTime || "-"}</td>
+        <td className="px-2 py-2">
+          {gasanReason ? (
+            <span className={`inline-block max-w-[260px] whitespace-normal rounded-md px-1.5 py-1 font-bold leading-5 ${
+              gasanReasonIsWarning ? "bg-amber-50 text-amber-700" : "bg-violet-50 text-violet-700"
+            }`}>
+              {gasanReason}
+            </span>
+          ) : (
+            <span className="inline-block whitespace-nowrap rounded-md bg-slate-50 px-1.5 py-1 font-bold text-slate-400">
+              사유 없음
+            </span>
+          )}
+        </td>
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.pmisUploaded ? row.pmisIn || "없음" : "미업로드"}</td>
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.pmisUploaded ? row.pmisOut || "없음" : "미업로드"}</td>
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardIn || "없음" : "미저장"}</td>
+        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardOut || "없음" : "미저장"}</td>
         <td className="max-w-[220px] whitespace-normal px-2 py-2 font-semibold leading-5 text-slate-600">{row.message}</td>
         <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
           <div className="flex flex-wrap gap-1">
@@ -470,7 +602,7 @@ function WorkUnitRow({
       </tr>
       {expanded && (
         <tr className="border-b border-slate-200 bg-slate-50">
-          <td colSpan={17} className="px-3 py-3">
+          <td colSpan={21} className="px-3 py-3">
             <div className="grid gap-3 md:grid-cols-3">
               <DetailBox
                 title="XERP 월간출퇴근현황"
@@ -482,8 +614,13 @@ function WorkUnitRow({
                 ]}
               />
               <DetailBox
-                title="PMIS / 전자카드 증빙"
+                title="공수 계산 / 증빙"
                 rows={[
+                  ["예상공수", displayUnits(row.expectedWorkUnits) || "-"],
+                  ["반영공수", displayUnits(row.reflectedWorkUnits) || "-"],
+                  ["부족공수", row.missingWorkUnits > 0 ? displayUnits(row.missingWorkUnits) : "-"],
+                  ["증빙출처", row.evidenceSource],
+                  ["자동사유", row.autoReason || "-"],
                   ["PMIS 출근", row.pmisUploaded ? row.pmisIn || "없음" : "미업로드"],
                   ["PMIS 퇴근", row.pmisUploaded ? row.pmisOut || "없음" : "미업로드"],
                   ["PMIS 이벤트", row.pmisUploaded ? `${row.pmisEvents}회` : "-"],
@@ -495,7 +632,13 @@ function WorkUnitRow({
                 title="판정 근거"
                 rows={[
                   ["상태", row.statusLabel],
-                  ["가산사유", row.gasanReason || "-"],
+                  ["가산사유 표시", gasanReason || "사유 없음"],
+                  ["월간 XERP 사유", row.gasanReason || "없음"],
+                  ["XERP&PMIS 로드", xerpPmisLoadLabel(xerpPmisLoadStatus)],
+                  ["XERP&PMIS 매칭", xerpPmisLoadStatus === "loaded" ? (row.hasXerpPmisMatch ? "매칭됨" : "매칭 없음") : "-"],
+                  ["XERP&PMIS 사유", row.xerpPmisReason || "없음"],
+                  ["XERP&PMIS 가산", row.xerpPmisExtraUnits > 0 ? displayUnits(row.xerpPmisExtraUnits) : "-"],
+                  ["사진증빙", row.hasXerpPmisPhoto ? "있음" : "-"],
                   ["확인 내용", row.message],
                   ["근거", row.checks.join(" / ") || "-"],
                 ]}

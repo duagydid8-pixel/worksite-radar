@@ -133,4 +133,128 @@ describe("analyzeFinalWorkUnits", () => {
     const row = result.rows.find((item) => item.name === "김세철");
     expect(row?.status).toBe("normal");
   });
+
+  it("uses PMIS only for missing XERP in and keeps XERP out for final expected units", () => {
+    const result = analyzeFinalWorkUnits({
+      monthlyRecords: [{
+        site: "평택 P4-Ph4 초순수",
+        team: "태화_F",
+        name: "문제근로자",
+        birthDate: "900101",
+        date: "2026-05-21",
+        day: 21,
+        xerpIn: "",
+        xerpOut: "19:06",
+        systemWorkUnits: 1,
+        workTime: "",
+      }],
+      pmisByDate: {
+        "2026-05-21": {
+          dateLabel: "2026-05-21",
+          persons: [{
+            name: "문제근로자",
+            firstIn: "06:25",
+            lastOut: "16:20",
+            totalEvents: 2,
+          }],
+        },
+      },
+      startDate: "2026-05-21",
+      endDate: "2026-05-21",
+    });
+
+    const row = result.rows[0];
+    expect(row.expectedWorkUnits).toBe(1.5);
+    expect(row.reflectedWorkUnits).toBe(1);
+    expect(row.missingWorkUnits).toBe(0.5);
+    expect(row.status).toBe("missing-work-units");
+    expect(row.checks).toContain("PMIS 출근 증빙 06:25");
+    expect(row.checks).toContain("XERP 퇴근 19:06");
+  });
+
+  it("rounds only out times from 49 minutes to the next hour", () => {
+    const result = analyzeFinalWorkUnits({
+      monthlyRecords: [
+        {
+          site: "평택 P4-Ph4 초순수",
+          team: "태화_F",
+          name: "인정근로자",
+          birthDate: "900102",
+          date: "2026-05-21",
+          day: 21,
+          xerpIn: "06:30",
+          xerpOut: "16:49",
+          systemWorkUnits: 1,
+          workTime: "",
+        },
+        {
+          site: "평택 P4-Ph4 초순수",
+          team: "태화_F",
+          name: "차감근로자",
+          birthDate: "900103",
+          date: "2026-05-21",
+          day: 21,
+          xerpIn: "06:30",
+          xerpOut: "16:48",
+          systemWorkUnits: 0.875,
+          workTime: "",
+        },
+      ],
+      pmisByDate: {
+        "2026-05-21": {
+          dateLabel: "2026-05-21",
+          persons: [],
+        },
+      },
+      startDate: "2026-05-21",
+      endDate: "2026-05-21",
+    });
+
+    expect(result.rows.find((row) => row.name === "인정근로자")?.expectedWorkUnits).toBe(1);
+    expect(result.rows.find((row) => row.name === "차감근로자")?.expectedWorkUnits).toBe(0.875);
+  });
+
+  it("counts XERP&PMIS manual extra units and reason as reflected evidence", () => {
+    const result = analyzeFinalWorkUnits({
+      monthlyRecords: [{
+        site: "평택 P4-Ph4 초순수",
+        team: "태화_F",
+        name: "가산근로자",
+        birthDate: "900104",
+        date: "2026-05-21",
+        day: 21,
+        xerpIn: "06:30",
+        xerpOut: "18:49",
+        systemWorkUnits: 1,
+        workTime: "",
+      }],
+      pmisByDate: {
+        "2026-05-21": {
+          dateLabel: "2026-05-21",
+          persons: [],
+        },
+      },
+      xerpPmisByDate: {
+        "2026-05-21": [{
+          성명: "가산근로자",
+          생년월일: "900104",
+          가산신청: "0.5",
+          가산사유: "연장근무 사진 증빙",
+          사진: "첨부",
+        }],
+      },
+      startDate: "2026-05-21",
+      endDate: "2026-05-21",
+    });
+
+    const row = result.rows[0];
+    expect(row.expectedWorkUnits).toBe(1.5);
+    expect(row.reflectedWorkUnits).toBe(1.5);
+    expect(row.missingWorkUnits).toBe(0);
+    expect(row.xerpPmisExtraUnits).toBe(0.5);
+    expect(row.xerpPmisReason).toBe("연장근무 사진 증빙");
+    expect(row.hasXerpPmisMatch).toBe(true);
+    expect(row.hasXerpPmisPhoto).toBe(true);
+    expect(row.status).toBe("gasan-review");
+  });
 });

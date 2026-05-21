@@ -104,6 +104,12 @@ const XERP_INDEX_DOC = "xerp_pmis_index";
 const XERP_PH2_INDEX_DOC = "xerp_pmis_ph2_index";
 const XERP_P5_PH1_INDEX_DOC = "xerp_pmis_p5_ph1_index";
 
+function getXerpDateDocIds(site: string): { indexDocId: string; datePrefix: string; legacyDocId: string } {
+  if (site === "PH2") return { indexDocId: XERP_PH2_INDEX_DOC, datePrefix: "xerp_pmis_ph2_date", legacyDocId: "xerp_pmis_ph2" };
+  if (site === "P5PH1") return { indexDocId: XERP_P5_PH1_INDEX_DOC, datePrefix: "xerp_pmis_p5_ph1_date", legacyDocId: "xerp_pmis_p5_ph1" };
+  return { indexDocId: XERP_INDEX_DOC, datePrefix: "xerp_pmis_date", legacyDocId: "xerp_pmis" };
+}
+
 async function loadXerpByDates(indexDocId: string, datePrefix: string): Promise<Record<string, unknown[]> | null> {
   if (!db) return null;
   try {
@@ -178,6 +184,15 @@ export async function loadXerpP5PH1FS(): Promise<Record<string, unknown[]> | nul
 }
 export async function saveXerpP5PH1FS(dateMap: Record<string, unknown[]>): Promise<boolean> {
   return saveXerpByDates(XERP_P5_PH1_INDEX_DOC, "xerp_pmis_p5_ph1_date", dateMap);
+}
+
+export async function loadXerpDateFS(site: string, date: string): Promise<unknown[] | null> {
+  const { datePrefix, legacyDocId } = getXerpDateDocIds(site);
+  const data = await fsGet<{ rows: unknown[] }>(`${datePrefix}_${date}`);
+  if (Array.isArray(data?.rows)) return data.rows;
+
+  const legacy = await fsGet<{ dateMap: Record<string, unknown[]> }>(legacyDocId);
+  return legacy?.dateMap?.[date] ?? null;
 }
 
 // ── XERP 공수 반영 저장 (날짜별) ─────────────────────
