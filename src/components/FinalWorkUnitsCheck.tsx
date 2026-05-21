@@ -415,12 +415,12 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-3 py-2 text-xs font-bold text-slate-500">
               {filteredRows.length}건 중 {visibleRows.length}건 표시 중
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-[2100px] w-full border-collapse text-xs">
+              <table className="min-w-[2400px] w-full border-collapse text-xs">
                 <thead className="whitespace-nowrap bg-slate-50 text-left text-[11px] font-extrabold text-slate-500">
                   <tr>
                     <th className="min-w-[96px] px-2 py-2">상태</th>
@@ -435,13 +435,13 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                     <th className="px-2 py-2">부족</th>
                     <th className="px-2 py-2">증빙</th>
                     <th className="px-2 py-2">근무시간</th>
-                    <th className="min-w-[220px] px-2 py-2">가산사유</th>
+                    <th className="min-w-[320px] px-2 py-2">가산사유</th>
                     <th className="px-2 py-2">PMIS 출근</th>
                     <th className="px-2 py-2">PMIS 퇴근</th>
                     <th className="px-2 py-2">전자카드 출근</th>
                     <th className="px-2 py-2">전자카드 퇴근</th>
-                    <th className="px-2 py-2">확인 내용</th>
-                    <th className="px-2 py-2">검토</th>
+                    <th className="min-w-[320px] px-2 py-2">확인 내용</th>
+                    <th className="min-w-[220px] px-2 py-2">검토</th>
                     <th className="px-2 py-2">메모</th>
                     <th className="px-2 py-2"></th>
                   </tr>
@@ -558,9 +558,9 @@ function WorkUnitRow({
           </span>
         </td>
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.workTime || "-"}</td>
-        <td className="px-2 py-2">
+        <td className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2">
           {gasanReason ? (
-            <span className={`inline-block max-w-[260px] whitespace-normal rounded-md px-1.5 py-1 font-bold leading-5 ${
+            <span className={`inline-block whitespace-pre-wrap break-words rounded-md px-1.5 py-1 font-bold leading-5 ${
               gasanReasonIsWarning ? "bg-amber-50 text-amber-700" : "bg-violet-50 text-violet-700"
             }`}>
               {gasanReason}
@@ -575,7 +575,7 @@ function WorkUnitRow({
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.pmisUploaded ? row.pmisOut || "없음" : "미업로드"}</td>
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardIn || "없음" : "미저장"}</td>
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardOut || "없음" : "미저장"}</td>
-        <td className="max-w-[220px] whitespace-normal px-2 py-2 font-semibold leading-5 text-slate-600">{row.message}</td>
+        <td className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2 font-semibold leading-5 text-slate-600">{row.message}</td>
         <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
           <div className="flex flex-wrap gap-1">
             {REVIEW_FLAGS.map((flag) => (
@@ -657,9 +657,9 @@ function DetailBox({ title, rows }: { title: string; rows: [string, string][] })
       <h4 className="mb-2 text-xs font-black text-slate-800">{title}</h4>
       <div className="space-y-1.5 text-xs">
         {rows.map(([label, value]) => (
-          <div key={label} className="grid grid-cols-[90px_1fr] gap-2">
+          <div key={label} className="grid grid-cols-[90px_minmax(0,1fr)] gap-2">
             <span className="font-bold text-slate-400">{label}</span>
-            <span className="font-semibold text-slate-700">{value}</span>
+            <span className="min-w-0 whitespace-pre-wrap break-words font-semibold text-slate-700">{value}</span>
           </div>
         ))}
       </div>
