@@ -21,6 +21,7 @@ function workbookBuffer(): ArrayBuffer {
     ["", "", "", "", "", "", "퇴근", "17:54", "", "17:12"],
     ["", "", "", "", "", "", "공수", "0", "", "0"],
     ["", "", "", "", "", "", "근무시간", "11:17", "", "10:32"],
+    ["", "", "", "", "", "", "가산사유", "", "", "연장"],
     [],
     ["", "평택 P4-Ph4 초순수", "태화_F", "신향모", "901015", "1", "출근", "", "", "07:00"],
     ["", "", "", "", "", "", "퇴근", "", "", "17:00"],
@@ -74,6 +75,7 @@ describe("parseMonthlyXerpAttendance", () => {
         name: "이강호",
         date: "2026-05-20",
         systemWorkUnits: 0,
+        gasanReason: "연장",
       })
     );
   });
@@ -90,6 +92,8 @@ describe("analyzeFinalWorkUnits", () => {
 
     const row = result.rows.find((item) => item.name === "이강호");
     expect(row?.status).toBe("missing-work-units");
+    expect(row?.gasanReason).toBe("연장");
+    expect(result.summary["gasan-review"]).toBe(1);
     expect(row?.pmisIn).toBe("06:41");
     expect(row?.pmisOut).toBe("17:09");
   });
@@ -130,4 +134,3 @@ describe("analyzeFinalWorkUnits", () => {
     expect(row?.status).toBe("normal");
   });
 });
-

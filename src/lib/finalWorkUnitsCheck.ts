@@ -140,6 +140,11 @@ function findHeaderRow(rows: CellValue[][]): number {
   return rows.findIndex((row) => row.some((cell) => text(cell) === "성명") && row.some((cell) => text(cell) === "구분"));
 }
 
+function isGasanReasonRow(value: CellValue): boolean {
+  const label = text(value).replace(/\s+/g, "");
+  return label.includes("가산") && label.includes("사유");
+}
+
 export function parseMonthlyXerpAttendance(buffer: ArrayBuffer): MonthlyXerpAttendanceRecord[] {
   const workbook = XLSX.read(buffer, { type: "array" });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -168,6 +173,7 @@ export function parseMonthlyXerpAttendance(buffer: ArrayBuffer): MonthlyXerpAtte
     const outRow = rows[rowIndex + 1] ?? [];
     const unitsRow = rows[rowIndex + 2] ?? [];
     const workTimeRow = rows[rowIndex + 3] ?? [];
+    const gasanReasonRow = rows[rowIndex + 4] ?? [];
     if (text(outRow[typeIndex]) !== "퇴근" || text(unitsRow[typeIndex]) !== "공수") continue;
 
     for (const { day, index } of dayColumns) {
@@ -175,7 +181,8 @@ export function parseMonthlyXerpAttendance(buffer: ArrayBuffer): MonthlyXerpAtte
       const xerpOut = text(outRow[index]);
       const systemWorkUnits = parseWorkUnits(unitsRow[index]);
       const workTime = text(workTimeRow[index]);
-      if (!xerpIn && !xerpOut && systemWorkUnits === null && !workTime) continue;
+      const gasanReason = isGasanReasonRow(gasanReasonRow[typeIndex]) ? text(gasanReasonRow[index]) : "";
+      if (!xerpIn && !xerpOut && systemWorkUnits === null && !workTime && !gasanReason) continue;
 
       records.push({
         site: text(inRow[siteIndex]),
@@ -188,6 +195,7 @@ export function parseMonthlyXerpAttendance(buffer: ArrayBuffer): MonthlyXerpAtte
         xerpOut,
         systemWorkUnits,
         workTime,
+        gasanReason,
       });
     }
   }
@@ -379,13 +387,14 @@ export function analyzeFinalWorkUnits({
       ...classifyRow(record, pmisByDate[record.date], electronicCardByDate[record.date]),
     }));
 
+  const gasanRows = rows.filter((row) => Boolean(row.gasanReason?.trim()));
   const summary = {
     total: rows.length,
     needsReview: rows.filter((row) => row.status !== "normal" && row.status !== "pmis-not-uploaded").length,
     evidenceMissing: rows.filter((row) => row.status === "pmis-review" || row.status === "pmis-not-uploaded").length,
     "missing-work-units": rows.filter((row) => row.status === "missing-work-units").length,
     "overtime-review": rows.filter((row) => row.status === "overtime-review").length,
-    "gasan-review": rows.filter((row) => row.status === "gasan-review").length,
+    "gasan-review": gasanRows.length,
     "pmis-review": rows.filter((row) => row.status === "pmis-review").length,
     "pmis-not-uploaded": rows.filter((row) => row.status === "pmis-not-uploaded").length,
     "electronic-card-reference": rows.filter((row) => row.status === "electronic-card-reference").length,

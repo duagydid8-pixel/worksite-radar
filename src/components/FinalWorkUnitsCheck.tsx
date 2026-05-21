@@ -172,7 +172,11 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     const rows = analysis?.rows ?? [];
     const normalizedQuery = query.replace(/\s+/g, "").trim();
     return rows.filter((row) => {
-      if (statusFilter !== "all" && row.status !== statusFilter) return false;
+      if (statusFilter === "gasan-review") {
+        if (!row.gasanReason?.trim()) return false;
+      } else if (statusFilter !== "all" && row.status !== statusFilter) {
+        return false;
+      }
       if (normalizedQuery && !row.name.replace(/\s+/g, "").includes(normalizedQuery)) return false;
       return true;
     });
