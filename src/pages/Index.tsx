@@ -28,6 +28,7 @@ import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBra
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
+import OrgChart from "@/components/OrgChart";
 
 const LazyHomePage = lazy(() => import("@/components/HomePage"));
 const LazyNewEmployeeList = lazy(() => import("@/components/NewEmployeeList"));
@@ -39,7 +40,6 @@ const LazyWeeklySchedule = lazy(() => import("@/components/WeeklySchedule").then
 const LazyPdfSplitter = lazy(() => import("@/components/tabs/PdfSplitter"));
 const LazyElcdComparePage = lazy(() => import("@/components/ElcdComparePage"));
 const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMailRequest"));
-const LazyOrgChart = lazy(() => import("@/components/OrgChart"));
 const LazyPayrollPage = lazy(() => import("@/components/PayrollPage"));
 const LazyAdditionalWorkScanPage = lazy(() => import("@/components/AdditionalWorkScanPage"));
 const LazyRcmDraftImageExport = lazy(() => import("@/components/RcmDraftImageExport"));
@@ -2016,7 +2016,7 @@ const Index = () => {
         {activeTab === "조직도" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
-              <LazyOrgChart initialSiteKey="p4-ph4" />
+              <OrgChart initialSiteKey="p4-ph4" />
             </LazyPanel>
           </div>
         )}
@@ -2024,7 +2024,7 @@ const Index = () => {
         {activeTab === "조직도송부" && (
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
-              <LazyOrgChart initialSiteKey="head-office-p4-ph4" showSiteTabs={false} />
+              <OrgChart initialSiteKey="head-office-p4-ph4" showSiteTabs={false} />
             </LazyPanel>
           </div>
         )}
