@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, FileSpreadsheet, Search, Upload } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronDown, ChevronUp, FileSpreadsheet, Save, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import {
   analyzeFinalWorkUnits,
@@ -13,9 +13,11 @@ import {
 import { coerceElectronicCardData, type ElectronicCardDateData } from "@/lib/electronicCardSync";
 import {
   loadElectronicCardFS,
+  saveFinalWorkUnitsMonthFS,
   loadPmisLogFS,
   loadXerpDateFS,
 } from "@/lib/firestoreService";
+import { buildFinalWorkUnitsMonthSnapshot, finalWorkUnitsMonthKey } from "@/lib/finalWorkUnitsMonthlySave";
 
 type StatusFilter = "all" | FinalWorkUnitsStatus;
 type XerpPmisLoadStatus = "loading" | "loaded" | "missing" | "error";
@@ -137,6 +139,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_ROWS);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, ReviewState>>(() => loadReviewState());
+  const [isSavingMonth, setIsSavingMonth] = useState(false);
 
   const requiredDates = useMemo(() => datesInRange(records, startDate, endDate), [records, startDate, endDate]);
 
@@ -227,6 +230,8 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     });
   }, [records, pmisByDate, savedElectronicCardByDate, savedXerpPmisByDate, startDate, endDate]);
 
+  const saveMonthKey = useMemo(() => finalWorkUnitsMonthKey(startDate, endDate), [startDate, endDate]);
+
   const filteredRows = useMemo(() => {
     const rows = analysis?.rows ?? [];
     const normalizedQuery = query.replace(/\s+/g, "").trim();
@@ -287,6 +292,37 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
       saveReviewState(next);
       return next;
     });
+  };
+
+  const handleSaveMonth = async () => {
+    if (!analysis) return;
+    if (!saveMonthKey) {
+      toast.error("월단위 저장은 시작일과 종료일이 같은 달일 때만 가능합니다.");
+      return;
+    }
+    setIsSavingMonth(true);
+    try {
+      const snapshot = buildFinalWorkUnitsMonthSnapshot({
+        site,
+        month: saveMonthKey,
+        startDate,
+        endDate,
+        fileName,
+        summary: analysis.summary,
+        rows: analysis.rows,
+        reviews,
+      });
+      const ok = await saveFinalWorkUnitsMonthFS(site, saveMonthKey, snapshot);
+      if (ok) {
+        toast.success(`${saveMonthKey} 최종공수반영 저장 완료 (${analysis.rows.length}건)`);
+      } else {
+        toast.error("최종공수반영 저장 실패");
+      }
+    } catch {
+      toast.error("최종공수반영 저장 실패");
+    } finally {
+      setIsSavingMonth(false);
+    }
   };
 
   const dateMin = minDate(records);
@@ -412,6 +448,16 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                   className="min-w-0 flex-1 text-xs font-semibold outline-none"
                 />
               </div>
+              <button
+                type="button"
+                onClick={handleSaveMonth}
+                disabled={isSavingMonth || !analysis}
+                title="같은 월에 다시 저장하면 기존 최종공수반영 저장본을 새 내용으로 업데이트합니다."
+                className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-extrabold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {isSavingMonth ? "저장 중..." : saveMonthKey ? `${saveMonthKey} 새로 저장` : "월단위 저장"}
+              </button>
             </div>
           </section>
 

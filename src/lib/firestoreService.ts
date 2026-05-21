@@ -20,6 +20,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage
 import { db, storage } from "./firebase";
 import type { ScheduleData } from "./scheduleTypes";
 import type { ManualAbsence } from "./manualAbsences";
+import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
 
 const COL = "worksite_data";
 
@@ -225,6 +226,79 @@ export async function loadXerpWorkFS() {
 }
 export async function saveXerpWorkFS(fileName: string, rows: unknown[]) {
   return fsSet("xerp_work", { fileName, savedAt: new Date().toISOString(), rows });
+}
+
+const FINAL_WORK_UNITS_PREFIX: Record<string, string> = {
+  PH4: "final_work_units_ph4",
+  PH2: "final_work_units_ph2",
+  P5PH1: "final_work_units_p5ph1",
+};
+
+function getFinalWorkUnitsPrefix(site: string): string {
+  return FINAL_WORK_UNITS_PREFIX[site] ?? "final_work_units_ph4";
+}
+
+export async function saveFinalWorkUnitsMonthFS(
+  site: string,
+  month: string,
+  snapshot: FinalWorkUnitsMonthSnapshot,
+): Promise<boolean> {
+  const prefix = getFinalWorkUnitsPrefix(site);
+  const docId = `${prefix}_${month}`;
+  const chunks = chunkFinalWorkUnitsRows(snapshot.rows);
+  const current = await fsGet<{ chunkCount?: number }>(docId);
+  const previousChunkCount = Number(current?.chunkCount ?? 0);
+  const savedAt = new Date().toISOString();
+
+  const chunkResults = await Promise.all(
+    chunks.map((rows, index) => fsSet(`${docId}_rows_${index}`, { rows, savedAt })),
+  );
+  if (chunkResults.some((ok) => !ok)) return false;
+
+  const staleChunkResults = await Promise.all(
+    Array.from({ length: Math.max(0, previousChunkCount - chunks.length) }, (_, index) =>
+      fsSet(`${docId}_rows_${chunks.length + index}`, { rows: [], deleted: true, savedAt }),
+    ),
+  );
+  if (staleChunkResults.some((ok) => !ok)) return false;
+
+  const { rows: _rows, ...metadata } = snapshot;
+  const ok = await fsSet(docId, {
+    ...metadata,
+    rowCount: snapshot.rows.length,
+    reviewCount: Object.keys(snapshot.reviews ?? {}).length,
+    chunkCount: chunks.length,
+    savedAt,
+  });
+  if (!ok) return false;
+
+  const indexDocId = `${prefix}_index`;
+  const index = (await fsGet<{ months: string[] }>(indexDocId)) ?? { months: [] };
+  const savedMonths = Array.isArray(index.months) ? index.months : [];
+  const months = Array.from(new Set([...savedMonths, month])).sort().reverse();
+  return fsSet(indexDocId, { months, lastSavedAt: savedAt });
+}
+
+export async function loadFinalWorkUnitsMonthFS(site: string, month: string): Promise<FinalWorkUnitsMonthSnapshot | null> {
+  const prefix = getFinalWorkUnitsPrefix(site);
+  const docId = `${prefix}_${month}`;
+  const metadata = await fsGet<Omit<FinalWorkUnitsMonthSnapshot, "rows"> & { chunkCount?: number; savedAt?: string }>(docId);
+  if (!metadata) return null;
+  const chunkCount = Number(metadata.chunkCount ?? 0);
+  const chunks = await Promise.all(
+    Array.from({ length: chunkCount }, async (_, index) => {
+      const chunk = await fsGet<{ rows: unknown[] }>(`${docId}_rows_${index}`);
+      return Array.isArray(chunk?.rows) ? chunk.rows : [];
+    }),
+  );
+  const { chunkCount: _chunkCount, savedAt: _savedAt, ...snapshot } = metadata;
+  return { ...snapshot, rows: chunks.flat() };
+}
+
+export async function listFinalWorkUnitsMonthsFS(site: string): Promise<string[]> {
+  const prefix = getFinalWorkUnitsPrefix(site);
+  const index = await fsGet<{ months: string[] }>(`${prefix}_index`);
+  return Array.isArray(index?.months) ? index.months : [];
 }
 
 // ── 신규자 명단 (날짜별) ───────────────────────────────
