@@ -21,6 +21,12 @@ import { db, storage } from "./firebase";
 import type { ScheduleData } from "./scheduleTypes";
 import type { ManualAbsence } from "./manualAbsences";
 import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
+import {
+  buildFinalWorkUnitsReviewMemoryEntries,
+  mergeFinalWorkUnitsReviewMemory,
+  type FinalWorkUnitsReviewMemoryEntry,
+  type FinalWorkUnitsReviewMemoryRow,
+} from "./finalWorkUnitsReviewMemory";
 
 const COL = "worksite_data";
 
@@ -233,9 +239,28 @@ const FINAL_WORK_UNITS_PREFIX: Record<string, string> = {
   PH2: "final_work_units_ph2",
   P5PH1: "final_work_units_p5ph1",
 };
+const FINAL_WORK_UNITS_REVIEW_MEMORY_LIMIT = 1000;
 
 function getFinalWorkUnitsPrefix(site: string): string {
   return FINAL_WORK_UNITS_PREFIX[site] ?? "final_work_units_ph4";
+}
+
+export async function loadFinalWorkUnitsReviewMemoryFS(site: string): Promise<FinalWorkUnitsReviewMemoryEntry[]> {
+  const prefix = getFinalWorkUnitsPrefix(site);
+  const data = await fsGet<{ entries?: FinalWorkUnitsReviewMemoryEntry[] }>(`${prefix}_review_memory`);
+  return Array.isArray(data?.entries) ? data.entries : [];
+}
+
+export async function saveFinalWorkUnitsReviewMemoryFS(
+  site: string,
+  incomingEntries: FinalWorkUnitsReviewMemoryEntry[],
+  savedAt = new Date().toISOString(),
+): Promise<boolean> {
+  if (incomingEntries.length === 0) return true;
+  const prefix = getFinalWorkUnitsPrefix(site);
+  const existing = await loadFinalWorkUnitsReviewMemoryFS(site);
+  const entries = mergeFinalWorkUnitsReviewMemory(existing, incomingEntries, FINAL_WORK_UNITS_REVIEW_MEMORY_LIMIT);
+  return fsSet(`${prefix}_review_memory`, { entries, updatedAt: savedAt });
 }
 
 export async function saveFinalWorkUnitsMonthFS(
@@ -271,6 +296,16 @@ export async function saveFinalWorkUnitsMonthFS(
     savedAt,
   });
   if (!ok) return false;
+
+  const reviewEntries = buildFinalWorkUnitsReviewMemoryEntries({
+    site,
+    month,
+    savedAt,
+    rows: snapshot.rows as FinalWorkUnitsReviewMemoryRow[],
+    reviews: snapshot.reviews ?? {},
+  });
+  const memoryOk = await saveFinalWorkUnitsReviewMemoryFS(site, reviewEntries, savedAt);
+  if (!memoryOk) return false;
 
   const indexDocId = `${prefix}_index`;
   const index = (await fsGet<{ months: string[] }>(indexDocId)) ?? { months: [] };

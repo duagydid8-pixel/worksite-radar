@@ -13,11 +13,17 @@ import {
 import { coerceElectronicCardData, type ElectronicCardDateData } from "@/lib/electronicCardSync";
 import {
   loadElectronicCardFS,
+  loadFinalWorkUnitsReviewMemoryFS,
   saveFinalWorkUnitsMonthFS,
   loadPmisLogFS,
   loadXerpDateFS,
 } from "@/lib/firestoreService";
 import { buildFinalWorkUnitsMonthSnapshot, finalWorkUnitsMonthKey } from "@/lib/finalWorkUnitsMonthlySave";
+import {
+  findFinalWorkUnitsReviewSuggestion,
+  type FinalWorkUnitsReviewMemoryEntry,
+  type FinalWorkUnitsReviewSuggestion,
+} from "@/lib/finalWorkUnitsReviewMemory";
 
 type StatusFilter = "all" | FinalWorkUnitsStatus;
 type XerpPmisLoadStatus = "loading" | "loaded" | "missing" | "error";
@@ -140,8 +146,29 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, ReviewState>>(() => loadReviewState());
   const [isSavingMonth, setIsSavingMonth] = useState(false);
+  const [reviewMemoryEntries, setReviewMemoryEntries] = useState<FinalWorkUnitsReviewMemoryEntry[]>([]);
+  const [reviewMemoryStatus, setReviewMemoryStatus] = useState<"loading" | "loaded" | "error">("loading");
 
   const requiredDates = useMemo(() => datesInRange(records, startDate, endDate), [records, startDate, endDate]);
+
+  useEffect(() => {
+    let active = true;
+    setReviewMemoryStatus("loading");
+    loadFinalWorkUnitsReviewMemoryFS(site)
+      .then((entries) => {
+        if (!active) return;
+        setReviewMemoryEntries(entries);
+        setReviewMemoryStatus("loaded");
+      })
+      .catch(() => {
+        if (!active) return;
+        setReviewMemoryEntries([]);
+        setReviewMemoryStatus("error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [site]);
 
   useEffect(() => {
     if (requiredDates.length === 0) {
@@ -232,6 +259,17 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
 
   const saveMonthKey = useMemo(() => finalWorkUnitsMonthKey(startDate, endDate), [startDate, endDate]);
 
+  const reviewSuggestionByRowId = useMemo(() => {
+    const suggestions: Record<string, FinalWorkUnitsReviewSuggestion> = {};
+    for (const row of analysis?.rows ?? []) {
+      const suggestion = findFinalWorkUnitsReviewSuggestion(row, reviewMemoryEntries);
+      if (suggestion) suggestions[row.id] = suggestion;
+    }
+    return suggestions;
+  }, [analysis, reviewMemoryEntries]);
+
+  const reviewSuggestionCount = useMemo(() => Object.keys(reviewSuggestionByRowId).length, [reviewSuggestionByRowId]);
+
   const filteredRows = useMemo(() => {
     const rows = analysis?.rows ?? [];
     const normalizedQuery = query.replace(/\s+/g, "").trim();
@@ -314,6 +352,9 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
       });
       const ok = await saveFinalWorkUnitsMonthFS(site, saveMonthKey, snapshot);
       if (ok) {
+        const entries = await loadFinalWorkUnitsReviewMemoryFS(site);
+        setReviewMemoryEntries(entries);
+        setReviewMemoryStatus("loaded");
         toast.success(`${saveMonthKey} 최종공수반영 저장 완료 (${analysis.rows.length}건)`);
       } else {
         toast.error("최종공수반영 저장 실패");
@@ -373,6 +414,11 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
             <span>
               XERP&PMIS 로드 {xerpPmisLoadedDateCount}/{requiredDates.length}개
               {xerpPmisLoadingDateCount > 0 ? ` · 확인 중 ${xerpPmisLoadingDateCount}개` : ""}
+            </span>
+            <span className="text-slate-300">|</span>
+            <span>
+              이전검토 {reviewMemoryStatus === "loading" ? "확인 중" : reviewMemoryStatus === "error" ? "로드 실패" : `${reviewMemoryEntries.length}건`}
+              {reviewSuggestionCount > 0 ? ` · 추천 ${reviewSuggestionCount}건` : ""}
             </span>
           </div>
         )}
@@ -499,6 +545,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                       row={row}
                       expanded={expandedId === row.id}
                       review={reviewFor(row, reviews)}
+                      reviewSuggestion={reviewSuggestionByRowId[row.id]}
                       xerpPmisLoadStatus={xerpPmisLoadStatusByDate[row.date]}
                       onToggleExpanded={() => setExpandedId((current) => (current === row.id ? null : row.id))}
                       onToggleFlag={(flag) =>
@@ -557,10 +604,26 @@ function SummaryCard({ label, value, tone = "default" }: { label: string; value:
   );
 }
 
+function reviewSuggestionMatchLabel(matchType: FinalWorkUnitsReviewSuggestion["matchType"]): string {
+  if (matchType === "same-worker") return "같은 작업자";
+  if (matchType === "same-reason") return "같은 사유";
+  return "유사 패턴";
+}
+
+function reviewSuggestionPreview(suggestion: FinalWorkUnitsReviewSuggestion): string {
+  const flags = suggestion.entry.flags.join(", ");
+  return [flags, suggestion.entry.memo].filter(Boolean).join(" / ") || "-";
+}
+
+function reviewSuggestionReason(entry: FinalWorkUnitsReviewMemoryEntry): string {
+  return [entry.gasanReason, entry.xerpPmisReason].filter(Boolean).join(" / ") || "-";
+}
+
 function WorkUnitRow({
   row,
   expanded,
   review,
+  reviewSuggestion,
   xerpPmisLoadStatus,
   onToggleExpanded,
   onToggleFlag,
@@ -569,6 +632,7 @@ function WorkUnitRow({
   row: FinalWorkUnitsRow;
   expanded: boolean;
   review: ReviewState;
+  reviewSuggestion?: FinalWorkUnitsReviewSuggestion;
   xerpPmisLoadStatus: XerpPmisLoadStatus | undefined;
   onToggleExpanded: () => void;
   onToggleFlag: (flag: string) => void;
@@ -577,6 +641,7 @@ function WorkUnitRow({
   const meta = STATUS_META[row.status];
   const gasanReason = displayGasanReason(row, xerpPmisLoadStatus);
   const gasanReasonIsWarning = !row.gasanReason?.trim() && !row.xerpPmisReason?.trim() && row.xerpPmisExtraUnits <= 0 && gasanReason !== "";
+  const reviewSuggestionLabel = reviewSuggestion ? reviewSuggestionMatchLabel(reviewSuggestion.matchType) : "";
   return (
     <>
       <tr
@@ -631,6 +696,12 @@ function WorkUnitRow({
               </label>
             ))}
           </div>
+          {reviewSuggestion && (
+            <div className="mt-1 max-w-[260px] rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold leading-4 text-emerald-700">
+              <div>이전 검토 · {reviewSuggestionLabel} · {reviewSuggestion.entry.month}</div>
+              <div className="mt-0.5 whitespace-pre-wrap break-words text-emerald-800">{reviewSuggestionPreview(reviewSuggestion)}</div>
+            </div>
+          )}
         </td>
         <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
           <input
@@ -649,7 +720,7 @@ function WorkUnitRow({
       {expanded && (
         <tr className="border-b border-slate-200 bg-slate-50">
           <td colSpan={21} className="px-3 py-3">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <DetailBox
                 title="XERP 월간출퇴근현황"
                 rows={[
@@ -689,6 +760,19 @@ function WorkUnitRow({
                   ["근거", row.checks.join(" / ") || "-"],
                 ]}
               />
+              {reviewSuggestion && (
+                <DetailBox
+                  title="이전 검토"
+                  rows={[
+                    ["매칭", `${reviewSuggestionLabel} / ${reviewSuggestion.entry.month}`],
+                    ["작업자", reviewSuggestion.entry.name],
+                    ["검토", reviewSuggestion.entry.flags.join(", ") || "-"],
+                    ["메모", reviewSuggestion.entry.memo || "-"],
+                    ["당시 사유", reviewSuggestionReason(reviewSuggestion.entry)],
+                    ["당시 판단", reviewSuggestion.entry.message || "-"],
+                  ]}
+                />
+              )}
             </div>
           </td>
         </tr>
