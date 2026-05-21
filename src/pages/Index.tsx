@@ -36,6 +36,7 @@ const LazyAnnualLeavePanel = lazy(() => import("@/components/AnnualLeavePanel"))
 const LazyXerpPmisTable = lazy(() => import("@/components/XerpPmisTable"));
 const LazyXerpWorkReflection = lazy(() => import("@/components/XerpWorkReflection"));
 const LazyPmisInOutLogTab = lazy(() => import("@/components/PmisInOutLogTab"));
+const LazyFinalWorkUnitsCheck = lazy(() => import("@/components/FinalWorkUnitsCheck"));
 const LazyWeeklySchedule = lazy(() => import("@/components/WeeklySchedule").then((module) => ({ default: module.WeeklySchedule })));
 const LazyPdfSplitter = lazy(() => import("@/components/tabs/PdfSplitter"));
 const LazyElcdComparePage = lazy(() => import("@/components/ElcdComparePage"));
@@ -53,7 +54,7 @@ function LazyPanel({ children }: { children: ReactNode }) {
 }
 
 type XerpSiteKey = "PH4" | "PH2" | "P5PH1";
-type XerpSubPage = "xerp" | "inout";
+type XerpSubPage = "xerp" | "inout" | "final";
 
 const XERP_SITES = [
   { value: "PH4" as XerpSiteKey, label: "P4-PH4" },
@@ -132,6 +133,16 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
                       <span className="ml-auto rounded-full bg-emerald-500 w-1.5 h-1.5 shrink-0" />
                     )}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPage("final")}
+                    className={`w-full flex items-center gap-2 pl-9 pr-4 py-2 text-xs font-semibold transition-colors text-left ${
+                      selectedPage === "final" ? "bg-white text-slate-900 font-bold" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <ListChecks className="h-3 w-3 shrink-0" />
+                    최종공수확인
+                  </button>
                 </div>
               )}
             </div>
@@ -155,6 +166,15 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
               onDataLoaded={handlePmisDataLoaded}
               onClear={handlePmisClear}
               xerpNames={xerpNamesBySite[selectedSite] ?? null}
+            />
+          </LazyPanel>
+        )}
+        {selectedPage === "final" && (
+          <LazyPanel>
+            <LazyFinalWorkUnitsCheck
+              key={selectedSite}
+              site={selectedSite}
+              pmisData={pmisDataBySite[selectedSite] ?? null}
             />
           </LazyPanel>
         )}

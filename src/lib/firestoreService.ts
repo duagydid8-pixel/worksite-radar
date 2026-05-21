@@ -493,3 +493,40 @@ export async function deletePmisLogFS(site: string, date: string): Promise<boole
   await fsSet(`${prefix}_index`, { dates });
   return fsSet(`${prefix}_${date}`, { data: null, deleted: true });
 }
+
+// ── 전자카드 기록 (일별, 사이트별) 저장 ─────────────────────────────
+const ELECTRONIC_CARD_PREFIX: Record<string, string> = {
+  PH4: "electronic_card_ph4",
+  PH2: "electronic_card_ph2",
+  P5PH1: "electronic_card_p5ph1",
+};
+
+export function getElectronicCardDocIds(site: string, date: string): { prefix: string; dateDocId: string; indexDocId: string } {
+  const prefix = ELECTRONIC_CARD_PREFIX[site] ?? "electronic_card_ph4";
+  return {
+    prefix,
+    dateDocId: `${prefix}_${date}`,
+    indexDocId: `${prefix}_index`,
+  };
+}
+
+export async function saveElectronicCardFS(site: string, date: string, data: unknown): Promise<boolean> {
+  const { dateDocId, indexDocId } = getElectronicCardDocIds(site, date);
+  const ok = await fsSet(dateDocId, { data, savedAt: new Date().toISOString() });
+  if (!ok) return false;
+  const index = (await fsGet<{ dates: string[] }>(indexDocId)) ?? { dates: [] };
+  const dates = Array.from(new Set([...index.dates, date])).sort().reverse();
+  return fsSet(indexDocId, { dates, lastSyncedAt: new Date().toISOString() });
+}
+
+export async function loadElectronicCardFS(site: string, date: string): Promise<unknown | null> {
+  const { dateDocId } = getElectronicCardDocIds(site, date);
+  const doc = await fsGet<{ data: unknown }>(dateDocId);
+  return doc?.data ?? null;
+}
+
+export async function listElectronicCardDatesFS(site: string): Promise<string[]> {
+  const { indexDocId } = getElectronicCardDocIds(site, "");
+  const index = await fsGet<{ dates: string[] }>(indexDocId);
+  return index?.dates ?? [];
+}
