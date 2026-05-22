@@ -264,7 +264,7 @@ describe("analyzeFinalWorkUnits", () => {
     expect(result.rows.find((row) => row.name === "차감근로자")?.expectedWorkUnits).toBe(0.875);
   });
 
-  it("counts XERP&PMIS manual extra units and reason as reflected evidence", () => {
+  it("keeps XERP&PMIS manual extra units separate from reflected work units", () => {
     const result = analyzeFinalWorkUnits({
       monthlyRecords: [{
         site: "평택 P4-Ph4 초순수",
@@ -299,12 +299,12 @@ describe("analyzeFinalWorkUnits", () => {
 
     const row = result.rows[0];
     expect(row.expectedWorkUnits).toBe(1.5);
-    expect(row.reflectedWorkUnits).toBe(1.5);
-    expect(row.missingWorkUnits).toBe(0);
+    expect(row.reflectedWorkUnits).toBe(1);
+    expect(row.missingWorkUnits).toBe(0.5);
     expect(row.xerpPmisExtraUnits).toBe(0.5);
     expect(row.xerpPmisReason).toBe("연장근무 사진 증빙");
     expect(row.hasXerpPmisMatch).toBe(true);
     expect(row.hasXerpPmisPhoto).toBe(true);
-    expect(row.status).toBe("gasan-review");
+    expect(row.status).toBe("missing-work-units");
   });
 });

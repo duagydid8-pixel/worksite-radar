@@ -400,7 +400,7 @@ function classifyRow(
   const selectedOut = chooseEvidenceTime("out", record, pmisPerson, electronicCardPerson);
   const expectedWorkUnits = calculateExpectedWorkUnits(record.date, record.team, selectedIn.value, selectedOut.value);
   const xerpPmisExtraUnits = xerpPmisEvidence.extraUnits;
-  const reflectedWorkUnits = units === null && xerpPmisExtraUnits === 0 ? null : roundWorkUnits((units ?? 0) + xerpPmisExtraUnits);
+  const reflectedWorkUnits = units === null ? null : roundWorkUnits(units);
   const missingWorkUnits =
     expectedWorkUnits !== null && reflectedWorkUnits !== null && expectedWorkUnits - reflectedWorkUnits > 0.001
       ? roundWorkUnits(expectedWorkUnits - reflectedWorkUnits)
