@@ -31,4 +31,13 @@ describe("FinalWorkUnitsCheck layout guards", () => {
     expect(source).toContain('onScroll={() => syncHorizontalScroll("top")}');
     expect(source).toContain('onScroll={() => syncHorizontalScroll("table")}');
   });
+
+  it("keeps expanded detail rows compact and wrapping", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
+
+    expect(source).not.toContain('className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"');
+    expect(source).toContain('className="inline-grid w-max max-w-[1240px] grid-cols-[repeat(3,minmax(300px,380px))] items-start gap-3 align-top"');
+    expect(source).toContain('className="min-w-0 rounded-lg border border-slate-200 bg-white p-3"');
+    expect(source).toContain('className="grid grid-cols-[76px_minmax(0,1fr)] gap-2"');
+  });
 });

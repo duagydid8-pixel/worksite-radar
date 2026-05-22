@@ -744,8 +744,8 @@ function WorkUnitRow({
       </tr>
       {expanded && (
         <tr className="border-b border-slate-200 bg-slate-50">
-          <td colSpan={21} className="px-3 py-3">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <td colSpan={21} className="bg-slate-50 px-3 py-3 align-top">
+            <div className="inline-grid w-max max-w-[1240px] grid-cols-[repeat(3,minmax(300px,380px))] items-start gap-3 align-top">
               <DetailBox
                 title="XERP 월간출퇴근현황"
                 rows={[
@@ -808,11 +808,11 @@ function WorkUnitRow({
 
 function DetailBox({ title, rows }: { title: string; rows: [string, string][] }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
       <h4 className="mb-2 text-xs font-black text-slate-800">{title}</h4>
       <div className="space-y-1.5 text-xs">
         {rows.map(([label, value]) => (
-          <div key={label} className="grid grid-cols-[90px_minmax(0,1fr)] gap-2">
+          <div key={label} className="grid grid-cols-[76px_minmax(0,1fr)] gap-2">
             <span className="font-bold text-slate-400">{label}</span>
             <span className="min-w-0 whitespace-pre-wrap break-words font-semibold text-slate-700">{value}</span>
           </div>

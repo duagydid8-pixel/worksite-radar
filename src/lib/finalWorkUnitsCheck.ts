@@ -578,25 +578,68 @@ export function analyzeFinalWorkUnits({
   return { rows, summary };
 }
 
+function coerceTimeText(value: unknown): string {
+  const raw = text(value as CellValue);
+  return /^\d{1,2}:\d{2}/.test(raw) ? raw : "";
+}
+
+function coerceCount(value: unknown): number | null {
+  const raw = text(value as CellValue).replace(/,/g, "");
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function coercePmisData(value: unknown): FinalWorkUnitsPmisData | null {
   if (!value || typeof value !== "object") return null;
   const data = value as { dateLabel?: unknown; persons?: unknown };
-  if (typeof data.dateLabel !== "string" || !Array.isArray(data.persons)) return null;
+  const dateLabel = text(data.dateLabel as CellValue);
+  if (!dateLabel || !Array.isArray(data.persons)) return null;
 
   const persons = data.persons.flatMap((person) => {
     if (!person || typeof person !== "object") return [];
-    const values = Object.values(person);
-    const name = String(values[0] ?? "").trim();
+    if (Array.isArray(person)) {
+      const name = text(person[0] as CellValue);
+      if (!name) return [];
+      const inCount = coerceCount(person[6]) ?? 0;
+      const outCount = coerceCount(person[7]) ?? 0;
+      return [{
+        name,
+        firstIn: coerceTimeText(person[4]),
+        lastOut: coerceTimeText(person[5]),
+        inCount,
+        outCount,
+        totalEvents: coerceCount(person[8]) ?? inCount + outCount,
+      }];
+    }
+
+    const record = person as Record<string, unknown>;
+    const values = Object.values(record);
+    const name = recordValue(record, ["이름", "성명", "name", "workerName"]) || text(values[0] as CellValue);
     if (!name) return [];
+    const firstIn =
+      coerceTimeText(recordValue(record, ["처음IN", "처음 IN", "firstIn", "inTime", "출근", "pmisIn"])) ||
+      coerceTimeText(values[4]);
+    const lastOut =
+      coerceTimeText(recordValue(record, ["마지막OUT", "마지막 OUT", "lastOut", "departureTime", "outTime", "퇴근", "pmisOut"])) ||
+      coerceTimeText(values[5]);
+    const inCount =
+      coerceCount(recordValue(record, ["IN횟수", "IN이벤트", "inCount", "inEvents"])) ??
+      coerceCount(values[6]) ??
+      0;
+    const outCount =
+      coerceCount(recordValue(record, ["OUT횟수", "OUT이벤트", "outCount", "outEvents"])) ??
+      coerceCount(values[7]) ??
+      0;
     return [{
       name,
-      firstIn: String(values[4] ?? "").trim(),
-      lastOut: String(values[5] ?? "").trim(),
-      inCount: Number(values[6] ?? 0),
-      outCount: Number(values[7] ?? 0),
-      totalEvents: Number(values[8] ?? 0),
+      firstIn,
+      lastOut,
+      inCount,
+      outCount,
+      totalEvents: coerceCount(recordValue(record, ["총이벤트", "totalEvents", "eventCount"])) ?? coerceCount(values[8]) ?? inCount + outCount,
     }];
   });
 
-  return { dateLabel: data.dateLabel, persons };
+  return { dateLabel, persons };
 }

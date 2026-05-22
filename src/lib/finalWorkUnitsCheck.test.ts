@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
   analyzeFinalWorkUnits,
+  coercePmisData,
   parseMonthlyXerpAttendance,
   type FinalWorkUnitsPmisData,
 } from "./finalWorkUnitsCheck";
@@ -82,6 +83,55 @@ describe("parseMonthlyXerpAttendance", () => {
 });
 
 describe("analyzeFinalWorkUnits", () => {
+  it("coerces saved PMIS person objects by field name instead of object value order", () => {
+    const data = coercePmisData({
+      dateLabel: "2026-05-22",
+      persons: [
+        {
+          name: "Worker A",
+          mask: "",
+          category: "technical",
+          trade: "",
+          job: "pipefitter",
+          firstIn: "06:23",
+          lastOut: "17:08",
+          inCount: 1,
+          outCount: 1,
+          totalEvents: 2,
+        },
+        {
+          이름: "Worker B",
+          마스크: "",
+          범주: "technical",
+          직종: "",
+          작업: "배관공",
+          처음IN: "06:24",
+          마지막OUT: "17:09",
+          IN횟수: 1,
+          OUT횟수: 1,
+          총이벤트: 2,
+        },
+      ],
+    });
+
+    expect(data?.persons[0]).toMatchObject({
+      name: "Worker A",
+      firstIn: "06:23",
+      lastOut: "17:08",
+      inCount: 1,
+      outCount: 1,
+      totalEvents: 2,
+    });
+    expect(data?.persons[1]).toMatchObject({
+      name: "Worker B",
+      firstIn: "06:24",
+      lastOut: "17:09",
+      inCount: 1,
+      outCount: 1,
+      totalEvents: 2,
+    });
+  });
+
   it("flags missing work units when XERP times and PMIS evidence exist", () => {
     const result = analyzeFinalWorkUnits({
       monthlyRecords: parseMonthlyXerpAttendance(workbookBuffer()),
