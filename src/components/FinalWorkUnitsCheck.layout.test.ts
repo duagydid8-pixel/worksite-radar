@@ -19,4 +19,16 @@ describe("FinalWorkUnitsCheck layout guards", () => {
     expect(source).toContain('className="max-w-full overflow-x-scroll overscroll-x-contain pb-2 [scrollbar-gutter:stable]"');
     expect(source).toContain('className="w-max min-w-[2800px] border-collapse text-xs"');
   });
+
+  it("keeps a synced horizontal scrollbar visible above the table", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
+
+    expect(source).toContain("topHorizontalScrollRef");
+    expect(source).toContain("tableHorizontalScrollRef");
+    expect(source).toContain("syncHorizontalScroll");
+    expect(source).toContain('className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur"');
+    expect(source).toContain('aria-label="최종공수 표 가로 스크롤"');
+    expect(source).toContain('onScroll={() => syncHorizontalScroll("top")}');
+    expect(source).toContain('onScroll={() => syncHorizontalScroll("table")}');
+  });
 });
