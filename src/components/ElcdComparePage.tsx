@@ -1,7 +1,7 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { Download, RefreshCw, CheckCircle2, XCircle, AlertCircle, BookOpen, Image, Upload, Share2 } from "lucide-react";
-import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreService";
+import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS, listElectronicCardDatesFS, loadElectronicCardFS } from "@/lib/firestoreService";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import * as XLSX from "xlsx";
 import html2canvas from "html2canvas";
@@ -9,6 +9,7 @@ import { decryptExcelPassword } from "@/utils/xlsxDecrypt";
 import { detectSensitiveInfo, summarizeSensitiveInfoFindings } from "@/lib/sensitiveInfoGuard";
 import { canCopyResidentNumber, displayResidentNumber } from "@/lib/elcdResidentNumber";
 import { buildElcdCompareRows, normBirth, type CompareRow, type ElcdRow, type XerpCompareRow } from "@/lib/elcdCompare";
+import { coerceElectronicCardData, type ElectronicCardDateData } from "@/lib/electronicCardSync";
 
 const EXCLUDED_STORAGE_KEY = "elcd_excluded_teams";
 
@@ -25,10 +26,22 @@ function maskBirth(s: string): string {
   return displayResidentNumber(s, false);
 }
 
+function savedElectronicCardToElcdRows(data: ElectronicCardDateData | null): ElcdRow[] {
+  return data?.persons.map((person) => ({
+    name: person.name,
+    birthday: person.birthDate,
+    company: person.company,
+    inTime: person.inTime,
+    outTime: person.outTime,
+    authMethod: person.authMethod,
+  })) ?? [];
+}
+
 export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   const [site, setSite] = useState<SiteKey>("PH4");
   const [dateMap, setDateMap] = useState<Record<string, XerpCompareRow[]> | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>("");
+  const [savedElcdDates, setSavedElcdDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [elcdRows, setElcdRows] = useState<ElcdRow[] | null>(null);
   const [elcdFileName, setElcdFileName] = useState("");
@@ -59,29 +72,73 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
     });
   };
 
-  const loadXerp = async () => {
+  const loadSavedElectronicCardDate = useCallback(async (date: string): Promise<boolean> => {
+    if (!date) {
+      setElcdRows(null);
+      setElcdFileName("");
+      return false;
+    }
+    const saved = coerceElectronicCardData(await loadElectronicCardFS(site, date));
+    if (!saved) {
+      setElcdRows(null);
+      setElcdFileName("");
+      return false;
+    }
+    const rows = savedElectronicCardToElcdRows(saved);
+    setElcdRows(rows);
+    setElcdFileName(`${date} 저장 전자카드 (${rows.length}명)`);
+    setResult(null);
+    return true;
+  }, [site]);
+
+  const loadXerp = useCallback(async () => {
     setLoading(true);
     setDateMap(null);
+    setSavedElcdDates([]);
     setResult(null);
     try {
       const fn = site === "PH4" ? loadXerpFS : site === "PH2" ? loadXerpPH2FS : loadXerpP5PH1FS;
-      const data = await fn();
-      if (!data) { toast.error("XERP 데이터가 없습니다."); return; }
-      setDateMap(data as Record<string, XerpCompareRow[]>);
-      const dates = Object.keys(data).sort().reverse();
-      setSelectedDate(dates[0] ?? "");
-      toast.success(`${Object.keys(data).length}개 날짜 로드됨`);
+      const [data, electronicCardDates] = await Promise.all([fn(), listElectronicCardDatesFS(site)]);
+      const xerpDateMap = (data ?? {}) as Record<string, XerpCompareRow[]>;
+      const xerpDates = Object.keys(xerpDateMap).sort().reverse();
+      const savedDates = [...electronicCardDates].sort().reverse();
+      if (xerpDates.length === 0 && savedDates.length === 0) {
+        toast.error("저장된 XERP/전자카드 날짜가 없습니다.");
+        return;
+      }
+
+      setDateMap(xerpDateMap);
+      setSavedElcdDates(savedDates);
+      const nextDate = savedDates.find((date) => xerpDateMap[date]?.length) ?? savedDates[0] ?? xerpDates[0] ?? "";
+      setSelectedDate(nextDate);
+      if (nextDate && savedDates.includes(nextDate)) await loadSavedElectronicCardDate(nextDate);
+      else {
+        setElcdRows(null);
+        setElcdFileName("");
+      }
+      toast.success(`XERP ${xerpDates.length}개 · 전자카드 저장 ${savedDates.length}개 날짜 로드됨`);
     } catch {
       toast.error("로드 실패");
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadSavedElectronicCardDate, site]);
+
+  useEffect(() => {
+    void loadXerp();
+  }, [loadXerp]);
 
   const currentRows: XerpCompareRow[] = useMemo(
     () => (dateMap && selectedDate ? (dateMap[selectedDate] ?? []) : []),
     [dateMap, selectedDate]
   );
+
+  const savedElcdDateSet = useMemo(() => new Set(savedElcdDates), [savedElcdDates]);
+
+  const selectableDates = useMemo(() => {
+    const dates = new Set([...Object.keys(dateMap ?? {}), ...savedElcdDates]);
+    return [...dates].sort().reverse();
+  }, [dateMap, savedElcdDates]);
 
   const parseElcdExcel = (file: File) => {
     const reader = new FileReader();
@@ -171,7 +228,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
 
   const compare = () => {
     if (!currentRows.length) { toast.error("먼저 XERP 데이터를 로드하세요."); return; }
-    if (!elcdRows?.length) { toast.error("전자카드 엑셀을 업로드하세요."); return; }
+    if (!elcdRows?.length) { toast.error("전자카드 저장자료를 선택하거나 엑셀을 업로드하세요."); return; }
 
     const allRows = buildElcdCompareRows({
       xerpRows: currentRows,
@@ -375,19 +432,30 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-700 transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            XERP 데이터 로드
+            저장 날짜 로드
           </button>
 
-          {dateMap && (
+          {selectableDates.length > 0 && (
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-500">날짜 선택</label>
               <select
                 value={selectedDate}
-                onChange={(e) => { setSelectedDate(e.target.value); setResult(null); }}
+                onChange={(e) => {
+                  const nextDate = e.target.value;
+                  setSelectedDate(nextDate);
+                  setResult(null);
+                  if (savedElcdDateSet.has(nextDate)) void loadSavedElectronicCardDate(nextDate);
+                  else {
+                    setElcdRows(null);
+                    setElcdFileName("");
+                  }
+                }}
                 className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
               >
-                {Object.keys(dateMap).sort().reverse().map((d) => (
-                  <option key={d} value={d}>{d} ({dateMap[d].length}명)</option>
+                {selectableDates.map((d) => (
+                  <option key={d} value={d}>
+                    {d} ({dateMap?.[d]?.length ?? 0}명{savedElcdDateSet.has(d) ? " · 저장 전자카드" : ""})
+                  </option>
                 ))}
               </select>
             </div>
@@ -397,7 +465,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
         {/* 전자카드 엑셀 업로드 */}
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-slate-500">
-            전자카드 엑셀 <span className="text-slate-400 font-normal">— eum.cw.or.kr 에서 다운받은 엑셀 파일</span>
+            전자카드 엑셀/저장자료 <span className="text-slate-400 font-normal">— 저장된 날짜 선택 시 자동 로드, 필요하면 엑셀 재업로드</span>
           </label>
           <input
             ref={fileInputRef}
@@ -442,7 +510,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
 
         <button
           onClick={compare}
-          disabled={!dateMap || !elcdRows?.length}
+          disabled={!currentRows.length || !elcdRows?.length}
           className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-40"
         >
           대조 실행
