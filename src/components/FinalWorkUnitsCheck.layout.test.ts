@@ -8,8 +8,19 @@ describe("FinalWorkUnitsCheck layout guards", () => {
 
     expect(source).not.toContain('className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"');
     expect(source).toContain('className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2"');
-    expect(source).toContain('className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2 font-semibold leading-5 text-slate-600"');
+    expect(source).toContain('className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2 font-bold leading-5 text-slate-900"');
     expect(source).toContain('className="min-w-0 whitespace-pre-wrap break-words font-semibold text-slate-700"');
+  });
+
+  it("uses stronger colors for reason and judgment review text", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
+
+    expect(source).toContain("ReviewTextLine");
+    expect(source).toContain('tone === "reason"');
+    expect(source).toContain("border-violet-200 bg-violet-50 text-violet-950");
+    expect(source).toContain("border-amber-200 bg-amber-50 text-amber-950");
+    expect(source).toContain("text-violet-900 ring-1 ring-violet-200");
+    expect(source).toContain("text-amber-900 ring-1 ring-amber-200");
   });
 
   it("keeps the final work units table horizontally scrollable", () => {

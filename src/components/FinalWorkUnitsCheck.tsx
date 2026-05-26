@@ -901,15 +901,9 @@ function WorkUnitQuickReviewCard({
         </button>
       </div>
 
-      <div className="mt-2 space-y-1.5 rounded-md bg-slate-50 px-2.5 py-2 text-xs font-semibold leading-5 text-slate-700">
-        <div className="min-w-0 whitespace-pre-wrap break-words">
-          <span className="font-black text-slate-500">사유 </span>
-          {gasanReason || "사유 없음"}
-        </div>
-        <div className="min-w-0 whitespace-pre-wrap break-words">
-          <span className="font-black text-slate-500">판단 </span>
-          {row.message}
-        </div>
+      <div className="mt-2 space-y-2">
+        <ReviewTextLine label="사유" value={gasanReason || "사유 없음"} tone="reason" />
+        <ReviewTextLine label="판단" value={row.message} tone="judgment" />
       </div>
 
       {reviewSuggestion && (
@@ -935,6 +929,20 @@ function WorkUnitQuickReviewCard({
         className="mt-2 w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none focus:border-slate-400"
       />
     </article>
+  );
+}
+
+function ReviewTextLine({ label, value, tone }: { label: string; value: string; tone: "reason" | "judgment" }) {
+  const toneClass = tone === "reason"
+    ? "border-violet-200 bg-violet-50 text-violet-950"
+    : "border-amber-200 bg-amber-50 text-amber-950";
+  const labelClass = tone === "reason" ? "text-violet-700" : "text-amber-700";
+
+  return (
+    <div className={`min-w-0 rounded-md border px-2.5 py-2 text-xs font-bold leading-5 ${toneClass}`}>
+      <span className={`mr-1 font-black ${labelClass}`}>{label}</span>
+      <span className="whitespace-pre-wrap break-words">{value}</span>
+    </div>
   );
 }
 
@@ -1003,7 +1011,7 @@ function WorkUnitRow({
         <td className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2">
           {gasanReason ? (
             <span className={`inline-block whitespace-pre-wrap break-words rounded-md px-1.5 py-1 font-bold leading-5 ${
-              gasanReasonIsWarning ? "bg-amber-50 text-amber-700" : "bg-violet-50 text-violet-700"
+              gasanReasonIsWarning ? "bg-amber-50 text-amber-900 ring-1 ring-amber-200" : "bg-violet-50 text-violet-900 ring-1 ring-violet-200"
             }`}>
               {gasanReason}
             </span>
@@ -1017,7 +1025,7 @@ function WorkUnitRow({
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.pmisUploaded ? row.pmisOut || "없음" : "미업로드"}</td>
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardIn || "없음" : "미저장"}</td>
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardOut || "없음" : "미저장"}</td>
-        <td className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2 font-semibold leading-5 text-slate-600">{row.message}</td>
+        <td className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2 font-bold leading-5 text-slate-900">{row.message}</td>
         <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
           <div className="flex flex-wrap gap-1">
             {REVIEW_FLAGS.map((flag) => (
