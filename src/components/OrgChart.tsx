@@ -1444,22 +1444,33 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         <div ref={chartRef} className="mx-auto min-w-[1180px] max-w-[1280px] bg-white p-5 text-slate-950 shadow-sm">
           <div className="mb-3 flex items-start justify-between gap-4 border-b-2 border-slate-900 pb-2">
             <h3 className="text-xl font-black tracking-tight">■ 조직도 _ 사업 1 팀 _{activeSite.title} _{titleDate}</h3>
-            <div className={`grid overflow-hidden border border-slate-900 text-center text-[11px] font-black ${isHeadOfficeTemplate ? "grid-cols-7" : "grid-cols-8"}`}>
-              {(isHeadOfficeTemplate ? headOfficeStats : [
-                ["총원", totalMembers],
-                ["팀장", businessManager.phone || businessManager.email || businessManager.photo_url ? 1 : 0],
-                ["소장", siteManager.phone || siteManager.email || siteManager.photo_url ? 1 : 0],
-                ["공사", teamCountByName["공사팀"] || 0],
-                ["공무", teamCountByName["공무팀"] || 0],
-                ["품질", teamCountByName["품질팀"] || 0],
-                ["안전", teamCountByName["안전팀"] || 0],
-                ["설계", teamCountByName["설계팀"] || 0],
-              ]).map(([label, value]) => (
-                <div key={String(label)} className="min-w-[52px] border-l border-slate-900 first:border-l-0">
-                  <div className="bg-slate-900 px-1 py-1 text-white">{label}</div>
-                  <div className="px-1 py-1.5">{value}</div>
-                </div>
-              ))}
+            <div className="flex flex-col items-end gap-1.5">
+              <div className={`grid overflow-hidden border border-slate-900 text-center text-[11px] font-black ${isHeadOfficeTemplate ? "grid-cols-7" : "grid-cols-8"}`}>
+                {(isHeadOfficeTemplate ? headOfficeStats : [
+                  ["총원", totalMembers],
+                  ["팀장", businessManager.phone || businessManager.email || businessManager.photo_url ? 1 : 0],
+                  ["소장", siteManager.phone || siteManager.email || siteManager.photo_url ? 1 : 0],
+                  ["공사", teamCountByName["공사팀"] || 0],
+                  ["공무", teamCountByName["공무팀"] || 0],
+                  ["품질", teamCountByName["품질팀"] || 0],
+                  ["안전", teamCountByName["안전팀"] || 0],
+                  ["설계", teamCountByName["설계팀"] || 0],
+                ]).map(([label, value]) => (
+                  <div key={String(label)} className="min-w-[52px] border-l border-slate-900 first:border-l-0">
+                    <div className="bg-slate-900 px-1 py-1 text-white">{label}</div>
+                    <div className="px-1 py-1.5">{value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-[10px] font-black leading-none text-slate-700" aria-label="인원 구분">
+                <span className="text-slate-500">인원 구분</span>
+                {MEMBER_BORDER_OPTIONS.map((option) => (
+                  <span key={option.color} className="inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-sm border border-slate-400" style={{ backgroundColor: option.color }} />
+                    {option.label}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 

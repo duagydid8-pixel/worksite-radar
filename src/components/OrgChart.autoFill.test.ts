@@ -15,4 +15,11 @@ describe("OrgChart member auto-fill wiring", () => {
     expect(source).toContain("applyOrgManagerAutoFill");
     expect(source).toContain("handleManagerNameChange");
   });
+
+  it("shows a compact border-color legend inside the org chart export area", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("인원 구분");
+    expect(source).toContain("MEMBER_BORDER_OPTIONS.map");
+  });
 });
