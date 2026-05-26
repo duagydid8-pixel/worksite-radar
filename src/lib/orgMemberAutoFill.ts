@@ -97,13 +97,16 @@ export function applyOrgManagerAutoFill<T extends OrgManagerAutoFillDraft>(
 ): T {
   const match = findUniqueOrgManagerAutoFill(name, sources);
   if (!match) return { ...draft, name };
-
-  return {
+  const role = match.role ?? draft.role;
+  const next = {
     ...draft,
     name: match.name,
-    role: match.role ?? draft.role,
     phone: match.phone,
     email: match.email,
     photo_url: match.photo_url,
   };
+  if (role === undefined) delete next.role;
+  else next.role = role;
+
+  return next;
 }

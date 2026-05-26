@@ -113,4 +113,19 @@ describe("org member auto-fill", () => {
       photo_url: "/org-chart-pptx/image36.jpg",
     });
   });
+
+  it("does not add an undefined role when a member is used as a manager source", () => {
+    const sources = buildOrgManagerAutoFillSources({
+      primaryManagers: [],
+      primaryMembers: PPT_ORG_DATA.members,
+    });
+
+    const filled = applyOrgManagerAutoFill(
+      { name: "현장소장", phone: "", email: "", photo_url: "" },
+      "전재현",
+      sources,
+    );
+
+    expect(Object.prototype.hasOwnProperty.call(filled, "role")).toBe(false);
+  });
 });
