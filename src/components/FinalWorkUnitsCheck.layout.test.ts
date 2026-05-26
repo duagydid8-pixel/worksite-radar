@@ -64,6 +64,19 @@ describe("FinalWorkUnitsCheck layout guards", () => {
     expect(source).toContain('analysis.summary.needsReview');
   });
 
+  it("loads a saved final work month so the excel file is not required every time", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
+
+    expect(source).toContain("listFinalWorkUnitsMonthsFS");
+    expect(source).toContain("loadFinalWorkUnitsMonthFS");
+    expect(source).toContain("buildFinalWorkUnitsAnalysisFromSnapshot");
+    expect(source).toContain("handleLoadSavedMonth");
+    expect(source).toContain("setRestoredSnapshot(snapshot)");
+    expect(source).toContain("저장본 불러오는 중");
+    expect(source).toContain("저장본 선택");
+    expect(source).toContain("저장본");
+  });
+
   it("keeps expanded detail rows compact and wrapping", () => {
     const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
 

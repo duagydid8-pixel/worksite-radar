@@ -13,12 +13,19 @@ import {
 import { coerceElectronicCardData, type ElectronicCardDateData } from "@/lib/electronicCardSync";
 import {
   loadElectronicCardFS,
+  listFinalWorkUnitsMonthsFS,
+  loadFinalWorkUnitsMonthFS,
   loadFinalWorkUnitsReviewMemoryFS,
   saveFinalWorkUnitsMonthFS,
   loadPmisLogFS,
   loadXerpDateFS,
 } from "@/lib/firestoreService";
-import { buildFinalWorkUnitsMonthSnapshot, finalWorkUnitsMonthKey } from "@/lib/finalWorkUnitsMonthlySave";
+import {
+  buildFinalWorkUnitsAnalysisFromSnapshot,
+  buildFinalWorkUnitsMonthSnapshot,
+  finalWorkUnitsMonthKey,
+  type FinalWorkUnitsMonthSnapshot,
+} from "@/lib/finalWorkUnitsMonthlySave";
 import {
   findFinalWorkUnitsReviewSuggestion,
   type FinalWorkUnitsReviewMemoryEntry,
@@ -140,6 +147,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   const quickReviewSectionRef = useRef<HTMLElement>(null);
   const topHorizontalScrollRef = useRef<HTMLDivElement>(null);
   const tableHorizontalScrollRef = useRef<HTMLDivElement>(null);
+  const savedMonthLoadRequestRef = useRef(0);
   const [fileName, setFileName] = useState("");
   const [records, setRecords] = useState<MonthlyXerpAttendanceRecord[]>([]);
   const [savedPmisByDate, setSavedPmisByDate] = useState<Record<string, FinalWorkUnitsPmisData>>({});
@@ -154,10 +162,93 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, ReviewState>>(() => loadReviewState());
   const [isSavingMonth, setIsSavingMonth] = useState(false);
+  const [savedMonths, setSavedMonths] = useState<string[]>([]);
+  const [selectedSavedMonth, setSelectedSavedMonth] = useState("");
+  const [restoredSnapshot, setRestoredSnapshot] = useState<FinalWorkUnitsMonthSnapshot | null>(null);
+  const [isLoadingSavedMonths, setIsLoadingSavedMonths] = useState(false);
+  const [isLoadingSavedMonth, setIsLoadingSavedMonth] = useState(false);
   const [reviewMemoryEntries, setReviewMemoryEntries] = useState<FinalWorkUnitsReviewMemoryEntry[]>([]);
   const [reviewMemoryStatus, setReviewMemoryStatus] = useState<"loading" | "loaded" | "error">("loading");
 
-  const requiredDates = useMemo(() => datesInRange(records, startDate, endDate), [records, startDate, endDate]);
+  const savedSnapshotRows = useMemo(() => restoredSnapshot?.rows.filter((row): row is FinalWorkUnitsRow => {
+    if (!row || typeof row !== "object") return false;
+    const candidate = row as Partial<FinalWorkUnitsRow>;
+    return typeof candidate.date === "string" && typeof candidate.id === "string" && typeof candidate.name === "string";
+  }) ?? [], [restoredSnapshot]);
+
+  const requiredDates = useMemo(() => {
+    if (records.length > 0) return datesInRange(records, startDate, endDate);
+    if (restoredSnapshot) return [...new Set(savedSnapshotRows.filter((row) => row.date >= startDate && row.date <= endDate).map((row) => row.date))].sort();
+    return [];
+  }, [records, restoredSnapshot, savedSnapshotRows, startDate, endDate]);
+
+  function applyRestoredSnapshot(month: string, snapshot: FinalWorkUnitsMonthSnapshot) {
+    const snapshotReviews = snapshot.reviews ?? {};
+    const snapshotDates = [...new Set(snapshot.rows
+      .filter((row): row is FinalWorkUnitsRow => Boolean(row && typeof row === "object" && typeof (row as Partial<FinalWorkUnitsRow>).date === "string"))
+      .map((row) => row.date))];
+
+    setRestoredSnapshot(snapshot);
+    setRecords([]);
+    setSelectedSavedMonth(month);
+    setFileName(snapshot.fileName || `${month} 저장본`);
+    setStartDate(snapshot.startDate);
+    setEndDate(snapshot.endDate);
+    setStatusFilter("issues");
+    setQuery("");
+    setVisibleLimit(INITIAL_VISIBLE_ROWS);
+    setExpandedId(null);
+    setReviews(snapshotReviews);
+    saveReviewState(snapshotReviews);
+    setSavedPmisByDate({});
+    setSavedElectronicCardByDate({});
+    setSavedXerpPmisByDate({});
+    setXerpPmisLoadStatusByDate(Object.fromEntries(snapshotDates.map((date) => [date, "loaded" as const])));
+  }
+
+  async function handleLoadSavedMonth(month: string, options: { silent?: boolean } = {}) {
+    if (!month) return;
+    const requestId = ++savedMonthLoadRequestRef.current;
+    setIsLoadingSavedMonth(true);
+    setSelectedSavedMonth(month);
+    try {
+      const snapshot = await loadFinalWorkUnitsMonthFS(site, month);
+      if (requestId !== savedMonthLoadRequestRef.current) return;
+      if (!snapshot) {
+        if (!options.silent) toast.error(`${month} 저장본을 찾지 못했습니다.`);
+        return;
+      }
+      applyRestoredSnapshot(month, snapshot);
+      if (!options.silent) toast.success(`${month} 저장본을 불러왔습니다.`);
+    } catch {
+      if (requestId !== savedMonthLoadRequestRef.current) return;
+      if (!options.silent) toast.error(`${month} 저장본 불러오기 실패`);
+    } finally {
+      if (requestId === savedMonthLoadRequestRef.current) setIsLoadingSavedMonth(false);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    setIsLoadingSavedMonths(true);
+    setSavedMonths([]);
+    setSelectedSavedMonth("");
+    setRestoredSnapshot(null);
+    async function loadSavedMonths() {
+      try {
+        const months = await listFinalWorkUnitsMonthsFS(site);
+        if (!active) return;
+        setSavedMonths(months);
+        if (months[0]) void handleLoadSavedMonth(months[0], { silent: true });
+      } finally {
+        if (active) setIsLoadingSavedMonths(false);
+      }
+    }
+    void loadSavedMonths();
+    return () => {
+      active = false;
+    };
+  }, [site]);
 
   useEffect(() => {
     let active = true;
@@ -179,6 +270,14 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   }, [site]);
 
   useEffect(() => {
+    if (records.length === 0 && restoredSnapshot) {
+      setSavedPmisByDate({});
+      setSavedElectronicCardByDate({});
+      setSavedXerpPmisByDate({});
+      setXerpPmisLoadStatusByDate(Object.fromEntries(requiredDates.map((date) => [date, "loaded" as const])));
+      return;
+    }
+
     if (requiredDates.length === 0) {
       setSavedPmisByDate({});
       setSavedElectronicCardByDate({});
@@ -244,7 +343,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     return () => {
       active = false;
     };
-  }, [requiredDates, site]);
+  }, [records.length, requiredDates, restoredSnapshot, site]);
 
   const pmisByDate = useMemo(() => {
     const next = { ...savedPmisByDate };
@@ -253,7 +352,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     return next;
   }, [pmisData, savedPmisByDate]);
 
-  const analysis = useMemo(() => {
+  const computedAnalysis = useMemo(() => {
     if (!records.length || !startDate || !endDate) return null;
     return analyzeFinalWorkUnits({
       monthlyRecords: records,
@@ -264,6 +363,13 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
       endDate,
     });
   }, [records, pmisByDate, savedElectronicCardByDate, savedXerpPmisByDate, startDate, endDate]);
+
+  const restoredAnalysis = useMemo(() => {
+    if (!restoredSnapshot || !startDate || !endDate) return null;
+    return buildFinalWorkUnitsAnalysisFromSnapshot(restoredSnapshot, startDate, endDate);
+  }, [restoredSnapshot, startDate, endDate]);
+
+  const analysis = computedAnalysis ?? restoredAnalysis;
 
   const saveMonthKey = useMemo(() => finalWorkUnitsMonthKey(startDate, endDate), [startDate, endDate]);
 
@@ -328,6 +434,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
 
   const handleUpload = async (file: File) => {
     try {
+      savedMonthLoadRequestRef.current += 1;
       const buffer = await file.arrayBuffer();
       const parsed = parseMonthlyXerpAttendance(buffer);
       if (!parsed.length) {
@@ -335,6 +442,8 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
         return;
       }
       setRecords(parsed);
+      setRestoredSnapshot(null);
+      setSelectedSavedMonth("");
       setFileName(file.name);
       setStartDate(defaultStartDate(parsed));
       setEndDate(defaultEndDate(parsed));
@@ -401,6 +510,8 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
         const entries = await loadFinalWorkUnitsReviewMemoryFS(site);
         setReviewMemoryEntries(entries);
         setReviewMemoryStatus("loaded");
+        setSavedMonths((current) => Array.from(new Set([saveMonthKey, ...current])).sort().reverse());
+        setSelectedSavedMonth(saveMonthKey);
         toast.success(`${saveMonthKey} 최종공수반영 저장 완료 (${analysis.rows.length}건)`);
       } else {
         toast.error("최종공수반영 저장 실패");
@@ -412,8 +523,9 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     }
   };
 
-  const dateMin = minDate(records);
-  const dateMax = maxDate(records);
+  const dateSourceRows = records.length > 0 ? records : savedSnapshotRows;
+  const dateMin = minDate(dateSourceRows);
+  const dateMax = maxDate(dateSourceRows);
 
   return (
     <div className="space-y-3 p-4 md:p-5">
@@ -437,6 +549,28 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                 event.currentTarget.value = "";
               }}
             />
+            {savedMonths.length > 0 && (
+              <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500">
+                저장본 선택
+                <select
+                  value={selectedSavedMonth}
+                  onChange={(event) => void handleLoadSavedMonth(event.target.value)}
+                  disabled={isLoadingSavedMonth}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-extrabold text-slate-700 disabled:opacity-50"
+                >
+                  {savedMonths.map((month) => (
+                    <option key={month} value={month}>
+                      {month}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {(isLoadingSavedMonths || isLoadingSavedMonth) && (
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-extrabold text-slate-500">
+                저장본 불러오는 중
+              </span>
+            )}
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
@@ -451,6 +585,9 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
         {fileName && (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
             <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+            {restoredSnapshot && records.length === 0 && (
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 font-extrabold text-blue-700">저장본 {selectedSavedMonth}</span>
+            )}
             <span>{fileName}</span>
             <span className="text-slate-300">|</span>
             <span>PMIS 저장 날짜 {Object.keys(pmisByDate).length}개</span>
