@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
-import { applyOrgManagerAutoFill, applyOrgMemberAutoFill, type OrgManagerAutoFillSource, type OrgMemberAutoFillSource } from "@/lib/orgMemberAutoFill";
+import { applyOrgManagerAutoFill, applyOrgMemberAutoFill, buildOrgManagerAutoFillSources, type OrgManagerAutoFillSource, type OrgMemberAutoFillSource } from "@/lib/orgMemberAutoFill";
 import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_DATA, HEAD_OFFICE_ORG_VERSION, PPT_MEMBER_BORDER_COLORS, PPT_ORG_DATA, PPT_ORG_VERSION } from "@/lib/pptOrgData";
 import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2, RotateCw } from "lucide-react";
 import { toPng } from "html-to-image";
@@ -1001,8 +1001,15 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   );
   const managerAutoFillSources = useMemo(
     () => isHeadOfficeTemplate
-      ? [HEAD_OFFICE_ORG_DATA.businessManager, HEAD_OFFICE_ORG_DATA.siteManager, PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager].filter((manager) => manager.name)
-      : [PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager],
+      ? buildOrgManagerAutoFillSources({
+        primaryManagers: [HEAD_OFFICE_ORG_DATA.businessManager, HEAD_OFFICE_ORG_DATA.siteManager],
+        primaryMembers: HEAD_OFFICE_ORG_DATA.members,
+        fallbackManagers: [PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager],
+      })
+      : buildOrgManagerAutoFillSources({
+        primaryManagers: [PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager],
+        primaryMembers: PPT_ORG_DATA.members,
+      }),
     [isHeadOfficeTemplate],
   );
 

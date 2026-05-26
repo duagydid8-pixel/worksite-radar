@@ -3,6 +3,7 @@ import { PPT_MEMBER_BORDER_COLORS, PPT_ORG_DATA } from "./pptOrgData";
 import {
   applyOrgManagerAutoFill,
   applyOrgMemberAutoFill,
+  buildOrgManagerAutoFillSources,
   findUniqueOrgMemberAutoFill,
   type OrgManagerAutoFillDraft,
   type OrgMemberAutoFillDraft,
@@ -86,6 +87,30 @@ describe("org member auto-fill", () => {
       phone: "010-8768-6104",
       email: "p90902@hscleantech.com",
       photo_url: "/org-chart-pptx/image5.png",
+    });
+  });
+
+  it("includes PPT members as top manager auto-fill sources for promoted site managers", () => {
+    const sources = buildOrgManagerAutoFillSources({
+      primaryManagers: [PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager],
+      primaryMembers: PPT_ORG_DATA.members,
+    });
+
+    const manager: OrgManagerAutoFillDraft = {
+      name: "현장소장",
+      role: "사업 1본부 현장 소장",
+      phone: "",
+      email: "",
+      photo_url: "",
+    };
+    const filled = applyOrgManagerAutoFill(manager, "전재현", sources);
+
+    expect(filled).toMatchObject({
+      name: "전재현",
+      role: "사업 1본부 현장 소장",
+      phone: "010-4542-8574",
+      email: "jaehyun@hscleantech.com",
+      photo_url: "/org-chart-pptx/image36.jpg",
     });
   });
 });

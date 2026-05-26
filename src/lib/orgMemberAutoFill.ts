@@ -29,6 +29,25 @@ function normalizePersonName(name: string) {
   return name.replace(/\s+/g, "");
 }
 
+export function buildOrgManagerAutoFillSources({
+  primaryManagers,
+  primaryMembers = [],
+  fallbackManagers = [],
+}: {
+  primaryManagers: readonly OrgManagerAutoFillSource[];
+  primaryMembers?: readonly OrgManagerAutoFillSource[];
+  fallbackManagers?: readonly OrgManagerAutoFillSource[];
+}): OrgManagerAutoFillSource[] {
+  const primarySources = [...primaryManagers, ...primaryMembers].filter((source) => normalizePersonName(source.name));
+  const primaryNames = new Set(primarySources.map((source) => normalizePersonName(source.name)));
+  const fallbackSources = fallbackManagers.filter((source) => {
+    const normalizedName = normalizePersonName(source.name);
+    return normalizedName && !primaryNames.has(normalizedName);
+  });
+
+  return [...primarySources, ...fallbackSources];
+}
+
 export function findUniqueOrgMemberAutoFill(
   name: string,
   sources: readonly OrgMemberAutoFillSource[],
