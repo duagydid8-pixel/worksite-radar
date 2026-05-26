@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
 import { applyOrgManagerAutoFill, applyOrgMemberAutoFill, buildOrgManagerAutoFillSources, type OrgManagerAutoFillSource, type OrgMemberAutoFillSource } from "@/lib/orgMemberAutoFill";
-import { fitImageIntoSlide } from "@/lib/pptLayout";
 import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_DATA, HEAD_OFFICE_ORG_VERSION, PPT_MEMBER_BORDER_COLORS, PPT_ORG_DATA, PPT_ORG_VERSION } from "@/lib/pptOrgData";
 import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2, RotateCw } from "lucide-react";
 import { toPng } from "html-to-image";
@@ -1031,43 +1030,6 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         return;
       }
 
-      {
-        const chartEl = chartRef.current;
-        if (!chartEl) {
-          toast.error("내보낼 조직도 영역을 찾지 못했습니다.");
-          return;
-        }
-
-        const chartBounds = chartEl.getBoundingClientRect();
-        const chartImage = await toPng(chartEl, {
-          backgroundColor: "#ffffff",
-          pixelRatio: 2,
-          cacheBust: true,
-          filter: (node) => !(node instanceof HTMLElement && node.dataset.exportExclude === "true"),
-        });
-        const imagePlacement = fitImageIntoSlide({
-          width: chartBounds.width || chartEl.offsetWidth,
-          height: chartBounds.height || chartEl.offsetHeight,
-        });
-
-        const imagePptx = new pptxgen();
-        imagePptx.layout = "LAYOUT_WIDE";
-        imagePptx.author = "Worksite Radar";
-        imagePptx.subject = `${activeSite.label} 조직도`;
-        imagePptx.title = `${activeSite.label} 조직도`;
-        imagePptx.company = "한성크린텍";
-        const imageSlide = imagePptx.addSlide();
-        imageSlide.background = { color: "FFFFFF" };
-        imageSlide.addImage({ data: chartImage, ...imagePlacement });
-
-        const d = new Date();
-        await imagePptx.writeFile({
-          fileName: `조직도_${activeSite.label}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.pptx`,
-        });
-        toast.success("화면 레이아웃 그대로 PPT로 내보냈습니다.");
-        return;
-      }
-
       const pptx = new pptxgen();
       if (isHeadOfficeTemplate) {
         pptx.defineLayout({ name: "HEAD_OFFICE", width: 11.6927, height: 8.2674 });
@@ -1086,7 +1048,9 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
       const line = pptx.ShapeType.line;
       const dark = "2B3A67";
       const textDark = "1B2A4A";
-      const xOffset = 0.65;
+      const slideLeft = 0.25;
+      const slideRight = 13.08;
+      const slideContentW = slideRight - slideLeft;
 
       if (isHeadOfficeTemplate) {
         const regularColor = "#00B050";
@@ -1178,7 +1142,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
       }
 
       slide.addText(`■ 조직도 _ 사업 1 팀 _${activeSite.title} _${titleDate}`, {
-        x: 0.1 + xOffset, y: 0.1, w: 7.4, h: 0.3, fontFace: "맑은 고딕", fontSize: 15, bold: true, color: "000000", margin: 0,
+        x: slideLeft, y: 0.13, w: 7.5, h: 0.3, fontFace: "맑은 고딕", fontSize: 15, bold: true, color: "000000", margin: 0,
       });
 
       const statRows: Array<[string, string | number]> = [
@@ -1191,8 +1155,8 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         ["안전", teamCountByName["안전팀"] || 0],
         ["설계", teamCountByName["설계팀"] || 0],
       ];
-      const statX = 7.95 + xOffset;
-      const statW = 0.44;
+      const statX = 8.42;
+      const statW = 0.58;
       statRows.forEach(([label, value], idx) => {
         const x = statX + idx * statW;
         slide.addShape(rect, { x, y: 0.1, w: statW, h: 0.23, fill: { color: dark }, line: { color: "000000", width: 0.5 } });
@@ -1201,40 +1165,51 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         slide.addText(String(value), { x, y: 0.40, w: statW, h: 0.08, fontFace: "맑은 고딕", fontSize: 6.2, bold: true, color: "000000", align: "center", margin: 0 });
       });
 
-      slide.addShape(line, { x: 0.1 + xOffset, y: 0.73, w: 11.55, h: 0, line: { color: "000000", width: 1.0 } });
+      slide.addText("인원 구분", { x: 9.15, y: 0.66, w: 0.72, h: 0.1, fontFace: "맑은 고딕", fontSize: 5.8, bold: true, color: "64748B", margin: 0 });
+      MEMBER_BORDER_OPTIONS.forEach((option, idx) => {
+        const x = [9.92, 10.88, 11.76][idx] ?? (9.92 + idx * 0.95);
+        slide.addShape(rect, { x, y: 0.675, w: 0.09, h: 0.09, fill: { color: pptColor(option.color) }, line: { color: "94A3B8", width: 0.35 } });
+        slide.addText(option.label, { x: x + 0.12, y: 0.66, w: idx === 2 ? 1.15 : 0.62, h: 0.1, fontFace: "맑은 고딕", fontSize: 5.8, bold: true, color: "334155", margin: 0, fit: "shrink" });
+      });
 
-      const addManager = async (info: SiteManagerInfo, title: string, x: number) => {
-        slide.addShape(rect, { x, y: 0.82, w: 3.35, h: 0.72, fill: { color: "FFFFFF" }, line: { color: "000000", width: 1.0 } });
+      slide.addShape(line, { x: slideLeft, y: 0.86, w: slideContentW, h: 0, line: { color: "000000", width: 1.0 } });
+
+      const addManager = async (info: SiteManagerInfo, title: string, x: number, w: number) => {
+        slide.addShape(rect, { x, y: 1.04, w, h: 0.82, fill: { color: "FFFFFF" }, line: { color: "000000", width: 1.0 } });
         const img = await imageSrcToDataUri(info.photo_url);
-        if (img) slide.addImage({ data: img, x: x + 0.08, y: 0.89, w: 0.55, h: 0.58, sizingCrop: { x: x + 0.08, y: 0.89, w: 0.55, h: 0.58 } });
-        else slide.addShape(rect, { x: x + 0.08, y: 0.89, w: 0.55, h: 0.58, fill: { color: "64748B" }, line: { color: "64748B" } });
-        slide.addText(title, { x: x + 0.75, y: 0.90, w: 2.45, h: 0.12, fontFace: "맑은 고딕", fontSize: 6.2, bold: true, color: textDark, margin: 0 });
-        slide.addShape(line, { x: x + 0.75, y: 1.08, w: 2.45, h: 0, line: { color: "BFC7D5", width: 0.4 } });
-        slide.addText(info.name, { x: x + 0.75, y: 1.18, w: 1.5, h: 0.14, fontFace: "맑은 고딕", fontSize: 10.5, bold: true, color: "000000", margin: 0 });
-        if (info.email) slide.addText(`✉ ${info.email}`, { x: x + 0.75, y: 1.37, w: 2.45, h: 0.08, fontFace: "맑은 고딕", fontSize: 5.2, color: "32445A", margin: 0 });
-        if (info.phone) slide.addText(`☎ ${info.phone}`, { x: x + 0.75, y: 1.48, w: 2.45, h: 0.08, fontFace: "맑은 고딕", fontSize: 5.2, color: "32445A", margin: 0 });
+        if (img) slide.addImage({ data: img, x: x + 0.09, y: 1.11, w: 0.62, h: 0.68, sizingCrop: { x: x + 0.09, y: 1.11, w: 0.62, h: 0.68 } });
+        else slide.addShape(rect, { x: x + 0.09, y: 1.11, w: 0.62, h: 0.68, fill: { color: "64748B" }, line: { color: "64748B" } });
+        const textX = x + 0.85;
+        const textW = w - 1.02;
+        slide.addText(title, { x: textX, y: 1.13, w: textW, h: 0.12, fontFace: "맑은 고딕", fontSize: 6.2, bold: true, color: textDark, margin: 0, fit: "shrink" });
+        slide.addShape(line, { x: textX, y: 1.32, w: textW, h: 0, line: { color: "BFC7D5", width: 0.4 } });
+        slide.addText(info.name, { x: textX, y: 1.43, w: textW, h: 0.15, fontFace: "맑은 고딕", fontSize: 10.5, bold: true, color: "000000", margin: 0, fit: "shrink" });
+        if (info.email) slide.addText(`✉ ${info.email}`, { x: textX, y: 1.62, w: textW, h: 0.08, fontFace: "맑은 고딕", fontSize: 5.2, color: "32445A", margin: 0, fit: "shrink" });
+        if (info.phone) slide.addText(`☎ ${info.phone}`, { x: textX, y: 1.73, w: textW, h: 0.08, fontFace: "맑은 고딕", fontSize: 5.2, color: "32445A", margin: 0, fit: "shrink" });
       };
 
-      await addManager(businessManager, businessManager.role || "사업 1본부 팀장", 0.1 + xOffset);
-      await addManager(siteManager, siteManager.role || "사업 1본부 현장 소장", 4.53 + xOffset);
+      await addManager(businessManager, businessManager.role || "사업 1본부 팀장", 0.95, 5.35);
+      await addManager(siteManager, siteManager.role || "사업 1본부 현장 소장", 7.05, 3.05);
 
-      slide.addShape(line, { x: 5.84 + xOffset, y: 1.62, w: 0, h: 0.16, line: { color: "000000", width: 0.7 } });
-      slide.addShape(line, { x: 1.15 + xOffset, y: 1.78, w: 9.36, h: 0, line: { color: "000000", width: 0.7 } });
+      const chartCenterX = 6.665;
+      slide.addShape(line, { x: chartCenterX, y: 1.95, w: 0, h: 0.24, line: { color: "000000", width: 0.7 } });
+      slide.addShape(line, { x: 1.48, y: 2.19, w: 10.37, h: 0, line: { color: "000000", width: 0.7 } });
 
       const sortedForPpt = [...teams].sort((a, b) => a.sort_order - b.sort_order);
-      const teamXs = [0.03, 2.38, 4.7, 7.04, 9.39];
-      const colW = 2.24;
-      const teamHeaderY = 1.8;
-      const leaderY = 2.13;
-      const memberStartY = 3.08;
-      const cardW = 1.1;
+      const teamGap = 0.12;
+      const colW = (slideContentW - teamGap * 4) / 5;
+      const teamXs = Array.from({ length: 5 }, (_, idx) => slideLeft + idx * (colW + teamGap));
+      const teamHeaderY = 2.43;
+      const leaderY = 2.78;
+      const memberStartY = 3.66;
+      const subColGap = 0.07;
+      const cardW = (colW - subColGap) / 2;
       const cardH = 0.82;
       const rowGap = 0.04;
-      const colGap = 0.07;
 
       for (let i = 0; i < sortedForPpt.length; i += 1) {
         const team = sortedForPpt[i];
-        const x = (teamXs[i] ?? (0.03 + i * (colW + 0.11))) + xOffset;
+        const x = teamXs[i] ?? (slideLeft + i * (colW + teamGap));
         slide.addShape(rect, { x, y: teamHeaderY, w: colW, h: 0.28, fill: { color: dark }, line: { color: dark, width: 0.8 } });
         slide.addText(team.name, { x: x + 0.05, y: teamHeaderY + 0.08, w: colW - 0.1, h: 0.1, fontFace: "맑은 고딕", fontSize: 8.5, bold: true, color: "FFFFFF", margin: 0 });
 
@@ -1275,7 +1250,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
           const member = otherMembers[j];
           const subCol = j % 2;
           const row = Math.floor(j / 2);
-          const cx = x + subCol * (cardW + colGap);
+          const cx = x + subCol * (cardW + subColGap);
           const cy = memberStartY + row * (cardH + rowGap);
           await addMemberCard(member, cx, cy, cardW, false);
         }
