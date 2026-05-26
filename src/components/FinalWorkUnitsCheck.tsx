@@ -137,6 +137,7 @@ function datesInRange(records: MonthlyXerpAttendanceRecord[], startDate: string,
 
 export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const quickReviewSectionRef = useRef<HTMLElement>(null);
   const topHorizontalScrollRef = useRef<HTMLDivElement>(null);
   const tableHorizontalScrollRef = useRef<HTMLDivElement>(null);
   const [fileName, setFileName] = useState("");
@@ -373,6 +374,10 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     }, 80);
   };
 
+  const handleReturnToQuickReview = () => {
+    quickReviewSectionRef.current?.scrollIntoView({ block: "start", inline: "nearest", behavior: "smooth" });
+  };
+
   const handleSaveMonth = async () => {
     if (!analysis) return;
     if (!saveMonthKey) {
@@ -552,7 +557,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <section ref={quickReviewSectionRef} className="rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
               <div>
                 <h3 className="text-sm font-black text-slate-900">빠른 검토 목록</h3>
@@ -648,6 +653,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                       onToggleExpanded={() => setExpandedId((current) => (current === row.id ? null : row.id))}
                       onToggleFlag={(flag) => toggleReviewFlag(row.id, flag)}
                       onMemoChange={(memo) => updateReview(row.id, (current) => ({ ...current, memo }))}
+                      onReturnToQuickReview={() => handleReturnToQuickReview()}
                     />
                   ))}
                 </tbody>
@@ -813,6 +819,7 @@ function WorkUnitRow({
   onToggleExpanded,
   onToggleFlag,
   onMemoChange,
+  onReturnToQuickReview,
 }: {
   row: FinalWorkUnitsRow;
   expanded: boolean;
@@ -822,6 +829,7 @@ function WorkUnitRow({
   onToggleExpanded: () => void;
   onToggleFlag: (flag: string) => void;
   onMemoChange: (memo: string) => void;
+  onReturnToQuickReview: () => void;
 }) {
   const meta = STATUS_META[row.status];
   const gasanReason = displayGasanReason(row, xerpPmisLoadStatus);
@@ -906,6 +914,17 @@ function WorkUnitRow({
       {expanded && (
         <tr className="border-b border-slate-200 bg-slate-50">
           <td colSpan={21} className="bg-slate-50 px-3 py-3 align-top">
+            <div className="sticky left-3 z-10 mb-3 flex w-max items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
+              <span className="text-xs font-black text-slate-700">{row.name} 상세 확인</span>
+              <button
+                type="button"
+                onClick={onReturnToQuickReview}
+                className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-slate-800"
+              >
+                <ChevronUp className="h-3.5 w-3.5" />
+                검토 목록으로 돌아가기
+              </button>
+            </div>
             <div className="inline-grid w-max max-w-[1240px] grid-cols-[repeat(3,minmax(300px,380px))] items-start gap-3 align-top">
               <DetailBox
                 title="XERP 월간출퇴근현황"

@@ -42,6 +42,16 @@ describe("FinalWorkUnitsCheck layout guards", () => {
     expect(source).toContain("검토완료 숨김");
   });
 
+  it("lets users return to the quick review list after opening a table row", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
+
+    expect(source).toContain("quickReviewSectionRef");
+    expect(source).toContain("handleReturnToQuickReview");
+    expect(source).toContain("quickReviewSectionRef.current?.scrollIntoView");
+    expect(source).toContain("onReturnToQuickReview={() => handleReturnToQuickReview()}");
+    expect(source).toContain("onReturnToQuickReview");
+  });
+
   it("defaults the heavy final work list to anomaly rows instead of all workers", () => {
     const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
 
