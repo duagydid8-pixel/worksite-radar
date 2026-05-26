@@ -108,6 +108,17 @@ function cleanGasanReason(value: unknown): string {
 // ── 신규자 정보 타입 ──────────────────────────────────
 interface NewEmpInfo { 생년월일: string; 단가: string; }
 
+export function resolveSyncedGasanReason(
+  originalReason: unknown,
+  processed?: { reason?: string; manualAdjustment?: boolean; rawOutMin?: number | null } | null,
+): string {
+  const fallbackTags = inferGasanReasonTags({ rawOutMin: processed?.rawOutMin ?? null });
+  const workbookReason = cleanGasanReason(originalReason);
+  if (workbookReason) return normalizeGasanReasonParentheses(workbookReason, fallbackTags);
+  if (!processed?.manualAdjustment) return "";
+  return normalizeGasanReasonParentheses(cleanGasanReason(processed.reason), fallbackTags);
+}
+
 function excelSerialToDateStr(serial: unknown): string {
   const n = typeof serial === "number" ? serial : parseFloat(String(serial));
   if (isNaN(n) || n <= 0) return "";
@@ -1068,10 +1079,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           가산승인: c[20],
           공수합계AB: gongsuAB,
           월누계: c[22],
-          가산사유: normalizeGasanReasonParentheses(
-            cleanGasanReason(c[25]) || cleanGasanReason(pr?.가산사유),
-            pr ? inferGasanReasonTags(pr) : [],
-          ),
+          가산사유: resolveSyncedGasanReason(c[25], pr ? {
+            reason: pr.가산사유,
+            manualAdjustment: pr.manualAdjustment,
+            rawOutMin: pr.rawOutMin,
+          } : null),
         };
       });
 

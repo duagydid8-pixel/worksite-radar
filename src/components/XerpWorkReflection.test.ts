@@ -7,6 +7,7 @@ import {
   canBuildDownloadWorkbook,
   isWeekendWorkDate,
   resolveLoadedAdjustment,
+  resolveSyncedGasanReason,
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
@@ -208,5 +209,37 @@ describe("XERP work reflection saved adjustment loading", () => {
       가산사유: "자동 계산 사유",
       manualAdjustment: false,
     });
+  });
+});
+
+describe("XERP work reflection XERP&PMIS sync reasons", () => {
+  it("does not persist automatically inferred gasan reasons as saved XERP&PMIS reasons", () => {
+    const result = resolveSyncedGasanReason("", {
+      reason: "1h 야간근무",
+      manualAdjustment: false,
+      rawOutMin: 21 * 60,
+    });
+
+    expect(result).toBe("");
+  });
+
+  it("persists manually edited gasan reasons when syncing to XERP&PMIS", () => {
+    const result = resolveSyncedGasanReason("", {
+      reason: "사용자 입력 사유",
+      manualAdjustment: true,
+      rawOutMin: 21 * 60,
+    });
+
+    expect(result).toBe("사용자 입력 사유");
+  });
+
+  it("preserves gasan reasons already written in the original workbook", () => {
+    const result = resolveSyncedGasanReason("원본 Z열 사유", {
+      reason: "자동 추론 사유",
+      manualAdjustment: false,
+      rawOutMin: 21 * 60,
+    });
+
+    expect(result).toBe("원본 Z열 사유");
   });
 });
