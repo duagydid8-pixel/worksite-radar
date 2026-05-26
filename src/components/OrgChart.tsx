@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
-import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_VERSION, PPT_MEMBER_BORDER_COLORS, PPT_ORG_VERSION } from "@/lib/pptOrgData";
+import { applyOrgManagerAutoFill, applyOrgMemberAutoFill, type OrgManagerAutoFillSource, type OrgMemberAutoFillSource } from "@/lib/orgMemberAutoFill";
+import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_DATA, HEAD_OFFICE_ORG_VERSION, PPT_MEMBER_BORDER_COLORS, PPT_ORG_DATA, PPT_ORG_VERSION } from "@/lib/pptOrgData";
 import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2, RotateCw } from "lucide-react";
 import { toPng } from "html-to-image";
 import pptxgen from "pptxgenjs";
@@ -552,9 +553,24 @@ async function exportHeadOfficeTemplatePpt({
 }
 
 /* ━━━━━━━━━━━━━━━ SITE MANAGER EDIT DIALOG ━━━━━━━━━━━━━━━ */
-function SiteManagerEditDialog({ info, title, onSave, onClose }: { info: SiteManagerInfo; title: string; onSave: (i: SiteManagerInfo) => void; onClose: () => void }) {
+function SiteManagerEditDialog({
+  info,
+  title,
+  autoFillSources,
+  onSave,
+  onClose,
+}: {
+  info: SiteManagerInfo;
+  title: string;
+  autoFillSources: readonly OrgManagerAutoFillSource[];
+  onSave: (i: SiteManagerInfo) => void;
+  onClose: () => void;
+}) {
   const [draft, setDraft] = useState<SiteManagerInfo>({ ...info });
   const fileRef = useRef<HTMLInputElement>(null);
+  const handleManagerNameChange = (name: string) => {
+    setDraft((current) => applyOrgManagerAutoFill(current, name, autoFillSources));
+  };
   const handleRotate = async () => {
     if (!draft.photo_url) return;
     try {
@@ -618,7 +634,7 @@ function SiteManagerEditDialog({ info, title, onSave, onClose }: { info: SiteMan
           {([ ["이름","name"], ["직책","role"], ["연락처","phone"], ["이메일","email"] ] as const).map(([label, key]) => (
             <label key={key} className="block">
               <span className="text-xs font-semibold text-muted-foreground">{label}</span>
-              <input value={draft[key] ?? ""} onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
+              <input value={draft[key] ?? ""} onChange={(e) => key === "name" ? handleManagerNameChange(e.target.value) : setDraft((d) => ({ ...d, [key]: e.target.value }))}
                 className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
             </label>
           ))}
@@ -633,7 +649,23 @@ function SiteManagerEditDialog({ info, title, onSave, onClose }: { info: SiteMan
 }
 
 /* ━━━━━━━━━━━━━━━ EDIT DIALOG ━━━━━━━━━━━━━━━ */
-function EditDialog({ member, onSave, onClose, onPhotoUpload, onPhotoRemove, uploading }: { member: OrgMember; onSave: (m: OrgMember) => void; onClose: () => void; onPhotoUpload: (memberId: string, file: File) => Promise<string | null>; onPhotoRemove: (memberId: string) => void; uploading: boolean }) {
+function EditDialog({
+  member,
+  autoFillSources,
+  onSave,
+  onClose,
+  onPhotoUpload,
+  onPhotoRemove,
+  uploading,
+}: {
+  member: OrgMember;
+  autoFillSources: readonly OrgMemberAutoFillSource[];
+  onSave: (m: OrgMember) => void;
+  onClose: () => void;
+  onPhotoUpload: (memberId: string, file: File) => Promise<string | null>;
+  onPhotoRemove: (memberId: string) => void;
+  uploading: boolean;
+}) {
   const [draft, setDraft] = useState<OrgMember>({
     ...member,
     border_color: member.border_color ?? PPT_MEMBER_BORDER_COLORS[member.name] ?? MEMBER_BORDER_OPTIONS[0].color,
@@ -643,6 +675,9 @@ function EditDialog({ member, onSave, onClose, onPhotoUpload, onPhotoRemove, upl
   useEffect(() => {
     setDraft((current) => ({ ...current, photo_url: member.photo_url }));
   }, [member.photo_url]);
+  const handleMemberNameChange = (name: string) => {
+    setDraft((current) => applyOrgMemberAutoFill(current, name, autoFillSources, PPT_MEMBER_BORDER_COLORS));
+  };
   const handleRotate = async () => {
     if (!draft.photo_url) return;
     try {
@@ -705,7 +740,7 @@ function EditDialog({ member, onSave, onClose, onPhotoUpload, onPhotoRemove, upl
           {([ ["이름","name","text"], ["직책","position","text"], ["연락처","phone","tel"], ["이메일","email","email"] ] as const).map(([label, key, type]) => (
             <label key={key} className="block">
               <span className="text-xs font-semibold text-muted-foreground">{label}</span>
-              <input type={type} value={draft[key] as string} onChange={(e) => set(key, e.target.value)}
+              <input type={type} value={draft[key] as string} onChange={(e) => key === "name" ? handleMemberNameChange(e.target.value) : set(key, e.target.value)}
                 className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
             </label>
           ))}
@@ -960,6 +995,16 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   }, [teams, teamCountById]);
   const headOfficeStats = useMemo(() => getHeadOfficeStats(teams, members, siteManager), [teams, members, siteManager]);
   const displayTotalMembers = isHeadOfficeTemplate ? headOfficeStats[0]?.[1] : totalMembers;
+  const memberAutoFillSources = useMemo(
+    () => isHeadOfficeTemplate ? HEAD_OFFICE_ORG_DATA.members : PPT_ORG_DATA.members,
+    [isHeadOfficeTemplate],
+  );
+  const managerAutoFillSources = useMemo(
+    () => isHeadOfficeTemplate
+      ? [HEAD_OFFICE_ORG_DATA.businessManager, HEAD_OFFICE_ORG_DATA.siteManager, PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager].filter((manager) => manager.name)
+      : [PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager],
+    [isHeadOfficeTemplate],
+  );
 
   const handleExportImage = useCallback(async () => {
     if (!chartRef.current) return;
@@ -1499,9 +1544,9 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         </div>
       )}
 
-      {editBusinessManager && <SiteManagerEditDialog info={businessManager} title={businessManager.role || "사업 1본부 팀장"} onSave={handleBusinessManagerSave} onClose={() => setEditBusinessManager(false)} />}
-      {editSiteManager && <SiteManagerEditDialog info={siteManager} title={siteManager.role || "사업 1본부 현장 소장"} onSave={handleSiteManagerSave} onClose={() => setEditSiteManager(false)} />}
-      {editMember && <EditDialog member={editMember} onSave={handleMemberSave} onClose={() => setEditMember(null)} onPhotoUpload={handlePhotoUpload} onPhotoRemove={handlePhotoRemove} uploading={false} />}
+      {editBusinessManager && <SiteManagerEditDialog info={businessManager} title={businessManager.role || "사업 1본부 팀장"} autoFillSources={managerAutoFillSources} onSave={handleBusinessManagerSave} onClose={() => setEditBusinessManager(false)} />}
+      {editSiteManager && <SiteManagerEditDialog info={siteManager} title={siteManager.role || "사업 1본부 현장 소장"} autoFillSources={managerAutoFillSources} onSave={handleSiteManagerSave} onClose={() => setEditSiteManager(false)} />}
+      {editMember && <EditDialog member={editMember} autoFillSources={memberAutoFillSources} onSave={handleMemberSave} onClose={() => setEditMember(null)} onPhotoUpload={handlePhotoUpload} onPhotoRemove={handlePhotoRemove} uploading={false} />}
       {showAddTeam && <AddTeamDialog onAdd={handleAddTeam} onClose={() => setShowAddTeam(false)} usedColors={teams.map((t) => t.color)} />}
     </div>
   );
