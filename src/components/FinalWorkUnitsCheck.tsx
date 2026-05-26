@@ -25,7 +25,7 @@ import {
   type FinalWorkUnitsReviewSuggestion,
 } from "@/lib/finalWorkUnitsReviewMemory";
 
-type StatusFilter = "all" | FinalWorkUnitsStatus;
+type StatusFilter = "issues" | "all" | FinalWorkUnitsStatus;
 type XerpPmisLoadStatus = "loading" | "loaded" | "missing" | "error";
 
 interface Props {
@@ -54,13 +54,14 @@ const STATUS_META: Record<FinalWorkUnitsStatus, { label: string; className: stri
 };
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
-  { value: "all", label: "전체" },
+  { value: "issues", label: "이상자" },
   { value: "missing-work-units", label: "공수반영누락" },
   { value: "overtime-review", label: "연장" },
   { value: "gasan-review", label: "가산사유" },
   { value: "pmis-review", label: "PMIS" },
   { value: "electronic-card-reference", label: "전자카드" },
   { value: "normal", label: "정상" },
+  { value: "all", label: "전체" },
 ];
 
 function loadReviewState(): Record<string, ReviewState> {
@@ -125,6 +126,10 @@ function reviewFor(row: FinalWorkUnitsRow, reviews: Record<string, ReviewState>)
   return reviews[row.id] ?? { flags: [], memo: "" };
 }
 
+function tableRowDomId(rowId: string): string {
+  return `final-work-row-${rowId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+}
+
 function datesInRange(records: MonthlyXerpAttendanceRecord[], startDate: string, endDate: string): string[] {
   if (!startDate || !endDate) return [];
   return [...new Set(records.filter((record) => record.date >= startDate && record.date <= endDate).map((record) => record.date))].sort();
@@ -142,7 +147,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   const [xerpPmisLoadStatusByDate, setXerpPmisLoadStatusByDate] = useState<Record<string, XerpPmisLoadStatus>>({});
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("issues");
   const [query, setQuery] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_ROWS);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -278,6 +283,9 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     return rows.filter((row) => {
       if (statusFilter === "gasan-review") {
         if (!row.gasanReason?.trim() && !row.xerpPmisReason?.trim() && row.xerpPmisExtraUnits <= 0) return false;
+      } else if (statusFilter === "issues") {
+        if (row.status === "normal") return false;
+        if (row.status === "pmis-not-uploaded") return false;
       } else if (statusFilter !== "all" && row.status !== statusFilter) {
         return false;
       }
@@ -291,6 +299,11 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   }, [analysis, query, statusFilter, startDate, endDate]);
 
   const visibleRows = useMemo(() => filteredRows.slice(0, visibleLimit), [filteredRows, visibleLimit]);
+  const quickReviewOpenRows = useMemo(
+    () => filteredRows.filter((row) => !reviewFor(row, reviews).flags.includes("확인완료")),
+    [filteredRows, reviews]
+  );
+  const quickReviewRows = useMemo(() => quickReviewOpenRows.slice(0, 24), [quickReviewOpenRows]);
 
   const syncHorizontalScroll = (source: "top" | "table") => {
     const from = source === "top" ? topHorizontalScrollRef.current : tableHorizontalScrollRef.current;
@@ -324,7 +337,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
       setFileName(file.name);
       setStartDate(defaultStartDate(parsed));
       setEndDate(defaultEndDate(parsed));
-      setStatusFilter("all");
+      setStatusFilter("issues");
       setExpandedId(null);
       toast.success(`${parsed.length}건을 불러왔습니다.`);
     } catch (error) {
@@ -339,6 +352,25 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
       saveReviewState(next);
       return next;
     });
+  };
+
+  const toggleReviewFlag = (rowId: string, flag: string) => {
+    updateReview(rowId, (current) => ({
+      ...current,
+      flags: current.flags.includes(flag) ? current.flags.filter((item) => item !== flag) : [...current.flags, flag],
+    }));
+  };
+
+  const handleOpenTableRow = (rowId: string) => {
+    const rowIndex = filteredRows.findIndex((row) => row.id === rowId);
+    if (rowIndex >= visibleLimit) {
+      const nextLimit = Math.ceil((rowIndex + 1) / INITIAL_VISIBLE_ROWS) * INITIAL_VISIBLE_ROWS;
+      setVisibleLimit(Math.min(filteredRows.length, nextLimit));
+    }
+    setExpandedId(rowId);
+    window.setTimeout(() => {
+      document.getElementById(tableRowDomId(rowId))?.scrollIntoView({ block: "center", inline: "nearest" });
+    }, 80);
   };
 
   const handleSaveMonth = async () => {
@@ -453,7 +485,11 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
           <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
             <div className="flex flex-wrap items-center gap-2">
               {STATUS_TABS.map((tab) => {
-                const count = tab.value === "all" ? analysis.summary.total : analysis.summary[tab.value];
+                const count = tab.value === "all"
+                  ? analysis.summary.total
+                  : tab.value === "issues"
+                    ? analysis.summary.needsReview
+                    : analysis.summary[tab.value];
                 const active = statusFilter === tab.value;
                 return (
                   <button
@@ -516,6 +552,43 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
             </div>
           </section>
 
+          <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">빠른 검토 목록</h3>
+                <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                  검토완료 숨김 · 가로 스크롤 없이 체크하고 메모를 남깁니다.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold">
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">대상 {quickReviewOpenRows.length}건</span>
+                {quickReviewOpenRows.length > quickReviewRows.length && (
+                  <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-700">먼저 {quickReviewRows.length}건 표시</span>
+                )}
+              </div>
+            </div>
+            {quickReviewRows.length > 0 ? (
+              <div className="grid gap-2 p-3 xl:grid-cols-2">
+                {quickReviewRows.map((row) => (
+                  <WorkUnitQuickReviewCard
+                    key={row.id}
+                    row={row}
+                    review={reviewFor(row, reviews)}
+                    reviewSuggestion={reviewSuggestionByRowId[row.id]}
+                    xerpPmisLoadStatus={xerpPmisLoadStatusByDate[row.date]}
+                    onToggleFlag={(flag) => toggleReviewFlag(row.id, flag)}
+                    onMemoChange={(memo) => updateReview(row.id, (current) => ({ ...current, memo }))}
+                    onOpenTableRow={() => handleOpenTableRow(row.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="px-3 py-6 text-center text-xs font-bold text-slate-500">
+                현재 필터에서 빠르게 검토할 항목이 없습니다. 확인완료된 항목은 아래 상세 표에서 다시 볼 수 있습니다.
+              </div>
+            )}
+          </section>
+
           <section className="max-w-full rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-3 py-2 text-xs font-bold text-slate-500">
               {filteredRows.length}건 중 {visibleRows.length}건 표시 중
@@ -573,12 +646,7 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                       reviewSuggestion={reviewSuggestionByRowId[row.id]}
                       xerpPmisLoadStatus={xerpPmisLoadStatusByDate[row.date]}
                       onToggleExpanded={() => setExpandedId((current) => (current === row.id ? null : row.id))}
-                      onToggleFlag={(flag) =>
-                        updateReview(row.id, (current) => ({
-                          ...current,
-                          flags: current.flags.includes(flag) ? current.flags.filter((item) => item !== flag) : [...current.flags, flag],
-                        }))
-                      }
+                      onToggleFlag={(flag) => toggleReviewFlag(row.id, flag)}
                       onMemoChange={(memo) => updateReview(row.id, (current) => ({ ...current, memo }))}
                     />
                   ))}
@@ -644,6 +712,98 @@ function reviewSuggestionReason(entry: FinalWorkUnitsReviewMemoryEntry): string 
   return [entry.gasanReason, entry.xerpPmisReason].filter(Boolean).join(" / ") || "-";
 }
 
+function WorkUnitQuickReviewCard({
+  row,
+  review,
+  reviewSuggestion,
+  xerpPmisLoadStatus,
+  onToggleFlag,
+  onMemoChange,
+  onOpenTableRow,
+}: {
+  row: FinalWorkUnitsRow;
+  review: ReviewState;
+  reviewSuggestion?: FinalWorkUnitsReviewSuggestion;
+  xerpPmisLoadStatus: XerpPmisLoadStatus | undefined;
+  onToggleFlag: (flag: string) => void;
+  onMemoChange: (memo: string) => void;
+  onOpenTableRow: () => void;
+}) {
+  const meta = STATUS_META[row.status];
+  const gasanReason = displayGasanReason(row, xerpPmisLoadStatus);
+  const reviewSuggestionLabel = reviewSuggestion ? reviewSuggestionMatchLabel(reviewSuggestion.matchType) : "";
+  return (
+    <article className="min-w-0 rounded-md border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-1 text-[11px] font-extrabold ${meta.className}`}>{meta.label}</span>
+            <span className="text-sm font-black text-slate-900">{row.name}</span>
+            <span className="text-xs font-bold text-slate-400">{row.date.slice(5)}</span>
+            <span className="text-xs font-bold text-slate-500">{row.team}</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            <QuickReviewMetric label="반영" value={displayUnits(row.reflectedWorkUnits) || "-"} />
+            <QuickReviewMetric label="부족" value={row.missingWorkUnits > 0 ? displayUnits(row.missingWorkUnits) : "-"} danger={row.missingWorkUnits > 0} />
+            <QuickReviewMetric label="증빙" value={row.evidenceSource} />
+            <QuickReviewMetric label="근무" value={row.workTime || "-"} />
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenTableRow}
+          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-extrabold text-slate-600 hover:bg-slate-50"
+        >
+          표에서 보기
+        </button>
+      </div>
+
+      <div className="mt-2 space-y-1.5 rounded-md bg-slate-50 px-2.5 py-2 text-xs font-semibold leading-5 text-slate-700">
+        <div className="min-w-0 whitespace-pre-wrap break-words">
+          <span className="font-black text-slate-500">사유 </span>
+          {gasanReason || "사유 없음"}
+        </div>
+        <div className="min-w-0 whitespace-pre-wrap break-words">
+          <span className="font-black text-slate-500">판단 </span>
+          {row.message}
+        </div>
+      </div>
+
+      {reviewSuggestion && (
+        <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold leading-4 text-emerald-700">
+          이전 검토 · {reviewSuggestionLabel} · {reviewSuggestion.entry.month}
+          <div className="mt-0.5 whitespace-pre-wrap break-words text-emerald-800">{reviewSuggestionPreview(reviewSuggestion)}</div>
+        </div>
+      )}
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {REVIEW_FLAGS.map((flag) => (
+          <label key={flag} className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-extrabold text-slate-600">
+            <input type="checkbox" checked={review.flags.includes(flag)} onChange={() => onToggleFlag(flag)} className="h-3.5 w-3.5 accent-slate-900" />
+            {flag}
+          </label>
+        ))}
+      </div>
+
+      <input
+        value={review.memo}
+        onChange={(event) => onMemoChange(event.target.value)}
+        placeholder="메모"
+        className="mt-2 w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none focus:border-slate-400"
+      />
+    </article>
+  );
+}
+
+function QuickReviewMetric({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <span className="font-bold text-slate-400">{label}</span>
+      <span className={`ml-1 font-black tabular-nums ${danger ? "text-rose-600" : "text-slate-800"}`}>{value}</span>
+    </div>
+  );
+}
+
 function WorkUnitRow({
   row,
   expanded,
@@ -670,6 +830,7 @@ function WorkUnitRow({
   return (
     <>
       <tr
+        id={tableRowDomId(row.id)}
         onClick={onToggleExpanded}
         className="cursor-pointer border-b border-slate-100 align-middle hover:bg-slate-50"
         title="클릭하면 상세정보를 확인합니다."

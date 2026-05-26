@@ -32,6 +32,28 @@ describe("FinalWorkUnitsCheck layout guards", () => {
     expect(source).toContain('onScroll={() => syncHorizontalScroll("table")}');
   });
 
+  it("offers a quick review card list before the wide detail table", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
+
+    expect(source).toContain("quickReviewRows");
+    expect(source).toContain("WorkUnitQuickReviewCard");
+    expect(source).toContain("빠른 검토 목록");
+    expect(source).toContain("표에서 보기");
+    expect(source).toContain("검토완료 숨김");
+  });
+
+  it("defaults the heavy final work list to anomaly rows instead of all workers", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
+
+    expect(source).toContain('type StatusFilter = "issues" | "all" | FinalWorkUnitsStatus;');
+    expect(source).toContain('useState<StatusFilter>("issues")');
+    expect(source).toContain('setStatusFilter("issues")');
+    expect(source).toContain('} else if (statusFilter === "issues") {');
+    expect(source).toContain('if (row.status === "normal") return false;');
+    expect(source).toContain('if (row.status === "pmis-not-uploaded") return false;');
+    expect(source).toContain('analysis.summary.needsReview');
+  });
+
   it("keeps expanded detail rows compact and wrapping", () => {
     const source = readFileSync(path.resolve(process.cwd(), "src/components/FinalWorkUnitsCheck.tsx"), "utf8");
 
