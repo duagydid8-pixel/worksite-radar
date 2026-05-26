@@ -1022,7 +1022,8 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       for (const rows of [ph4, ph2, p5]) {
         if (!Array.isArray(rows)) continue;
         for (const emp of rows as { 이름?: string; 퇴사일?: string }[]) {
-          if (emp.퇴사일 && emp.이름) names.add(emp.이름);
+          const name = emp.이름?.trim();
+          if (emp.퇴사일 && name) names.add(name);
         }
       }
       setResignedNames(names);

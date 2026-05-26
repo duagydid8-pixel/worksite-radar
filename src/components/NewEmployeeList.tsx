@@ -96,18 +96,32 @@ const COL_POSITION_MAP: Record<number, keyof NewEmployee> = {
 };
 
 const HEADER_MAP: Record<string, keyof NewEmployee> = {
+  현장구분: "현장구분", 소속팀: "현장구분", 근무현장: "현장구분",
   이름: "이름", 성명: "이름",
   주민번호: "주민번호", 주민등록번호: "주민번호",
   연락처: "연락처", 전화번호: "연락처", 휴대폰: "연락처", 휴대전화: "연락처",
-  "남/여": "남여", 성별: "남여",
+  "남/여": "남여", 남여: "남여", 남녀: "남여", 성별: "남여",
   입사일: "입사일",
   퇴사일: "퇴사일",
+  신청공종: "신청공종", 공종: "신청공종", 직종: "신청공종",
+  단가: "단가",
+  단가변동: "단가변동",
+  은행명: "은행명", 은행: "은행명",
   계좌번호: "계좌번호", 계좌: "계좌번호",
-  주소: "주소",
+  주소: "주소", 기본주소: "주소",
   메모: "메모", 비고: "메모", 코멘트: "메모", comment: "메모",
 };
 
 const DATE_FIELDS = new Set<keyof NewEmployee>(["입사일", "퇴사일"]);
+
+function headerToField(header: unknown): keyof NewEmployee | undefined {
+  const text = String(header ?? "").trim();
+  return HEADER_MAP[text] ?? HEADER_MAP[text.replace(/\s+/g, "").toLowerCase()];
+}
+
+function hasEmployeeName(row: Partial<NewEmployee>): boolean {
+  return Boolean(String(row.이름 ?? "").trim());
+}
 
 export function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -120,19 +134,20 @@ export function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
   const fieldMap: { colIdx: number; field: keyof NewEmployee }[] = [];
   const usedFields = new Set<keyof NewEmployee>();
 
-  for (const [colStr, field] of Object.entries(COL_POSITION_MAP)) {
-    const colIdx = Number(colStr);
-    fieldMap.push({ colIdx, field });
-    usedFields.add(field);
-  }
-
   headers.forEach((h, idx) => {
-    const field = HEADER_MAP[h];
+    const field = headerToField(h);
     if (field && !usedFields.has(field)) {
       fieldMap.push({ colIdx: idx, field });
       usedFields.add(field);
     }
   });
+
+  for (const [colStr, field] of Object.entries(COL_POSITION_MAP)) {
+    if (usedFields.has(field)) continue;
+    const colIdx = Number(colStr);
+    fieldMap.push({ colIdx, field });
+    usedFields.add(field);
+  }
 
   const results: NewEmployee[] = [];
   for (let i = headerRowIdx + 1; i < raw.length; i++) {
@@ -153,8 +168,8 @@ export function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
         emp[field] = DATE_FIELDS.has(field) ? excelDateToISO(val) : String(val ?? "").trim();
       }
     }
-    // 이름과 주민번호가 모두 없는 행은 제외
-    if (!emp.이름 && !emp.주민번호) continue;
+    // 이름 없는 행은 실제 인원으로 저장하지 않는다.
+    if (!hasEmployeeName(emp)) continue;
     results.push(emp);
   }
   return results;
@@ -181,7 +196,31 @@ export function emptyRow(): NewEmployee {
 }
 
 function normalizeEmployee(row: Partial<NewEmployee>): NewEmployee {
-  return { ...emptyRow(), ...row, id: row.id || crypto.randomUUID(), 메모: row.메모 ?? "" };
+  const normalized = { ...emptyRow(), ...row, id: row.id || crypto.randomUUID(), 메모: row.메모 ?? "" };
+  normalized.이름 = String(normalized.이름 ?? "").trim();
+  return normalized;
+}
+
+export function sanitizeEmployeeRows(rows: Partial<NewEmployee>[]): NewEmployee[] {
+  return rows.map(normalizeEmployee).filter(hasEmployeeName);
+}
+
+export function getEmployeeStatusCounts(rows: Pick<NewEmployee, "이름" | "입사일" | "퇴사일">[]) {
+  let total = 0;
+  let active = 0;
+  let resigned = 0;
+  let unknown = 0;
+
+  for (const row of rows) {
+    if (!hasEmployeeName(row)) continue;
+    total += 1;
+    const { status } = calcTenure(row.입사일, row.퇴사일);
+    if (status === "재직중") active += 1;
+    else if (status === "퇴사") resigned += 1;
+    else unknown += 1;
+  }
+
+  return { total, active, resigned, unknown };
 }
 
 const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "메모"];
@@ -250,7 +289,14 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   useEffect(() => {
     loadFn().then((fsRows) => {
       if (Array.isArray(fsRows) && fsRows.length > 0) {
-        setRows((fsRows as Partial<NewEmployee>[]).map(normalizeEmployee));
+        const rawRows = fsRows as Partial<NewEmployee>[];
+        const cleanedRows = sanitizeEmployeeRows(rawRows);
+        setRows(cleanedRows);
+        if (cleanedRows.length !== rawRows.length) {
+          saveFn(cleanedRows).then((ok) => {
+            if (!ok) toast.error("이름 없는 행 정리 저장 실패");
+          });
+        }
       }
       setLoading(false);
     });
@@ -259,7 +305,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
 
   // Firestore 저장 헬퍼
   const syncFS = useCallback((newRows: NewEmployee[]) => {
-    saveFn(newRows).then((ok) => {
+    saveFn(sanitizeEmployeeRows(newRows)).then((ok) => {
       if (!ok) toast.error("Firestore 저장 실패");
     });
   }, [saveFn]);
@@ -287,6 +333,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
     return rows.filter((r) => {
       if (search.trim() && !r.이름.includes(search.trim())) return false;
       if (statusFilter !== "전체") {
+        if (!hasEmployeeName(r)) return false;
         const { status } = calcTenure(r.입사일, r.퇴사일);
         if (status !== statusFilter) return false;
       }
@@ -298,6 +345,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   const warningRows = useMemo(() => {
     return rows
       .filter((r) => {
+        if (!hasEmployeeName(r)) return false;
         const { months, status } = calcTenure(r.입사일, r.퇴사일);
         return status === "재직중" && Number(months) >= 10;
       })
@@ -309,11 +357,9 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
       .sort((a, b) => b.days - a.days); // 근속 많은 순
   }, [rows]);
 
-  const activeCount = useMemo(
-    () => rows.filter((r) => calcTenure(r.입사일, r.퇴사일).status === "재직중").length,
-    [rows]
-  );
-  const resignedCount = rows.length - activeCount;
+  const statusCounts = useMemo(() => getEmployeeStatusCounts(rows), [rows]);
+  const activeCount = statusCounts.active;
+  const resignedCount = statusCounts.resigned;
 
   const addRow = () => {
     const next = [...rows, emptyRow()];
@@ -337,7 +383,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array", cellDates: false });
-        const imported = parseImportedSheet(wb);
+        const imported = sanitizeEmployeeRows(parseImportedSheet(wb));
         if (imported.length === 0) {
           toast.error("데이터를 찾을 수 없습니다. 헤더 행을 확인하세요.");
           return;
@@ -386,7 +432,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
       const file = await target.handle.getFile();
       const buffer = await file.arrayBuffer();
       const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: false });
-      const imported = parseImportedSheet(wb);
+      const imported = sanitizeEmployeeRows(parseImportedSheet(wb));
       if (imported.length === 0) {
         toast.error(`${target.name}: 데이터를 찾을 수 없습니다. 헤더 행을 확인하세요.`);
         return;
@@ -400,7 +446,8 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   };
 
   const exportToExcel = () => {
-    const dataRows = rows.map((r, i) => {
+    const exportRows = rows.filter(hasEmployeeName);
+    const dataRows = exportRows.map((r, i) => {
       const { days, months, status } = calcTenure(r.입사일, r.퇴사일);
       return [
         i + 1, r.현장구분, r.이름, r.주민번호, r.연락처,
@@ -647,7 +694,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
           <div className="mr-auto grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
               <p className="text-[10px] font-bold text-slate-400">전체</p>
-              <p className="text-lg font-extrabold tabular-nums text-slate-950">{rows.length}</p>
+              <p className="text-lg font-extrabold tabular-nums text-slate-950">{statusCounts.total}</p>
             </div>
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
               <p className="text-[10px] font-bold text-emerald-600">재직중</p>
@@ -878,8 +925,8 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
 
       <p className="shrink-0 text-xs font-semibold text-slate-400">
         {displayRows.length !== rows.length
-          ? `${displayRows.length}명 표시 / 전체 ${rows.length}명`
-          : `총 ${rows.length}명`} · 연령 / 근속일수 / 근속개월 / 근속현황은 자동 계산됩니다
+          ? `${displayRows.length}명 표시 / 전체 ${statusCounts.total}명`
+          : `총 ${statusCounts.total}명`} · 연령 / 근속일수 / 근속개월 / 근속현황은 자동 계산됩니다
       </p>
     </div>
   );
