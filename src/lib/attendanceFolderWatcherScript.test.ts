@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { classifyAttendanceFile, scanWatchDir, selectSourceFiles } from "../../scripts/attendance-folder-watcher.mjs";
+import { DEFAULT_WATCH_DIR, classifyAttendanceFile, scanWatchDir, selectSourceFiles } from "../../scripts/attendance-folder-watcher.mjs";
 
 describe("attendance folder watcher file selection", () => {
+  it("defaults to the P4-PH4 attendance folder under Desktop 모음", () => {
+    expect(DEFAULT_WATCH_DIR).toBe("C:\\Users\\bongryong\\Desktop\\모음\\염효양\\P4-PH4\\8. 상용,현채,서드 근태관리");
+  });
+
   it("classifies fingerprint and XERP Excel files", () => {
     expect(classifyAttendanceFile("2026-05-08 지문기록.xlsx")).toBe("fingerprint");
     expect(classifyAttendanceFile("XERP기록_20260508.xls")).toBe("xerp");
