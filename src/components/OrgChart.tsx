@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
 import { applyOrgManagerAutoFill, applyOrgMemberAutoFill, buildOrgManagerAutoFillSources, type OrgManagerAutoFillSource, type OrgMemberAutoFillSource } from "@/lib/orgMemberAutoFill";
+import { fitImageIntoSlide } from "@/lib/pptLayout";
 import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_DATA, HEAD_OFFICE_ORG_VERSION, PPT_MEMBER_BORDER_COLORS, PPT_ORG_DATA, PPT_ORG_VERSION } from "@/lib/pptOrgData";
 import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2, RotateCw } from "lucide-react";
 import { toPng } from "html-to-image";
@@ -1030,6 +1031,43 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         return;
       }
 
+      {
+        const chartEl = chartRef.current;
+        if (!chartEl) {
+          toast.error("내보낼 조직도 영역을 찾지 못했습니다.");
+          return;
+        }
+
+        const chartBounds = chartEl.getBoundingClientRect();
+        const chartImage = await toPng(chartEl, {
+          backgroundColor: "#ffffff",
+          pixelRatio: 2,
+          cacheBust: true,
+          filter: (node) => !(node instanceof HTMLElement && node.dataset.exportExclude === "true"),
+        });
+        const imagePlacement = fitImageIntoSlide({
+          width: chartBounds.width || chartEl.offsetWidth,
+          height: chartBounds.height || chartEl.offsetHeight,
+        });
+
+        const imagePptx = new pptxgen();
+        imagePptx.layout = "LAYOUT_WIDE";
+        imagePptx.author = "Worksite Radar";
+        imagePptx.subject = `${activeSite.label} 조직도`;
+        imagePptx.title = `${activeSite.label} 조직도`;
+        imagePptx.company = "한성크린텍";
+        const imageSlide = imagePptx.addSlide();
+        imageSlide.background = { color: "FFFFFF" };
+        imageSlide.addImage({ data: chartImage, ...imagePlacement });
+
+        const d = new Date();
+        await imagePptx.writeFile({
+          fileName: `조직도_${activeSite.label}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.pptx`,
+        });
+        toast.success("화면 레이아웃 그대로 PPT로 내보냈습니다.");
+        return;
+      }
+
       const pptx = new pptxgen();
       if (isHeadOfficeTemplate) {
         pptx.defineLayout({ name: "HEAD_OFFICE", width: 11.6927, height: 8.2674 });
@@ -1450,8 +1488,8 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-200/60 p-3 shadow-sm">
         <div ref={chartRef} className="mx-auto min-w-[1180px] max-w-[1280px] bg-white p-5 text-slate-950 shadow-sm">
           <div className="mb-3 flex items-start justify-between gap-4 border-b-2 border-slate-900 pb-2">
-            <h3 className="text-xl font-black tracking-tight">■ 조직도 _ 사업 1 팀 _{activeSite.title} _{titleDate}</h3>
-            <div className="flex flex-col items-end gap-1.5">
+            <h3 className="min-w-0 flex-1 text-xl font-black tracking-tight">■ 조직도 _ 사업 1 팀 _{activeSite.title} _{titleDate}</h3>
+            <div className="flex w-[420px] shrink-0 flex-col items-end gap-1.5">
               <div className={`grid overflow-hidden border border-slate-900 text-center text-[11px] font-black ${isHeadOfficeTemplate ? "grid-cols-7" : "grid-cols-8"}`}>
                 {(isHeadOfficeTemplate ? headOfficeStats : [
                   ["총원", totalMembers],
@@ -1469,7 +1507,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
                   </div>
                 ))}
               </div>
-              <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-[10px] font-black leading-none text-slate-700" aria-label="인원 구분">
+              <div className="flex w-full flex-wrap justify-end gap-x-2.5 gap-y-1 text-[9px] font-black leading-none text-slate-700" aria-label="인원 구분">
                 <span className="text-slate-500">인원 구분</span>
                 {MEMBER_BORDER_OPTIONS.map((option) => (
                   <span key={option.color} className="inline-flex items-center gap-1">
@@ -1510,7 +1548,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
                       isHeadOfficeTemplate ? "mx-auto w-[92px] border border-blue-700 bg-blue-700" : "border border-[#2B3A67] bg-[#2B3A67]"
                     }`}>
                       <span className={`${isHeadOfficeTemplate ? "w-full text-center text-[12px]" : "text-sm"} font-black`}>{team.name}</span>
-                      <button onClick={() => handleDeleteTeam(team.id)} className={`rounded p-1 text-white/65 hover:bg-white/15 hover:text-white ${isHeadOfficeTemplate ? "hidden group-hover:block" : ""}`}>
+                      <button data-export-exclude="true" onClick={() => handleDeleteTeam(team.id)} className={`rounded p-1 text-white/65 hover:bg-white/15 hover:text-white ${isHeadOfficeTemplate ? "hidden group-hover:block" : ""}`}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -1535,7 +1573,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
                         )
                       ))}
                     </div>
-                    <button onClick={() => handleAddMember(team.id)}
+                    <button data-export-exclude="true" onClick={() => handleAddMember(team.id)}
                       className="mt-1.5 w-full border border-dashed border-slate-300 py-1.5 text-[10px] font-bold text-slate-400 hover:bg-slate-50 hover:text-slate-700">
                       + 인원 추가
                     </button>
