@@ -54,4 +54,12 @@ describe("OrgChart PPT export", () => {
     expect(source).toContain('return slot.visible === false ? "" : replaceTableCellTexts(tableXml, slot.cells);');
     expect(source).not.toContain("{ cells: memberCells(design[0]) }");
   });
+
+  it("removes stale head-office PPT marker text shapes from the original template", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("function removeHeadOfficeMarkerShapes");
+    expect(source).toContain('plainText.includes("(3rd)") || plainText.includes("(현채)")');
+    expect(source).toContain("slideXml = removeHeadOfficeMarkerShapes(slideXml);");
+  });
 });

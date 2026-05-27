@@ -378,6 +378,24 @@ function removeUnusedSlideImageRelationships(zip: JSZip, relXml: string, slideXm
   );
 }
 
+function decodeXmlText(value: string) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function getShapePlainText(shapeXml: string) {
+  return Array.from(shapeXml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g), (match) => decodeXmlText(match[1])).join("");
+}
+
+function removeHeadOfficeMarkerShapes(xml: string) {
+  return xml.replace(/<p:sp[\s\S]*?<\/p:sp>/g, (shapeXml) => {
+    const plainText = getShapePlainText(shapeXml);
+    return plainText.includes("(3rd)") || plainText.includes("(현채)") ? "" : shapeXml;
+  });
+}
+
 function getMaxRelationshipId(relXml: string) {
   let maxId = 1;
   for (const match of relXml.matchAll(/Id="rId(\d+)"/g)) {
@@ -504,6 +522,7 @@ async function exportHeadOfficeTemplatePpt({
     if (!slot) return tableXml;
     return slot.visible === false ? "" : replaceTableCellTexts(tableXml, slot.cells);
   });
+  slideXml = removeHeadOfficeMarkerShapes(slideXml);
 
   let nextShapeId = getMaxShapeId(slideXml) + 1;
   const overflowFrames: string[] = [];
