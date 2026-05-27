@@ -29,6 +29,33 @@ function normalizePersonName(name: string) {
   return name.replace(/\s+/g, "");
 }
 
+function uniqueMemberAutoFillSources(sources: readonly OrgMemberAutoFillSource[]) {
+  const seen = new Set<string>();
+  return sources.filter((source) => {
+    const normalizedName = normalizePersonName(source.name);
+    if (!normalizedName || seen.has(normalizedName)) return false;
+    seen.add(normalizedName);
+    return true;
+  });
+}
+
+export function buildOrgMemberAutoFillSources({
+  primaryMembers,
+  fallbackMembers = [],
+}: {
+  primaryMembers: readonly OrgMemberAutoFillSource[];
+  fallbackMembers?: readonly OrgMemberAutoFillSource[];
+}): OrgMemberAutoFillSource[] {
+  const primarySources = uniqueMemberAutoFillSources(primaryMembers);
+  const primaryNames = new Set(primarySources.map((source) => normalizePersonName(source.name)));
+  const fallbackSources = uniqueMemberAutoFillSources(fallbackMembers).filter((source) => {
+    const normalizedName = normalizePersonName(source.name);
+    return normalizedName && !primaryNames.has(normalizedName);
+  });
+
+  return [...primarySources, ...fallbackSources];
+}
+
 export function buildOrgManagerAutoFillSources({
   primaryManagers,
   primaryMembers = [],

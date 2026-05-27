@@ -6,6 +6,7 @@ describe("OrgChart member auto-fill wiring", () => {
     const source = readFileSync("src/components/OrgChart.tsx", "utf8");
 
     expect(source).toContain("applyOrgMemberAutoFill");
+    expect(source).toContain("buildOrgMemberAutoFillSources");
     expect(source).toContain("handleMemberNameChange");
   });
 
@@ -21,5 +22,14 @@ describe("OrgChart member auto-fill wiring", () => {
 
     expect(source).toContain("인원 구분");
     expect(source).toContain("MEMBER_BORDER_OPTIONS.map");
+  });
+
+  it("links regular org-chart and head-office rosters as auto-fill fallbacks", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("linkedOrgData");
+    expect(source).toContain("fallbackMembers:");
+    expect(source).toContain("...HEAD_OFFICE_ORG_DATA.members");
+    expect(source).toContain("...PPT_ORG_DATA.members");
   });
 });

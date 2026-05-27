@@ -3,8 +3,10 @@ import { PPT_MEMBER_BORDER_COLORS, PPT_ORG_DATA } from "./pptOrgData";
 import {
   applyOrgManagerAutoFill,
   applyOrgMemberAutoFill,
+  buildOrgMemberAutoFillSources,
   buildOrgManagerAutoFillSources,
   findUniqueOrgMemberAutoFill,
+  type OrgMemberAutoFillSource,
   type OrgManagerAutoFillDraft,
   type OrgMemberAutoFillDraft,
 } from "./orgMemberAutoFill";
@@ -22,6 +24,17 @@ const blankMember: OrgMemberAutoFillDraft = {
   sort_order: 3,
   border_color: "#00B050",
 };
+
+const memberSource = (name: string, position: string): OrgMemberAutoFillSource => ({
+  name,
+  position,
+  rank: "staff",
+  phone: "",
+  email: "",
+  photo_url: "",
+  is_leader: false,
+  border_color: "#00B050",
+});
 
 describe("org member auto-fill", () => {
   it("fills PPT member details by exact name while preserving current team placement", () => {
@@ -65,6 +78,26 @@ describe("org member auto-fill", () => {
       phone: "010-0000-0000",
       team_id: "current-team",
     });
+  });
+
+  it("links member auto-fill sources while keeping the current roster as priority", () => {
+    const sources = buildOrgMemberAutoFillSources({
+      primaryMembers: [
+        memberSource("Same Name", "primary roster"),
+        memberSource("Same Name", "duplicate primary roster"),
+        memberSource("Primary Only", "primary only"),
+      ],
+      fallbackMembers: [memberSource("Same Name", "fallback roster"), memberSource("Fallback Only", "fallback only")],
+    });
+
+    expect(sources.map((source) => `${source.name}:${source.position}`)).toEqual([
+      "Same Name:primary roster",
+      "Primary Only:primary only",
+      "Fallback Only:fallback only",
+    ]);
+
+    expect(applyOrgMemberAutoFill(blankMember, "Same Name", sources).position).toBe("primary roster");
+    expect(applyOrgMemberAutoFill(blankMember, "Fallback Only", sources).position).toBe("fallback only");
   });
 
   it("fills top manager details by name from PPT manager records", () => {

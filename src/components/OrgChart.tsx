@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
-import { applyOrgManagerAutoFill, applyOrgMemberAutoFill, buildOrgManagerAutoFillSources, type OrgManagerAutoFillSource, type OrgMemberAutoFillSource } from "@/lib/orgMemberAutoFill";
+import { applyOrgManagerAutoFill, applyOrgMemberAutoFill, buildOrgManagerAutoFillSources, buildOrgMemberAutoFillSources, type OrgManagerAutoFillSource, type OrgMemberAutoFillSource } from "@/lib/orgMemberAutoFill";
 import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_DATA, HEAD_OFFICE_ORG_VERSION, PPT_MEMBER_BORDER_COLORS, PPT_ORG_DATA, PPT_ORG_VERSION } from "@/lib/pptOrgData";
 import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2, RotateCw } from "lucide-react";
 import { toPng } from "html-to-image";
@@ -16,6 +16,7 @@ interface OrgMember { id: string; team_id: string; name: string; position: strin
 interface SiteManagerInfo { name: string; role?: string; phone: string; email: string; photo_url: string; }
 interface OrgData { teams: OrgTeam[]; members: OrgMember[]; siteManager?: SiteManagerInfo; businessManager?: SiteManagerInfo; orgSourceVersion?: string; }
 type OrgSiteKey = "p4-ph4" | "p4-ph2" | "p5-ph1" | "head-office-p4-ph4" | "head-office-p4-ph2" | "head-office-p5-ph1";
+interface OrgSiteConfig { key: OrgSiteKey; label: string; title: string; docId: string; date: string; }
 
 const RANKS = ["수석", "책임", "선임", "사원"] as const;
 const TEAM_COLORS = ["#2563eb", "#7c3aed", "#059669", "#dc2626", "#d97706", "#0891b2", "#be185d", "#4f46e5", "#15803d", "#b45309"];
@@ -26,7 +27,7 @@ const MEMBER_BORDER_OPTIONS = [
 ] as const;
 const DEFAULT_BM: SiteManagerInfo = { name: "사업 1본부 팀장", role: "사업 1본부 팀장", phone: "", email: "", photo_url: "" };
 const DEFAULT_SM: SiteManagerInfo = { name: "현장소장", phone: "", email: "", photo_url: "" };
-const ORG_SITES: Array<{ key: OrgSiteKey; label: string; title: string; docId: string; date: string }> = [
+const ORG_SITES: OrgSiteConfig[] = [
   { key: "p4-ph4", label: "P4-PH4", title: "P4 PH4 초순수", docId: "org_p4_ph4", date: "26.05.12" },
   { key: "p4-ph2", label: "P4-PH2", title: "P4 PH2 초순수", docId: "org_p4_ph2", date: "26.05.12" },
   { key: "p5-ph1", label: "P5-PH1", title: "P5 PH1 초순수", docId: "org_p5_ph1", date: "26.05.12" },
@@ -230,6 +231,22 @@ function isHeadOfficeSiteKey(key: OrgSiteKey) {
   return key.startsWith("head-office");
 }
 
+function getLinkedOrgSite(key: OrgSiteKey) {
+  const linkedKey = (isHeadOfficeSiteKey(key) ? key.replace("head-office-", "") : `head-office-${key}`) as OrgSiteKey;
+  return ORG_SITES.find((site) => site.key === linkedKey) ?? null;
+}
+
+async function loadOrgDataForSite(site: OrgSiteConfig) {
+  let data = await loadOrgFS(site.docId);
+  if (site.key === "p4-ph4" && !data) {
+    data = await loadOrgFS("org");
+  }
+  if (site.key === "head-office-p4-ph4" && !data) {
+    data = await loadOrgFS("org_head_office");
+  }
+  return data as OrgData | null;
+}
+
 const REGULAR_MEMBER_COLOR = "#00B050";
 const HEAD_OFFICE_TEAM_LABELS = ["공사", "설계", "공무", "품질", "안전"] as const;
 
@@ -339,8 +356,22 @@ function getFrameY(frameXml: string) {
   return match ? Number(match[1]) : 0;
 }
 
+function getFrameX(frameXml: string) {
+  const match = frameXml.match(/<a:off x="(\d+)" y="\d+"\/>/);
+  return match ? Number(match[1]) : 0;
+}
+
+function getFrameWidth(frameXml: string) {
+  const match = frameXml.match(/<a:ext cx="(\d+)" cy="\d+"\/>/);
+  return match ? Number(match[1]) : 0;
+}
+
 function setFrameY(frameXml: string, y: number) {
   return frameXml.replace(/<a:off x="(\d+)" y="\d+"\/>/, `<a:off x="$1" y="${Math.round(y)}"/>`);
+}
+
+function setFramePosition(frameXml: string, x: number, y: number) {
+  return frameXml.replace(/<a:off x="\d+" y="\d+"\/>/, `<a:off x="${Math.round(x)}" y="${Math.round(y)}"/>`);
 }
 
 function getMaxShapeId(xml: string) {
@@ -404,11 +435,92 @@ function getShapePlainText(shapeXml: string) {
   return Array.from(shapeXml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g), (match) => decodeXmlText(match[1])).join("");
 }
 
+function replaceShapeTextRuns(shapeXml: string, value: string) {
+  const escaped = escapeXmlText(value);
+  let replaced = false;
+  return shapeXml.replace(/<a:t>([\s\S]*?)<\/a:t>/g, () => {
+    if (!replaced) {
+      replaced = true;
+      return `<a:t>${escaped}</a:t>`;
+    }
+    return "<a:t></a:t>";
+  });
+}
+
+function isHeadOfficeMarkerText(plainText: string) {
+  return plainText.includes("(3rd)") || plainText.includes("(현채)");
+}
+
+function getHeadOfficeMarkerText(member?: Pick<OrgMember, "border_color">) {
+  if (member?.border_color === "#FF0000") return "(3rd)";
+  if (member?.border_color === "#FFFF00") return "(현채)";
+  return "";
+}
+
+function extractHeadOfficeMarkerShapes(xml: string) {
+  return Array.from(xml.matchAll(PPT_SHAPE_REGEX), (match) => match[0]).filter((shapeXml) => (
+    isHeadOfficeMarkerText(getShapePlainText(shapeXml))
+  ));
+}
+
 function removeHeadOfficeMarkerShapes(xml: string) {
   return xml.replace(PPT_SHAPE_REGEX, (shapeXml) => {
     const plainText = getShapePlainText(shapeXml);
-    return plainText.includes("(3rd)") || plainText.includes("(현채)") ? "" : shapeXml;
+    return isHeadOfficeMarkerText(plainText) ? "" : shapeXml;
   });
+}
+
+function getMedian(values: number[]) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function getNearestHeadOfficeTableFrame(markerShape: string, tableFrames: string[]) {
+  const markerX = getFrameX(markerShape);
+  const markerY = getFrameY(markerShape);
+  return tableFrames.reduce<{ frame: string | null; score: number }>((best, frame) => {
+    const tableRight = getFrameX(frame) + getFrameWidth(frame);
+    const score = Math.abs(markerX - tableRight) + Math.abs(markerY - getFrameY(frame)) * 3;
+    return score < best.score ? { frame, score } : best;
+  }, { frame: null, score: Number.POSITIVE_INFINITY }).frame;
+}
+
+function getHeadOfficeMarkerOffset(markerShapes: string[], tableFrames: string[]) {
+  const offsets = markerShapes.flatMap((shapeXml) => {
+    const tableFrame = getNearestHeadOfficeTableFrame(shapeXml, tableFrames);
+    return tableFrame ? [{ x: getFrameX(shapeXml) - getFrameX(tableFrame), y: getFrameY(shapeXml) - getFrameY(tableFrame) }] : [];
+  });
+  return {
+    x: getMedian(offsets.map((offset) => offset.x)) || 1370000,
+    y: getMedian(offsets.map((offset) => offset.y)) || 70000,
+  };
+}
+
+function appendHeadOfficeMarkerShapes(
+  xml: string,
+  tableFrames: string[],
+  markerTemplates: string[],
+  slots: Array<{ member?: OrgMember; visible?: boolean }>,
+  startShapeId: number,
+) {
+  const template = markerTemplates[0];
+  if (!template) return xml;
+  const offset = getHeadOfficeMarkerOffset(markerTemplates, tableFrames);
+  let nextShapeId = startShapeId;
+  const markerShapes: string[] = [];
+  slots.forEach((slot, index) => {
+    if (slot.visible === false) return;
+    const markerText = getHeadOfficeMarkerText(slot.member);
+    const tableFrame = tableFrames[index];
+    if (!markerText || !tableFrame) return;
+    let markerShape = replaceShapeTextRuns(template, markerText);
+    markerShape = setFramePosition(markerShape, getFrameX(tableFrame) + offset.x, getFrameY(tableFrame) + offset.y);
+    markerShape = uniquifyShape(markerShape, nextShapeId, "인원 구분");
+    nextShapeId += 1;
+    markerShapes.push(markerShape);
+  });
+  return markerShapes.length > 0 ? xml.replace("</p:spTree>", `${markerShapes.join("")}</p:spTree>`) : xml;
 }
 
 function getMaxRelationshipId(relXml: string) {
@@ -455,6 +567,7 @@ async function exportHeadOfficeTemplatePpt({
   let relXml = await zip.file(relsPath)!.async("string");
   const tableRegex = /<p:graphicFrame[\s\S]*?<a:tbl>[\s\S]*?<\/a:tbl>[\s\S]*?<\/p:graphicFrame>/g;
   const originalTableFrames = Array.from(slideXml.matchAll(tableRegex), (match) => match[0]);
+  const originalMarkerShapes = extractHeadOfficeMarkerShapes(slideXml);
   const picRegex = /<p:pic[\s\S]*?<\/p:pic>/g;
   const originalPics = Array.from(slideXml.matchAll(picRegex), (match) => match[0]);
 
@@ -496,8 +609,9 @@ async function exportHeadOfficeTemplatePpt({
   const memberTableSlot = (member?: OrgMember) => ({
     cells: memberCells(member),
     visible: Boolean(member),
+    member: member,
   });
-  const tableSlots: Array<{ cells: Array<string | number | undefined>; visible?: boolean }> = [
+  const tableSlots: Array<{ cells: Array<string | number | undefined>; visible?: boolean; member?: OrgMember }> = [
     { cells: siteManagerCells, visible: hasSiteManager },
     memberTableSlot(design[0]),
     memberTableSlot(safety[0]),
@@ -643,6 +757,8 @@ async function exportHeadOfficeTemplatePpt({
   if (overflowPics.length > 0) {
     slideXml = slideXml.replace("</p:spTree>", `${overflowPics.join("")}</p:spTree>`);
   }
+
+  slideXml = appendHeadOfficeMarkerShapes(slideXml, originalTableFrames, originalMarkerShapes, tableSlots, getMaxShapeId(slideXml) + 1);
 
   const titleDate = getTodayTitleDate();
   const title = `   ■ 조직도_사업1본부_${activeSite.title} _${titleDate}`;
@@ -934,6 +1050,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [businessManager, setBusinessManager] = useState<SiteManagerInfo>(DEFAULT_BM);
   const [siteManager, setSiteManager] = useState<SiteManagerInfo>(DEFAULT_SM);
+  const [linkedOrgData, setLinkedOrgData] = useState<OrgData | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -963,13 +1080,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   useEffect(() => {
     setDirty(false);
     setSearchQuery("");
-    loadOrgFS(activeSite.docId).then(async (data) => {
-      if (activeSite.key === "p4-ph4" && !data) {
-        data = await loadOrgFS("org");
-      }
-      if (activeSite.key === "head-office-p4-ph4" && !data) {
-        data = await loadOrgFS("org_head_office");
-      }
+    loadOrgDataForSite(activeSite).then((data) => {
       const d = data as OrgData | null;
       const hasSavedData = Boolean(d && Array.isArray(d.teams) && d.teams.length > 0 && d.orgSourceVersion === expectedOrgSourceVersion);
       const shouldIgnoreSavedHeadOfficeSeed = Boolean(
@@ -993,6 +1104,19 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
       }
     });
   }, [activeSite.docId, activeSite.key, expectedOrgSourceVersion]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const linkedSite = getLinkedOrgSite(activeSite.key);
+    setLinkedOrgData(null);
+    if (!linkedSite) return undefined;
+    loadOrgDataForSite(linkedSite).then((data) => {
+      if (!cancelled) setLinkedOrgData(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSite.key]);
 
   const handleSaveAll = useCallback(async () => {
     setSaving(true);
@@ -1107,23 +1231,45 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   }, [teams, teamCountById]);
   const headOfficeStats = useMemo(() => getHeadOfficeStats(teams, members, siteManager), [teams, members, siteManager]);
   const displayTotalMembers = isHeadOfficeTemplate ? headOfficeStats[0]?.[1] : totalMembers;
-  const memberAutoFillSources = useMemo(
-    () => isHeadOfficeTemplate ? HEAD_OFFICE_ORG_DATA.members : PPT_ORG_DATA.members,
-    [isHeadOfficeTemplate],
-  );
-  const managerAutoFillSources = useMemo(
-    () => isHeadOfficeTemplate
+  const memberAutoFillSources = useMemo(() => {
+    const linkedMembers = Array.isArray(linkedOrgData?.members) ? linkedOrgData.members : [];
+    return buildOrgMemberAutoFillSources({
+      primaryMembers: isHeadOfficeTemplate
+        ? [...members, ...HEAD_OFFICE_ORG_DATA.members]
+        : [...linkedMembers, ...HEAD_OFFICE_ORG_DATA.members],
+      fallbackMembers: isHeadOfficeTemplate
+        ? [...linkedMembers, ...PPT_ORG_DATA.members]
+        : [...members, ...PPT_ORG_DATA.members],
+    });
+  }, [isHeadOfficeTemplate, linkedOrgData, members]);
+  const managerAutoFillSources = useMemo(() => {
+    const linkedMembers = Array.isArray(linkedOrgData?.members) ? linkedOrgData.members : [];
+    const linkedManagers = [linkedOrgData?.businessManager, linkedOrgData?.siteManager].filter(Boolean) as SiteManagerInfo[];
+    const currentManagers = [businessManager, siteManager];
+    return isHeadOfficeTemplate
       ? buildOrgManagerAutoFillSources({
-        primaryManagers: [HEAD_OFFICE_ORG_DATA.businessManager, HEAD_OFFICE_ORG_DATA.siteManager],
-        primaryMembers: HEAD_OFFICE_ORG_DATA.members,
-        fallbackManagers: [PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager],
+        primaryManagers: [...currentManagers, HEAD_OFFICE_ORG_DATA.businessManager, HEAD_OFFICE_ORG_DATA.siteManager],
+        primaryMembers: [...members, ...HEAD_OFFICE_ORG_DATA.members],
+        fallbackManagers: [
+          ...linkedManagers,
+          ...linkedMembers,
+          PPT_ORG_DATA.businessManager,
+          PPT_ORG_DATA.siteManager,
+          ...PPT_ORG_DATA.members,
+        ],
       })
       : buildOrgManagerAutoFillSources({
-        primaryManagers: [PPT_ORG_DATA.businessManager, PPT_ORG_DATA.siteManager],
-        primaryMembers: PPT_ORG_DATA.members,
-      }),
-    [isHeadOfficeTemplate],
-  );
+        primaryManagers: [...linkedManagers, HEAD_OFFICE_ORG_DATA.businessManager, HEAD_OFFICE_ORG_DATA.siteManager],
+        primaryMembers: [...linkedMembers, ...HEAD_OFFICE_ORG_DATA.members],
+        fallbackManagers: [
+          ...currentManagers,
+          ...members,
+          PPT_ORG_DATA.businessManager,
+          PPT_ORG_DATA.siteManager,
+          ...PPT_ORG_DATA.members,
+        ],
+      });
+  }, [businessManager, isHeadOfficeTemplate, linkedOrgData, members, siteManager]);
 
   const handleExportImage = useCallback(async () => {
     if (!chartRef.current) return;
@@ -1759,9 +1905,7 @@ function PptMemberCard({ member, color, isLeader, onEdit, onDelete }: { member: 
 }
 
 function headOfficeMarker(member: OrgMember) {
-  if (member.border_color === "#FF0000") return "(3rd)";
-  if (member.border_color === "#FFFF00") return "(현채)";
-  return "";
+  return getHeadOfficeMarkerText(member);
 }
 
 function HeadOfficeManagerCard({ info, title, onEdit }: { info: SiteManagerInfo; title: string; onEdit: () => void }) {

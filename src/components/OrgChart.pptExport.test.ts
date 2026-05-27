@@ -60,9 +60,20 @@ describe("OrgChart PPT export", () => {
 
     expect(source).toContain("function removeHeadOfficeMarkerShapes");
     expect(source).toContain("PPT_SHAPE_REGEX");
-    expect(source).toContain('plainText.includes("(3rd)") || plainText.includes("(현채)")');
+    expect(source).toContain("isHeadOfficeMarkerText(plainText)");
     expect(source).toContain("slideXml = removeHeadOfficeMarkerShapes(slideXml);");
     expect(source).not.toContain("/<p:sp[\\s\\S]*?<\\/p:sp>/g");
+  });
+
+  it("recreates head-office PPT markers for checked 3rd and local members", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("function extractHeadOfficeMarkerShapes");
+    expect(source).toContain("function appendHeadOfficeMarkerShapes");
+    expect(source).toContain("const originalMarkerShapes = extractHeadOfficeMarkerShapes(slideXml);");
+    expect(source).toContain("getHeadOfficeMarkerText(slot.member)");
+    expect(source).toContain("member: member");
+    expect(source).toContain("slideXml = appendHeadOfficeMarkerShapes(");
   });
 
   it("keeps generated head-office PPT blob URLs alive long enough for browser download", () => {
