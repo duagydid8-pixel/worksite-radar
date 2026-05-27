@@ -59,8 +59,10 @@ describe("OrgChart PPT export", () => {
     const source = readFileSync("src/components/OrgChart.tsx", "utf8");
 
     expect(source).toContain("function removeHeadOfficeMarkerShapes");
+    expect(source).toContain("PPT_SHAPE_REGEX");
     expect(source).toContain('plainText.includes("(3rd)") || plainText.includes("(현채)")');
     expect(source).toContain("slideXml = removeHeadOfficeMarkerShapes(slideXml);");
+    expect(source).not.toContain("/<p:sp[\\s\\S]*?<\\/p:sp>/g");
   });
 
   it("keeps generated head-office PPT blob URLs alive long enough for browser download", () => {

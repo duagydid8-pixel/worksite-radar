@@ -323,9 +323,11 @@ function replaceTableCellTexts(tableXml: string, cells: Array<string | number | 
   });
 }
 
+const PPT_SHAPE_REGEX = /<p:sp(?:\s[^>]*)?>[\s\S]*?<\/p:sp>/g;
+
 function replaceShapeTextContaining(xml: string, needle: string, values: Array<string | number>) {
   let replaced = false;
-  return xml.replace(/<p:sp[\s\S]*?<\/p:sp>/g, (shapeXml) => {
+  return xml.replace(PPT_SHAPE_REGEX, (shapeXml) => {
     if (replaced || !shapeXml.includes(needle)) return shapeXml;
     replaced = true;
     return replaceTextRuns(shapeXml, values);
@@ -403,7 +405,7 @@ function getShapePlainText(shapeXml: string) {
 }
 
 function removeHeadOfficeMarkerShapes(xml: string) {
-  return xml.replace(/<p:sp[\s\S]*?<\/p:sp>/g, (shapeXml) => {
+  return xml.replace(PPT_SHAPE_REGEX, (shapeXml) => {
     const plainText = getShapePlainText(shapeXml);
     return plainText.includes("(3rd)") || plainText.includes("(현채)") ? "" : shapeXml;
   });
