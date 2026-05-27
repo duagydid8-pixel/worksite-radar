@@ -28,4 +28,21 @@ describe("OrgChart PPT export", () => {
     expect(source).toContain('activeSite.key === "head-office-p4-ph4" ? handleApplyHeadOfficeOrg : handleApplyBlankOrg');
     expect(source).toContain("hasFilledSiteManager(siteManager)");
   });
+
+  it("clears stale head-office template photos when a PPT slot has no replacement image", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("function applyPicSlots");
+    expect(source).toContain('relationshipId ? replacePicEmbed(picXml, relationshipId) : ""');
+    expect(source).toContain("removeUnusedSlideImageRelationships(zip, relXml, slideXml)");
+    expect(source).not.toContain("if (relationshipId) slideXml = replacePicAtIndex(slideXml, slot.picIndex, relationshipId)");
+  });
+
+  it("does not export default site manager placeholder values in blank head-office PPTs", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("const hasSiteManager = hasFilledSiteManager(siteManager);");
+    expect(source).toContain('hasSiteManager ? spacedKoreanName(siteManager.name) : ""');
+    expect(source).toContain('{ picIndex: 0, photoUrl: hasSiteManager ? siteManager.photo_url : "" }');
+  });
 });

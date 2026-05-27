@@ -344,16 +344,38 @@ function replacePicEmbed(picXml: string, relationshipId: string) {
   return picXml.replace(/r:embed="[^"]+"/, `r:embed="${relationshipId}"`);
 }
 
-function replacePicAtIndex(xml: string, picIndex: number, relationshipId: string) {
+function applyPicSlots(xml: string, slots: Array<{ picIndex: number; relationshipId: string | null }>) {
+  const slotsByIndex = new Map(slots.map((slot) => [slot.picIndex, slot.relationshipId]));
   let index = 0;
   return xml.replace(/<p:pic[\s\S]*?<\/p:pic>/g, (picXml) => {
-    if (index !== picIndex) {
-      index += 1;
-      return picXml;
-    }
+    const relationshipId = slotsByIndex.get(index);
     index += 1;
-    return replacePicEmbed(picXml, relationshipId);
+    if (relationshipId === undefined) return picXml;
+    return relationshipId ? replacePicEmbed(picXml, relationshipId) : "";
   });
+}
+
+function getSlideRelationshipTargetPath(target: string) {
+  const normalized = target.replace(/\\/g, "/");
+  if (normalized.startsWith("../media/")) return `ppt/media/${normalized.slice("../media/".length)}`;
+  if (normalized.startsWith("/ppt/media/")) return normalized.slice(1);
+  if (normalized.startsWith("ppt/media/")) return normalized;
+  return null;
+}
+
+function removeUnusedSlideImageRelationships(zip: JSZip, relXml: string, slideXml: string) {
+  const referencedIds = new Set(Array.from(slideXml.matchAll(/r:embed="([^"]+)"/g), (match) => match[1]));
+  return relXml.replace(
+    /<Relationship\b(?=[^>]*\bType="http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/relationships\/image")[^>]*\/>/g,
+    (relationshipXml) => {
+      const id = relationshipXml.match(/\bId="([^"]+)"/)?.[1];
+      if (!id || referencedIds.has(id)) return relationshipXml;
+      const target = relationshipXml.match(/\bTarget="([^"]+)"/)?.[1];
+      const mediaPath = target ? getSlideRelationshipTargetPath(target) : null;
+      if (mediaPath) zip.remove(mediaPath);
+      return "";
+    },
+  );
 }
 
 function getMaxRelationshipId(relXml: string) {
@@ -409,6 +431,7 @@ async function exportHeadOfficeTemplatePpt({
   const quality = getTeamMembers(teams, members, "품질팀");
   const safety = getTeamMembers(teams, members, "안전팀");
   const headOfficeStats = getHeadOfficeStats(teams, members, siteManager);
+  const hasSiteManager = hasFilledSiteManager(siteManager);
 
   const memberCells = (member?: OrgMember) => [
     undefined,
@@ -423,14 +446,14 @@ async function exportHeadOfficeTemplatePpt({
   ];
   const siteManagerCells = [
     undefined,
-    "수석",
-    spacedKoreanName(siteManager.name),
+    hasSiteManager ? "수석" : "",
+    hasSiteManager ? spacedKoreanName(siteManager.name) : "",
     undefined,
     "E-MAIL",
-    siteManager.email,
+    hasSiteManager ? siteManager.email : "",
     undefined,
     "H.P",
-    siteManager.phone,
+    hasSiteManager ? siteManager.phone : "",
   ];
   const statsCells = [
     "총원", "현장 / 소장", "공사", "설계", "공무", "품질", "안전",
@@ -517,7 +540,7 @@ async function exportHeadOfficeTemplatePpt({
     return added.relationshipId;
   };
   const photoSlots: Array<{ picIndex: number; photoUrl?: string }> = [
-    { picIndex: 0, photoUrl: siteManager.photo_url },
+    { picIndex: 0, photoUrl: hasSiteManager ? siteManager.photo_url : "" },
     { picIndex: 1, photoUrl: construction[0]?.photo_url },
     { picIndex: 2, photoUrl: design[0]?.photo_url },
     { picIndex: 3, photoUrl: design[1]?.photo_url },
@@ -547,10 +570,12 @@ async function exportHeadOfficeTemplatePpt({
     { picIndex: 27, photoUrl: design[5]?.photo_url },
     { picIndex: 28, photoUrl: construction[1]?.photo_url },
   ];
+  const resolvedPhotoSlots: Array<{ picIndex: number; relationshipId: string | null }> = [];
   for (const slot of photoSlots) {
     const relationshipId = await addImage(slot.photoUrl);
-    if (relationshipId) slideXml = replacePicAtIndex(slideXml, slot.picIndex, relationshipId);
+    resolvedPhotoSlots.push({ picIndex: slot.picIndex, relationshipId });
   }
+  slideXml = applyPicSlots(slideXml, resolvedPhotoSlots);
 
   const overflowPics: string[] = [];
   const appendOverflowPics = async (teamMembers: OrgMember[], capacity: number, lastPicIndex: number, previousPicIndex: number) => {
@@ -583,6 +608,7 @@ async function exportHeadOfficeTemplatePpt({
   const titleDate = getTodayTitleDate();
   const title = `   ■ 조직도_사업1본부_${activeSite.title} _${titleDate}`;
   slideXml = replaceShapeTextContaining(slideXml, "■ 조직도", [title, "", "", "", "", "", "", "", "", "", ""]);
+  relXml = removeUnusedSlideImageRelationships(zip, relXml, slideXml);
 
   zip.file(slidePath, slideXml);
   zip.file(relsPath, relXml);
