@@ -85,4 +85,20 @@ describe("OrgChart PPT export", () => {
     expect(source).toContain("downloadGeneratedBlob(blob, `조직도_사업1팀_평택_${activeSite.label}_초순수현장_${titleDate}.pptx`)");
     expect(source).not.toContain("URL.revokeObjectURL(link.href)");
   });
+
+  it("relayouts head-office template cards before replacing table and photo slots", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+    const exportStart = source.indexOf("async function exportHeadOfficeTemplatePpt");
+    const relayoutIndex = source.indexOf("slideXml = relayoutHeadOfficeTemplateSlide(slideXml);", exportStart);
+    const framesIndex = source.indexOf("const originalTableFrames", relayoutIndex);
+
+    expect(source).toContain("function relayoutHeadOfficeTemplateSlide");
+    expect(source).toContain("slideXml = relayoutHeadOfficeTemplateSlide(slideXml);");
+    expect(relayoutIndex).toBeGreaterThan(exportStart);
+    expect(relayoutIndex).toBeLessThan(framesIndex);
+    expect(source).toContain("buildHeadOfficeTemplateLayout");
+    expect(source).toContain("createPhotoFrame");
+    expect(source).toContain("replaceIndexedFrameTransforms");
+    expect(source).toContain("function scaleTableDimensions");
+  });
 });

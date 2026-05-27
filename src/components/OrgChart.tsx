@@ -358,6 +358,22 @@ function replaceShapeTextContaining(xml: string, needle: string, values: Array<s
   });
 }
 
+const EMU_PER_INCH = 914400;
+const PPT_TABLE_FRAME_REGEX = /<p:graphicFrame[\s\S]*?<a:tbl>[\s\S]*?<\/a:tbl>[\s\S]*?<\/p:graphicFrame>/g;
+const PPT_PIC_REGEX = /<p:pic[\s\S]*?<\/p:pic>/g;
+const PPT_CONNECTOR_REGEX = /<p:cxnSp[\s\S]*?<\/p:cxnSp>/g;
+
+interface PptFrameRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function emu(inches: number) {
+  return Math.round(inches * EMU_PER_INCH);
+}
+
 function getFrameY(frameXml: string) {
   const match = frameXml.match(/<a:off x="\d+" y="(\d+)"\/>/);
   return match ? Number(match[1]) : 0;
@@ -373,12 +389,34 @@ function getFrameWidth(frameXml: string) {
   return match ? Number(match[1]) : 0;
 }
 
+function getFrameHeight(frameXml: string) {
+  const match = frameXml.match(/<a:ext cx="\d+" cy="(\d+)"\/>/);
+  return match ? Number(match[1]) : 0;
+}
+
 function setFrameY(frameXml: string, y: number) {
   return frameXml.replace(/<a:off x="(\d+)" y="\d+"\/>/, `<a:off x="$1" y="${Math.round(y)}"/>`);
 }
 
 function setFramePosition(frameXml: string, x: number, y: number) {
   return frameXml.replace(/<a:off x="\d+" y="\d+"\/>/, `<a:off x="${Math.round(x)}" y="${Math.round(y)}"/>`);
+}
+
+function scaleTableDimensions(frameXml: string, frame: PptFrameRect) {
+  if (!frameXml.includes("<a:tbl>")) return frameXml;
+  const currentW = getFrameWidth(frameXml);
+  const currentH = getFrameHeight(frameXml);
+  const widthScale = currentW > 0 ? frame.w / currentW : 1;
+  const heightScale = currentH > 0 ? frame.h / currentH : 1;
+  return frameXml
+    .replace(/<a:gridCol w="(\d+)"/g, (_match, width) => `<a:gridCol w="${Math.round(Number(width) * widthScale)}"`)
+    .replace(/<a:tr h="(\d+)"/g, (_match, height) => `<a:tr h="${Math.round(Number(height) * heightScale)}"`);
+}
+
+function setFrameTransform(frameXml: string, frame: PptFrameRect) {
+  return scaleTableDimensions(frameXml, frame)
+    .replace(/<a:off x="\d+" y="\d+"\/>/, `<a:off x="${Math.round(frame.x)}" y="${Math.round(frame.y)}"/>`)
+    .replace(/<a:ext cx="\d+" cy="\d+"\/>/, `<a:ext cx="${Math.round(frame.w)}" cy="${Math.round(frame.h)}"/>`);
 }
 
 function getMaxShapeId(xml: string) {
@@ -485,6 +523,123 @@ function getMedian(values: number[]) {
   return sorted[Math.floor(sorted.length / 2)];
 }
 
+function getNearestFrameIndex(targetFrame: string, frames: string[]) {
+  const targetX = getFrameX(targetFrame);
+  const targetY = getFrameY(targetFrame);
+  return frames.reduce<{ index: number | null; score: number }>((best, frame, index) => {
+    const frameRight = getFrameX(frame) + getFrameWidth(frame);
+    const score = Math.abs(targetX - frameRight) + Math.abs(targetY - getFrameY(frame)) * 3;
+    return score < best.score ? { index, score } : best;
+  }, { index: null, score: Number.POSITIVE_INFINITY }).index;
+}
+
+function replaceIndexedFrameTransforms(xml: string, regex: RegExp, frames: Map<number, PptFrameRect>) {
+  let index = 0;
+  return xml.replace(regex, (frameXml) => {
+    const frame = frames.get(index);
+    index += 1;
+    return frame ? setFrameTransform(frameXml, frame) : frameXml;
+  });
+}
+
+function createPhotoFrame(cardFrame: PptFrameRect) {
+  return {
+    x: cardFrame.x + emu(0.04),
+    y: cardFrame.y + emu(0.11),
+    w: emu(0.54),
+    h: cardFrame.h - emu(0.14),
+  };
+}
+
+function buildHeadOfficeTemplateLayout() {
+  const cardW = emu(2.08);
+  const cardH = emu(0.58);
+  const headerW = emu(0.9);
+  const headerH = emu(0.21);
+  const headerY = emu(2.78);
+  const rowYs = [3.04, 3.68, 4.32, 4.96, 5.6, 6.24, 6.88].map(emu);
+  const columnXs = [0.1, 2.46, 4.82, 7.18, 9.54].map(emu);
+
+  const tableFrames = new Map<number, PptFrameRect>();
+  const picFrames = new Map<number, PptFrameRect>();
+  const shapeFrames = new Map<number, PptFrameRect>();
+  const connectorFrames = new Map<number, PptFrameRect>();
+
+  const managerFrame = { x: emu(4.66), y: emu(1.48), w: emu(2.36), h: emu(0.94) };
+  tableFrames.set(0, managerFrame);
+  picFrames.set(0, {
+    x: managerFrame.x + emu(0.06),
+    y: managerFrame.y + emu(0.2),
+    w: emu(0.58),
+    h: emu(0.61),
+  });
+
+  [
+    { col: 0, headerShapeIndex: 5, tableIndexes: [4, 8, 29, 26, 27], picIndexes: [1, 28, 25, 26, 23] },
+    { col: 1, headerShapeIndex: 1, tableIndexes: [1, 9, 10, 17, 18, 19, 28], picIndexes: [2, 3, 4, 5, 6, 27, 24] },
+    { col: 2, headerShapeIndex: 2, tableIndexes: [3, 11, 12, 20, 21], picIndexes: [7, 8, 9, 10, 11] },
+    { col: 3, headerShapeIndex: 6, tableIndexes: [5, 6, 7, 22, 23, 24], picIndexes: [12, 13, 14, 15, 16, 17] },
+    { col: 4, headerShapeIndex: 3, tableIndexes: [2, 13, 15, 16, 25], picIndexes: [18, 19, 20, 21, 22] },
+  ].forEach((team) => {
+    const x = columnXs[team.col];
+    shapeFrames.set(team.headerShapeIndex, {
+      x: x + (cardW - headerW) / 2,
+      y: headerY,
+      w: headerW,
+      h: headerH,
+    });
+    team.tableIndexes.forEach((tableIndex, rowIndex) => {
+      const cardFrame = { x, y: rowYs[rowIndex], w: cardW, h: cardH };
+      tableFrames.set(tableIndex, cardFrame);
+      const picIndex = team.picIndexes[rowIndex];
+      if (picIndex !== undefined) picFrames.set(picIndex, createPhotoFrame(cardFrame));
+    });
+  });
+
+  const columnCenters = columnXs.map((x) => x + cardW / 2);
+  const lineY = emu(2.67);
+  const headerConnectorH = headerY - lineY + emu(0.05);
+  connectorFrames.set(0, { x: columnCenters[0], y: lineY, w: columnCenters[columnCenters.length - 1] - columnCenters[0], h: emu(0.01) });
+  connectorFrames.set(1, { x: columnCenters[1], y: lineY, w: 1, h: headerConnectorH });
+  connectorFrames.set(2, { x: managerFrame.x + managerFrame.w / 2, y: managerFrame.y + managerFrame.h, w: 1, h: lineY - (managerFrame.y + managerFrame.h) });
+  connectorFrames.set(3, { x: columnCenters[3], y: lineY, w: 1, h: headerConnectorH });
+  connectorFrames.set(4, { x: columnCenters[0], y: lineY, w: 1, h: headerConnectorH });
+  connectorFrames.set(5, { x: columnCenters[4], y: lineY, w: 1, h: headerConnectorH });
+
+  return { tableFrames, picFrames, shapeFrames, connectorFrames };
+}
+
+function relayoutHeadOfficeTemplateSlide(xml: string) {
+  const layout = buildHeadOfficeTemplateLayout();
+  const originalTableFrames = Array.from(xml.matchAll(PPT_TABLE_FRAME_REGEX), (match) => match[0]);
+  let nextXml = replaceIndexedFrameTransforms(xml, PPT_TABLE_FRAME_REGEX, layout.tableFrames);
+  nextXml = replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, layout.picFrames);
+  nextXml = replaceIndexedFrameTransforms(nextXml, PPT_CONNECTOR_REGEX, layout.connectorFrames);
+
+  let shapeIndex = 0;
+  nextXml = nextXml.replace(PPT_SHAPE_REGEX, (shapeXml) => {
+    const headerFrame = layout.shapeFrames.get(shapeIndex);
+    shapeIndex += 1;
+    if (headerFrame) return setFrameTransform(shapeXml, headerFrame);
+    if (!isHeadOfficeMarkerText(getShapePlainText(shapeXml))) return shapeXml;
+
+    const tableIndex = getNearestFrameIndex(shapeXml, originalTableFrames);
+    const tableFrame = tableIndex === null ? null : layout.tableFrames.get(tableIndex);
+    if (!tableFrame) return shapeXml;
+
+    const markerW = getFrameWidth(shapeXml) || emu(0.42);
+    const markerH = getFrameHeight(shapeXml) || emu(0.2);
+    return setFrameTransform(shapeXml, {
+      x: tableFrame.x + tableFrame.w - markerW - emu(0.08),
+      y: tableFrame.y + emu(0.07),
+      w: markerW,
+      h: markerH,
+    });
+  });
+
+  return nextXml;
+}
+
 function getNearestHeadOfficeTableFrame(markerShape: string, tableFrames: string[]) {
   const markerX = getFrameX(markerShape);
   const markerY = getFrameY(markerShape);
@@ -574,10 +729,11 @@ async function exportHeadOfficeTemplatePpt({
   const relsPath = "ppt/slides/_rels/slide1.xml.rels";
   let slideXml = await zip.file(slidePath)!.async("string");
   let relXml = await zip.file(relsPath)!.async("string");
-  const tableRegex = /<p:graphicFrame[\s\S]*?<a:tbl>[\s\S]*?<\/a:tbl>[\s\S]*?<\/p:graphicFrame>/g;
+  slideXml = relayoutHeadOfficeTemplateSlide(slideXml);
+  const tableRegex = PPT_TABLE_FRAME_REGEX;
   const originalTableFrames = Array.from(slideXml.matchAll(tableRegex), (match) => match[0]);
   const originalMarkerShapes = extractHeadOfficeMarkerShapes(slideXml);
-  const picRegex = /<p:pic[\s\S]*?<\/p:pic>/g;
+  const picRegex = PPT_PIC_REGEX;
   const originalPics = Array.from(slideXml.matchAll(picRegex), (match) => match[0]);
 
   const construction = getTeamMembers(teams, members, "공사팀");
