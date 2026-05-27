@@ -20,10 +20,17 @@ interface OrgSiteConfig { key: OrgSiteKey; label: string; title: string; docId: 
 
 const RANKS = ["수석", "책임", "선임", "사원"] as const;
 const TEAM_COLORS = ["#2563eb", "#7c3aed", "#059669", "#dc2626", "#d97706", "#0891b2", "#be185d", "#4f46e5", "#15803d", "#b45309"];
+const MEMBER_BORDER_COLORS = {
+  regular: "#00B050",
+  local: "#FFFF00",
+  taehwa: "#7030A0",
+  third: "#FF0000",
+} as const;
 const MEMBER_BORDER_OPTIONS = [
-  { label: "상용직", color: "#00B050" },
-  { label: "현채", color: "#FFFF00" },
-  { label: "태화/협력업체", color: "#FF0000" },
+  { label: "상용직", color: MEMBER_BORDER_COLORS.regular, marker: "" },
+  { label: "현채", color: MEMBER_BORDER_COLORS.local, marker: "(현채)" },
+  { label: "태화", color: MEMBER_BORDER_COLORS.taehwa, marker: "(태화)" },
+  { label: "3rd", color: MEMBER_BORDER_COLORS.third, marker: "(3rd)" },
 ] as const;
 const DEFAULT_BM: SiteManagerInfo = { name: "사업 1본부 팀장", role: "사업 1본부 팀장", phone: "", email: "", photo_url: "" };
 const DEFAULT_SM: SiteManagerInfo = { name: "현장소장", phone: "", email: "", photo_url: "" };
@@ -247,7 +254,7 @@ async function loadOrgDataForSite(site: OrgSiteConfig) {
   return data as OrgData | null;
 }
 
-const REGULAR_MEMBER_COLOR = "#00B050";
+const REGULAR_MEMBER_COLOR = MEMBER_BORDER_COLORS.regular;
 const HEAD_OFFICE_TEAM_LABELS = ["공사", "설계", "공무", "품질", "안전"] as const;
 
 function normalizeTeamName(name: string) {
@@ -435,6 +442,10 @@ function getShapePlainText(shapeXml: string) {
   return Array.from(shapeXml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g), (match) => decodeXmlText(match[1])).join("");
 }
 
+function getMemberMarkerText(member?: Pick<OrgMember, "border_color">) {
+  return MEMBER_BORDER_OPTIONS.find((option) => option.color === member?.border_color)?.marker ?? "";
+}
+
 function replaceShapeTextRuns(shapeXml: string, value: string) {
   const escaped = escapeXmlText(value);
   let replaced = false;
@@ -448,13 +459,11 @@ function replaceShapeTextRuns(shapeXml: string, value: string) {
 }
 
 function isHeadOfficeMarkerText(plainText: string) {
-  return plainText.includes("(3rd)") || plainText.includes("(현채)");
+  return MEMBER_BORDER_OPTIONS.some((option) => option.marker && plainText.includes(option.marker));
 }
 
 function getHeadOfficeMarkerText(member?: Pick<OrgMember, "border_color">) {
-  if (member?.border_color === "#FF0000") return "(3rd)";
-  if (member?.border_color === "#FFFF00") return "(현채)";
-  return "";
+  return getMemberMarkerText(member);
 }
 
 function extractHeadOfficeMarkerShapes(xml: string) {
@@ -972,7 +981,7 @@ function EditDialog({
           </label>
           <div>
             <span className="text-xs font-semibold text-muted-foreground">테두리 구분</span>
-            <div className="mt-2 grid grid-cols-3 gap-2">
+            <div className="mt-2 grid grid-cols-4 gap-2">
               {MEMBER_BORDER_OPTIONS.map((option) => (
                 <button
                   key={option.color}
@@ -1311,9 +1320,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
       const slideContentW = slideRight - slideLeft;
 
       if (isHeadOfficeTemplate) {
-        const regularColor = "#00B050";
-        const contractColor = "#FFFF00";
-        const partnerColor = "#FF0000";
+        const regularColor = MEMBER_BORDER_COLORS.regular;
         const sortedForPpt = [...teams].sort((a, b) => a.sort_order - b.sort_order);
         const regularCount = members.filter((member) => (member.border_color ?? regularColor) === regularColor).length + (siteManager.name ? 1 : 0);
         const nonRegularCount = members.length + (siteManager.name ? 1 : 0) - regularCount;
@@ -1349,7 +1356,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
           slide.addShape(rect, { x, y: statY + 0.32, w: statW, h: 0.32, fill: { color: "FFFFFF" }, line: { color: "000000", width: 0.45 } });
           slide.addText(String(value), { x, y: statY + 0.43, w: statW, h: 0.09, fontFace: "맑은 고딕", fontSize: 5.7, bold: true, color: "000000", align: "center", margin: 0 });
         });
-        slide.addText("▶괄호 안의 인원은 현채 / 3rd part  인원 기입", {
+        slide.addText("▶괄호 안의 인원은 현채 / 태화 / 3rd part  인원 기입", {
           x: 8.07, y: 1.56, w: 2.88, h: 0.2, fontFace: "맑은 고딕", fontSize: 7, color: "C00000", margin: 0,
         });
 
@@ -1383,8 +1390,9 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
             const member = teamMembers[j];
             const y = rowYs[j] ?? (rowYs[rowYs.length - 1] + (j - rowYs.length + 1) * 0.57);
             await addHeadCard(member, member.position, columnXs[i], y, 1.94, 0.47, member.border_color ?? regularColor);
-            if (member.border_color === contractColor || member.border_color === partnerColor) {
-              slide.addText(member.border_color === partnerColor ? "(3rd)" : "(현채)", {
+            const marker = getMemberMarkerText(member);
+            if (marker) {
+              slide.addText(marker, {
                 x: columnXs[i] + 1.5, y: y + 0.07, w: 0.42, h: 0.12, fontFace: "맑은 고딕", fontSize: 5.3, bold: true, color: "0000FF", margin: 0,
               });
             }
@@ -1425,9 +1433,9 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
 
       slide.addText("인원 구분", { x: 9.15, y: 0.66, w: 0.72, h: 0.1, fontFace: "맑은 고딕", fontSize: 5.8, bold: true, color: "64748B", margin: 0 });
       MEMBER_BORDER_OPTIONS.forEach((option, idx) => {
-        const x = [9.92, 10.88, 11.76][idx] ?? (9.92 + idx * 0.95);
+        const x = [9.62, 10.38, 11.12, 11.86][idx] ?? (9.62 + idx * 0.76);
         slide.addShape(rect, { x, y: 0.675, w: 0.09, h: 0.09, fill: { color: pptColor(option.color) }, line: { color: "94A3B8", width: 0.35 } });
-        slide.addText(option.label, { x: x + 0.12, y: 0.66, w: idx === 2 ? 1.15 : 0.62, h: 0.1, fontFace: "맑은 고딕", fontSize: 5.8, bold: true, color: "334155", margin: 0, fit: "shrink" });
+        slide.addText(option.label, { x: x + 0.12, y: 0.66, w: 0.58, h: 0.1, fontFace: "맑은 고딕", fontSize: 5.8, bold: true, color: "334155", margin: 0, fit: "shrink" });
       });
 
       slide.addShape(line, { x: slideLeft, y: 0.86, w: slideContentW, h: 0, line: { color: "000000", width: 1.0 } });
@@ -1495,7 +1503,8 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
           const textX = cx + (isLeaderCard ? 0.66 : 0.44);
           const textW = cw - (isLeaderCard ? 0.72 : 0.48);
           slide.addText(member.position, { x: textX, y: cy + (isLeaderCard ? 0.25 : 0.08), w: textW, h: 0.08, fontFace: "맑은 고딕", fontSize: isLeaderCard ? 6.2 : 5.3, bold: true, color: "607D8B", margin: 0 });
-          slide.addText(`${member.rank} ${spacedKoreanName(member.name)}`, { x: textX, y: cy + (isLeaderCard ? 0.39 : 0.22), w: textW, h: 0.12, fontFace: "맑은 고딕", fontSize: isLeaderCard ? 8.3 : 6.2, bold: true, color: "000000", align: "center", margin: 0 });
+          const marker = getMemberMarkerText(member);
+          slide.addText(`${member.rank} ${spacedKoreanName(member.name)} ${marker}`.trim(), { x: textX, y: cy + (isLeaderCard ? 0.39 : 0.22), w: textW, h: 0.12, fontFace: "맑은 고딕", fontSize: isLeaderCard ? 8.3 : 6.2, bold: true, color: "000000", align: "center", margin: 0 });
           if (member.email) slide.addText(`✉ ${member.email}`, { x: textX, y: cy + (isLeaderCard ? 0.60 : 0.43), w: textW, h: 0.08, fontFace: "맑은 고딕", fontSize: isLeaderCard ? 5.0 : 3.8, color: "32445A", align: "center", margin: 0, fit: "shrink" });
           if (member.phone) slide.addText(`☎ ${member.phone}`, { x: textX, y: cy + (isLeaderCard ? 0.72 : 0.62), w: textW, h: 0.08, fontFace: "맑은 고딕", fontSize: isLeaderCard ? 5.0 : 3.8, color: "32445A", align: "center", margin: 0, fit: "shrink" });
         };
@@ -1867,6 +1876,7 @@ function PptManagerCard({ info, title, onEdit }: { info: SiteManagerInfo; title:
 }
 
 function PptMemberCard({ member, color, isLeader, onEdit, onDelete }: { member: OrgMember; color: string; isLeader?: boolean; onEdit: () => void; onDelete: () => void }) {
+  const marker = getMemberMarkerText(member);
   return (
     <div
       className={`group relative grid min-h-[88px] grid-cols-[60px_1fr] bg-white text-left ${isLeader ? "border-2" : "border"}`}
@@ -1887,7 +1897,9 @@ function PptMemberCard({ member, color, isLeader, onEdit, onDelete }: { member: 
             <span className="truncate text-[11px] font-black text-slate-800">{member.position}</span>
             {isLeader && <span className="shrink-0 bg-slate-900 px-1 py-0.5 text-[8px] font-black text-white">팀장</span>}
           </div>
-          <div className="text-[13px] font-black leading-tight text-slate-950">{member.rank} {member.name}</div>
+          <div className="text-[13px] font-black leading-tight text-slate-950">
+            {member.rank} {member.name} {marker && <span className="text-[10px] text-blue-700">{marker}</span>}
+          </div>
           {member.email && <div className="mt-1 truncate text-[8.5px] font-semibold leading-tight text-slate-600">✉ {member.email}</div>}
           {member.phone && <div className="mt-0.5 truncate text-[9px] font-semibold leading-tight text-slate-600">☎ {member.phone}</div>}
         </div>
@@ -1983,6 +1995,7 @@ function HeadOfficeMemberCard({ member, onEdit, onDelete }: { member: OrgMember;
 
 /* ━━━━━━━━━━━━━━━ COMPACT MEMBER ROW ━━━━━━━━━━━━━━━ */
 function CompactRow({ member, color, isLeader, onEdit, onDelete }: { member: OrgMember; color: string; isLeader?: boolean; onEdit: () => void; onDelete: () => void }) {
+  const marker = getMemberMarkerText(member);
   return (
     <div className="group flex cursor-pointer items-center gap-2.5 px-3 py-2.5 transition-colors hover:bg-slate-50" onClick={onEdit}>
       {member.photo_url ? (
@@ -1996,6 +2009,7 @@ function CompactRow({ member, color, isLeader, onEdit, onDelete }: { member: Org
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <p className="truncate text-xs font-extrabold leading-tight text-slate-900">{member.name}</p>
+          {marker && <span className="shrink-0 text-[9px] font-black text-blue-700">{marker}</span>}
         </div>
         {member.phone && <p className="truncate text-[10px] font-medium leading-tight text-slate-400">{member.phone}</p>}
       </div>

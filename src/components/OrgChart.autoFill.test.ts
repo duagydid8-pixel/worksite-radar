@@ -32,4 +32,16 @@ describe("OrgChart member auto-fill wiring", () => {
     expect(source).toContain("...HEAD_OFFICE_ORG_DATA.members");
     expect(source).toContain("...PPT_ORG_DATA.members");
   });
+
+  it("lets users select local, Taehwa, and 3rd markers separately", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain('label: "현채"');
+    expect(source).toContain('label: "태화"');
+    expect(source).toContain('label: "3rd"');
+    expect(source).toContain('marker: "(현채)"');
+    expect(source).toContain('marker: "(태화)"');
+    expect(source).toContain('marker: "(3rd)"');
+    expect(source).toContain("function getMemberMarkerText");
+  });
 });
