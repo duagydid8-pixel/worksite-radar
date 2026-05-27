@@ -151,6 +151,50 @@ function createBlankOrgData(): OrgData {
   };
 }
 
+function normalizeManagerForSeedCompare(manager?: SiteManagerInfo) {
+  return {
+    name: manager?.name ?? "",
+    role: manager?.role ?? "",
+    phone: manager?.phone ?? "",
+    email: manager?.email ?? "",
+    photo_url: manager?.photo_url ?? "",
+  };
+}
+
+function normalizeOrgDataForSeedCompare(data: OrgData) {
+  return {
+    businessManager: normalizeManagerForSeedCompare(data.businessManager),
+    siteManager: normalizeManagerForSeedCompare(data.siteManager),
+    teams: (Array.isArray(data.teams) ? data.teams : []).map((team) => ({
+      id: team.id,
+      name: team.name,
+      color: team.color,
+      sort_order: team.sort_order,
+    })),
+    members: (Array.isArray(data.members) ? data.members : []).map((member) => ({
+      id: member.id,
+      team_id: member.team_id,
+      name: member.name,
+      position: member.position,
+      rank: member.rank,
+      phone: member.phone,
+      email: member.email,
+      photo_url: member.photo_url,
+      is_leader: member.is_leader,
+      sort_order: member.sort_order,
+      border_color: member.border_color ?? "",
+    })),
+  };
+}
+
+function isSavedHeadOfficeSeedData(data: OrgData) {
+  return JSON.stringify(normalizeOrgDataForSeedCompare(data)) === JSON.stringify(normalizeOrgDataForSeedCompare(createHeadOfficeOrgData()));
+}
+
+function hasFilledSiteManager(siteManager: SiteManagerInfo) {
+  return Boolean(siteManager.phone || siteManager.email || siteManager.photo_url || (siteManager.name && siteManager.name !== DEFAULT_SM.name));
+}
+
 function pptColor(color: string) {
   return color.replace("#", "").toUpperCase();
 }
@@ -200,7 +244,7 @@ function getEmploymentStat(members: OrgMember[]) {
 }
 
 function getHeadOfficeStats(teams: OrgTeam[], members: OrgMember[], siteManager: SiteManagerInfo) {
-  const hasSiteManager = Boolean(siteManager.name || siteManager.phone || siteManager.email || siteManager.photo_url);
+  const hasSiteManager = hasFilledSiteManager(siteManager);
   const regular = members.filter(isRegularMember).length + (hasSiteManager ? 1 : 0);
   const nonRegular = members.length - members.filter(isRegularMember).length;
   return [
@@ -867,13 +911,22 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
       if (activeSite.key === "head-office-p4-ph4" && !data) {
         data = await loadOrgFS("org_head_office");
       }
-      if (data && Array.isArray((data as OrgData).teams) && (data as OrgData).teams.length > 0 && (data as OrgData).orgSourceVersion === expectedOrgSourceVersion) {
-        const d = data as OrgData;
+      const d = data as OrgData | null;
+      const hasSavedData = Boolean(d && Array.isArray(d.teams) && d.teams.length > 0 && d.orgSourceVersion === expectedOrgSourceVersion);
+      const shouldIgnoreSavedHeadOfficeSeed = Boolean(
+        d &&
+        isHeadOfficeTemplate &&
+        activeSite.key !== "head-office-p4-ph4" &&
+        isSavedHeadOfficeSeedData(d),
+      );
+      if (hasSavedData && !shouldIgnoreSavedHeadOfficeSeed && d) {
         setTeams(d.teams); setMembers(d.members);
         setBusinessManager(d.businessManager ?? DEFAULT_BM);
         setSiteManager(d.siteManager ?? DEFAULT_SM);
       } else {
-        const initial = activeSite.key === "p4-ph4" ? createPptOrgData() : isHeadOfficeTemplate ? createHeadOfficeOrgData() : createBlankOrgData();
+        const initial = activeSite.key === "p4-ph4"
+          ? createPptOrgData()
+          : activeSite.key === "head-office-p4-ph4" ? createHeadOfficeOrgData() : createBlankOrgData();
         setBusinessManager(initial.businessManager);
         setSiteManager(initial.siteManager);
         setTeams(initial.teams);
@@ -1399,10 +1452,10 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
               )}
             </div>
             <button
-              onClick={activeSite.key === "p4-ph4" ? handleApplyPptOrg : isHeadOfficeTemplate ? handleApplyHeadOfficeOrg : handleApplyBlankOrg}
+              onClick={activeSite.key === "p4-ph4" ? handleApplyPptOrg : activeSite.key === "head-office-p4-ph4" ? handleApplyHeadOfficeOrg : handleApplyBlankOrg}
               className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5" /> {activeSite.key === "p4-ph4" ? "PPT 적용" : isHeadOfficeTemplate ? "본사 PPT 적용" : "빈 틀 적용"}
+              <FileSpreadsheet className="h-3.5 w-3.5" /> {activeSite.key === "p4-ph4" ? "PPT 적용" : activeSite.key === "head-office-p4-ph4" ? "본사 PPT 적용" : "빈 틀 적용"}
             </button>
             <button onClick={handleExportExcel} className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-50">
               <FileSpreadsheet className="h-3.5 w-3.5" /> 엑셀
