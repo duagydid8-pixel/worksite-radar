@@ -42,7 +42,7 @@ const WEEKEND_START      = 7 * 60;   // 07:00
 const WEEKEND_END        = 14 * 60;  // 14:00
 const WEEKEND_RATE_PER_HOUR = 0.143;
 const WEEKEND_FULL_WORK_MIN = 7 * 60;
-const GASAN_REASON_TAG_ORDER = ["조출", "주간", "연장", "야간", "주말OT"] as const;
+const GASAN_REASON_TAG_ORDER = ["조출", "주간", "조퇴", "연장", "야간", "주말OT"] as const;
 
 export type GasanReasonTag = typeof GASAN_REASON_TAG_ORDER[number];
 
@@ -67,6 +67,7 @@ function extractGasanReasonTags(text: string): GasanReasonTag[] {
 
   if (compact.includes("조출")) tags.push("조출");
   if (compact.includes("주간")) tags.push("주간");
+  if (compact.includes("조퇴")) tags.push("조퇴");
   if (compact.includes("연장")) tags.push("연장");
   if (compact.includes("야간")) tags.push("야간");
   if (compact.includes("주말")) tags.push("주말OT");
@@ -136,12 +137,54 @@ function roundBy50(min: number): number {
   return m >= 50 ? (h + 1) * 60 : h * 60;
 }
 
+function parseNumber(value: unknown): number | null {
+  const n = parseFloat(String(value ?? ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatHourCount(hours: number): string {
+  return Number.isInteger(hours) ? String(hours) : String(parseFloat(hours.toFixed(2)));
+}
+
+function resolveAddedHourCount(row: {
+  diff?: number | null;
+  calcGongsuVal?: number | null;
+  xerpGongsuA?: string;
+}): number | null {
+  const diff = row.diff ?? (
+    row.calcGongsuVal !== undefined && row.calcGongsuVal !== null
+      ? row.calcGongsuVal - (parseNumber(row.xerpGongsuA) ?? 0)
+      : null
+  );
+  if (diff === null || diff <= 0) return null;
+  return Math.round((diff / 0.25) * 100) / 100;
+}
+
+function resolveFastCheckoutShortageMinutes(row: {
+  xerpOut: string;
+  pmisOut?: string;
+  rawOutMin: number | null;
+}): number | null {
+  if (row.rawOutMin === null || row.rawOutMin <= STANDARD_END || row.rawOutMin % 60 !== 0) return null;
+
+  const xerpOutMin = parseMin(row.xerpOut);
+  const pmisOutMin = parseMin(row.pmisOut);
+  if (xerpOutMin === null || pmisOutMin === null || pmisOutMin < row.rawOutMin) return null;
+
+  const nextHourThreshold = row.rawOutMin - 10;
+  const shortageMin = nextHourThreshold - xerpOutMin;
+  return shortageMin >= 1 && shortageMin <= 2 ? shortageMin : null;
+}
+
 /** 가산 사유 자동 추론 */
 export function inferGasanReason(row: {
   xerpIn: string; xerpOut: string;
-  pmisIn: string;
+  pmisIn: string; pmisOut?: string;
   rawInMin: number | null; rawOutMin: number | null;
   isLate: boolean; standardStart: number;
+  xerpGongsuA?: string;
+  calcGongsuVal?: number | null;
+  diff?: number | null;
 }): string {
   const reasons: string[] = [];
   const noXerpIn  = !row.xerpIn;
@@ -149,15 +192,18 @@ export function inferGasanReason(row: {
   const hasOvertime = row.rawOutMin !== null && row.rawOutMin > STANDARD_END;
   const reasonTags = inferGasanReasonTags(row);
   const jochulCutoff = row.standardStart + 10;
+  const xerpGongsu = parseNumber(row.xerpGongsuA);
+  const addedHourCount = resolveAddedHourCount(row);
+  const fastCheckoutShortageMin = resolveFastCheckoutShortageMinutes(row);
 
   const xerpInMin = parseMin(row.xerpIn);
   const pmisInMin = parseMin(row.pmisIn);
 
   // 출근 관련 사유 판별
   if (noXerpIn && noXerpOut) {
-    reasons.push("출퇴근미타각(주간)");
+    reasons.push(hasOvertime ? "출퇴근미타각(연장)" : "출퇴근미타각(주간)");
   } else if (noXerpIn) {
-    reasons.push("출근미타각(주간)");
+    reasons.push(hasOvertime ? "출근미타각(연장)" : "출근미타각(주간)");
   } else {
     // PMIS는 기준 전, XERP는 늦게 찍힌 경우 → 출근 타각 지연
     const pmisOnTime = pmisInMin !== null && pmisInMin <= row.standardStart;
@@ -182,10 +228,17 @@ export function inferGasanReason(row: {
 
   // 퇴근 관련 사유
   if (noXerpOut && !noXerpIn) {
-    reasons.push(hasOvertime ? "퇴근미타각(연장)" : "퇴근미타각(주간)");
-  } else if (!noXerpOut && hasOvertime) {
-    const h = (row.rawOutMin! - STANDARD_END) / 60;
-    reasons.push(`${h}h 연장근무`);
+    const isEarlyLeave = row.rawOutMin !== null && row.rawOutMin <= 13 * 60;
+    reasons.push(isEarlyLeave ? "퇴근미타각(조퇴)" : hasOvertime ? "퇴근미타각(연장)" : "퇴근미타각(주간)");
+  } else if (fastCheckoutShortageMin !== null) {
+    reasons.push(`${fastCheckoutShortageMin}분빠른퇴근타각(연장)`);
+  } else if (reasons.length === 0 && hasOvertime) {
+    if (xerpGongsu !== null && xerpGongsu >= 1.5 && addedHourCount !== null && addedHourCount > 0) {
+      reasons.push(`${formatHourCount(addedHourCount)}h 야간근무`);
+    } else {
+      const h = (row.rawOutMin! - STANDARD_END) / 60;
+      reasons.push(`${formatHourCount(h)}h 연장근무`);
+    }
   }
 
   return normalizeGasanReasonParentheses(reasons.join(" / "), reasonTags);

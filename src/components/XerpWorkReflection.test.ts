@@ -70,14 +70,101 @@ describe("XERP work reflection adjustment reasons", () => {
       xerpIn: "07:20",
       xerpOut: "18:00",
       pmisIn: "07:00",
+      pmisOut: "18:00",
       rawInMin: 7 * 60,
       rawOutMin: 18 * 60,
       isLate: false,
       standardStart: 7 * 60,
     });
 
-    expect(reason).toBe("출근타각지연(연장) / 1h 연장근무");
+    expect(reason).toBe("출근타각지연(연장)");
     expect(reason).not.toContain("XERP");
+  });
+
+  it("uses an overtime tag for missing check-in when the whole 1.5 gongsu is added", () => {
+    const reason = inferGasanReason({
+      xerpIn: "",
+      xerpOut: "18:50",
+      pmisIn: "05:48",
+      pmisOut: "19:05",
+      rawInMin: 5 * 60 + 48,
+      rawOutMin: 19 * 60,
+      isLate: false,
+      standardStart: 7 * 60,
+      xerpGongsuA: "0",
+      calcGongsuVal: 1.5,
+      diff: 1.5,
+    });
+
+    expect(reason).toBe("출근미타각(연장)");
+  });
+
+  it("uses a fast-checkout reason when PMIS clears an XERP checkout just before the overtime threshold", () => {
+    const oneMinute = inferGasanReason({
+      xerpIn: "06:31",
+      xerpOut: "18:49",
+      pmisIn: "06:08",
+      pmisOut: "19:03",
+      rawInMin: 6 * 60 + 8,
+      rawOutMin: 19 * 60,
+      isLate: false,
+      standardStart: 7 * 60,
+      xerpGongsuA: "1",
+      calcGongsuVal: 1.5,
+      diff: 0.5,
+    });
+    const twoMinutes = inferGasanReason({
+      xerpIn: "06:31",
+      xerpOut: "18:48",
+      pmisIn: "06:08",
+      pmisOut: "19:03",
+      rawInMin: 6 * 60 + 8,
+      rawOutMin: 19 * 60,
+      isLate: false,
+      standardStart: 7 * 60,
+      xerpGongsuA: "1",
+      calcGongsuVal: 1.5,
+      diff: 0.5,
+    });
+
+    expect(oneMinute).toBe("1분빠른퇴근타각(연장)");
+    expect(twoMinutes).toBe("2분빠른퇴근타각(연장)");
+  });
+
+  it("uses a night-work reason for the shortage after XERP already reflected work through 19:00", () => {
+    const reason = inferGasanReason({
+      xerpIn: "06:43",
+      xerpOut: "20:03",
+      pmisIn: "",
+      pmisOut: "",
+      rawInMin: 6 * 60 + 43,
+      rawOutMin: 20 * 60,
+      isLate: false,
+      standardStart: 7 * 60,
+      xerpGongsuA: "1.5",
+      calcGongsuVal: 1.75,
+      diff: 0.25,
+    });
+
+    expect(reason).toBe("1h 야간근무");
+  });
+
+  it("uses early-leave wording for missing checkout on a half-day early leave", () => {
+    const reason = inferGasanReason({
+      xerpIn: "06:50",
+      xerpOut: "",
+      pmisIn: "06:37",
+      pmisOut: "12:58",
+      rawInMin: 6 * 60 + 37,
+      rawOutMin: 13 * 60,
+      isLate: false,
+      standardStart: 7 * 60,
+      xerpGongsuA: "0",
+      calcGongsuVal: 0.5,
+      diff: 0.5,
+    });
+
+    expect(reason).toBe("퇴근미타각(조퇴)");
   });
 
   it("removes old XERP times from saved adjustment reason parentheses", () => {

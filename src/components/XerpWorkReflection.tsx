@@ -442,7 +442,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const isLate    = effInMin !== null && effInMin > cfg.standardStart;
       const 가산사유 = needsUpdate
-        ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason(r), inferGasanReasonTags(r))
+        ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff }), inferGasanReasonTags(r))
         : "";
       return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate, 가산사유 };
     }));
@@ -463,7 +463,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         return { ...r, diff: null, 가산사유: editingReason.trim(), needsUpdate: false, manualAdjustment: true };
       }
       const reason = normalizeGasanReasonParentheses(
-        editingReason.trim() || inferGasanReason(r),
+        editingReason.trim() || inferGasanReason({ ...r, diff: num }),
         inferGasanReasonTags(r),
       );
       return { ...r, diff: num, 가산사유: reason, needsUpdate: true, manualAdjustment: true };
@@ -559,10 +559,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           xerpIn: xerpInStr,
           xerpOut: xerpOutStr,
           pmisIn: pmisInStr,
+          pmisOut: pmisOutStr,
           rawInMin,
           rawOutMin,
           isLate,
           standardStart: cfg.standardStart,
+          xerpGongsuA,
+          calcGongsuVal,
+          diff,
         });
 
         processed.push({
