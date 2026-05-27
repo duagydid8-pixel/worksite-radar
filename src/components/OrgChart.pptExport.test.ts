@@ -45,4 +45,13 @@ describe("OrgChart PPT export", () => {
     expect(source).toContain('hasSiteManager ? spacedKoreanName(siteManager.name) : ""');
     expect(source).toContain('{ picIndex: 0, photoUrl: hasSiteManager ? siteManager.photo_url : "" }');
   });
+
+  it("removes head-office PPT table frames for people that are not in the list", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("const memberTableSlot = (member?: OrgMember)");
+    expect(source).toContain("visible: Boolean(member)");
+    expect(source).toContain('return slot.visible === false ? "" : replaceTableCellTexts(tableXml, slot.cells);');
+    expect(source).not.toContain("{ cells: memberCells(design[0]) }");
+  });
 });

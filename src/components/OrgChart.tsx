@@ -460,44 +460,49 @@ async function exportHeadOfficeTemplatePpt({
     ...headOfficeStats.map(([, value]) => value),
   ];
 
-  const tableSlots: Array<{ cells: Array<string | number | undefined> }> = [
-    { cells: siteManagerCells },
-    { cells: memberCells(design[0]) },
-    { cells: memberCells(safety[0]) },
-    { cells: memberCells(office[0]) },
-    { cells: memberCells(construction[0]) },
-    { cells: memberCells(quality[0]) },
-    { cells: memberCells(quality[1]) },
-    { cells: memberCells(quality[2]) },
-    { cells: memberCells(construction[1]) },
-    { cells: memberCells(design[1]) },
-    { cells: memberCells(design[2]) },
-    { cells: memberCells(office[1]) },
-    { cells: memberCells(office[2]) },
-    { cells: memberCells(safety[1]) },
+  const memberTableSlot = (member?: OrgMember) => ({
+    cells: memberCells(member),
+    visible: Boolean(member),
+  });
+  const tableSlots: Array<{ cells: Array<string | number | undefined>; visible?: boolean }> = [
+    { cells: siteManagerCells, visible: hasSiteManager },
+    memberTableSlot(design[0]),
+    memberTableSlot(safety[0]),
+    memberTableSlot(office[0]),
+    memberTableSlot(construction[0]),
+    memberTableSlot(quality[0]),
+    memberTableSlot(quality[1]),
+    memberTableSlot(quality[2]),
+    memberTableSlot(construction[1]),
+    memberTableSlot(design[1]),
+    memberTableSlot(design[2]),
+    memberTableSlot(office[1]),
+    memberTableSlot(office[2]),
+    memberTableSlot(safety[1]),
     { cells: statsCells },
-    { cells: memberCells(safety[2]) },
-    { cells: memberCells(safety[3]) },
-    { cells: memberCells(design[3]) },
-    { cells: memberCells(design[4]) },
-    { cells: memberCells(design[5]) },
-    { cells: memberCells(office[3]) },
-    { cells: memberCells(office[4]) },
-    { cells: memberCells(quality[3]) },
-    { cells: memberCells(quality[4]) },
-    { cells: memberCells(quality[5]) },
-    { cells: memberCells(safety[4]) },
-    { cells: memberCells(construction[3]) },
-    { cells: memberCells(construction[4]) },
-    { cells: memberCells(design[6]) },
-    { cells: memberCells(construction[2]) },
+    memberTableSlot(safety[2]),
+    memberTableSlot(safety[3]),
+    memberTableSlot(design[3]),
+    memberTableSlot(design[4]),
+    memberTableSlot(design[5]),
+    memberTableSlot(office[3]),
+    memberTableSlot(office[4]),
+    memberTableSlot(quality[3]),
+    memberTableSlot(quality[4]),
+    memberTableSlot(quality[5]),
+    memberTableSlot(safety[4]),
+    memberTableSlot(construction[3]),
+    memberTableSlot(construction[4]),
+    memberTableSlot(design[6]),
+    memberTableSlot(construction[2]),
   ];
 
   let tableIndex = 0;
   slideXml = slideXml.replace(tableRegex, (tableXml) => {
     const slot = tableSlots[tableIndex];
     tableIndex += 1;
-    return slot ? replaceTableCellTexts(tableXml, slot.cells) : tableXml;
+    if (!slot) return tableXml;
+    return slot.visible === false ? "" : replaceTableCellTexts(tableXml, slot.cells);
   });
 
   let nextShapeId = getMaxShapeId(slideXml) + 1;
