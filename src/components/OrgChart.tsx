@@ -213,6 +213,19 @@ function getDateFileStamp() {
   return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
 }
 
+function downloadGeneratedBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    link.remove();
+  }, 1000);
+}
+
 function isHeadOfficeSiteKey(key: OrgSiteKey) {
   return key.startsWith("head-office");
 }
@@ -637,13 +650,7 @@ async function exportHeadOfficeTemplatePpt({
   zip.file(slidePath, slideXml);
   zip.file(relsPath, relXml);
   const blob = await zip.generateAsync({ type: "blob" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `조직도_사업1팀_평택_${activeSite.label}_초순수현장_${titleDate}.pptx`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(link.href);
+  downloadGeneratedBlob(blob, `조직도_사업1팀_평택_${activeSite.label}_초순수현장_${titleDate}.pptx`);
 }
 
 /* ━━━━━━━━━━━━━━━ SITE MANAGER EDIT DIALOG ━━━━━━━━━━━━━━━ */

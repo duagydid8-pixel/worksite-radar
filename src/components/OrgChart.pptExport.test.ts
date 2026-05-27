@@ -62,4 +62,14 @@ describe("OrgChart PPT export", () => {
     expect(source).toContain('plainText.includes("(3rd)") || plainText.includes("(현채)")');
     expect(source).toContain("slideXml = removeHeadOfficeMarkerShapes(slideXml);");
   });
+
+  it("keeps generated head-office PPT blob URLs alive long enough for browser download", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("function downloadGeneratedBlob");
+    expect(source).toContain("setTimeout(() => {");
+    expect(source).toContain("URL.revokeObjectURL(url)");
+    expect(source).toContain("downloadGeneratedBlob(blob, `조직도_사업1팀_평택_${activeSite.label}_초순수현장_${titleDate}.pptx`)");
+    expect(source).not.toContain("URL.revokeObjectURL(link.href)");
+  });
 });
