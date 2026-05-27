@@ -11,7 +11,7 @@ import {
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
-} from "./XerpWorkReflection";
+} from "@/lib/xerpWorkReflectionEngine";
 
 const defaultTeamConfig = {
   standardStart: 7 * 60,
@@ -148,9 +148,8 @@ describe("XERP work reflection download actions", () => {
   });
 
   it("only builds a download when the original workbook buffer is available", () => {
-    expect(canBuildDownloadWorkbook(true, 0)).toBe(true);
-    expect(canBuildDownloadWorkbook(false, 1)).toBe(false);
-    expect(canBuildDownloadWorkbook(false, 0)).toBe(false);
+    expect(canBuildDownloadWorkbook(true)).toBe(true);
+    expect(canBuildDownloadWorkbook(false)).toBe(false);
   });
 });
 
