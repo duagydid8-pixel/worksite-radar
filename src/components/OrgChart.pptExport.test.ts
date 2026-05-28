@@ -126,6 +126,27 @@ describe("OrgChart PPT export", () => {
     expect(source).toContain("return picXml.replace(/<a:xfrm[^>]*>/, \"<a:xfrm>\");");
     expect(source).toContain("setPictureFrameTransform");
     expect(source).toContain("replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, layout.picFrames, setPictureFrameTransform)");
-    expect(source).toContain("pic = removePictureRotation(pic);");
+    expect(source).toContain("return removePictureCrop(removePictureRotation(picXml));");
+    expect(source).toContain("pic = normalizePictureShape(pic);");
+  });
+
+  it("clears every remaining title text run so the template date cannot be duplicated", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain('if (index >= values.length) return "<a:t></a:t>";');
+    expect(source).toContain('slideXml = replaceShapeTextContaining(slideXml, "■ 조직도", [title]);');
+    expect(source).not.toContain('slideXml = replaceShapeTextContaining(slideXml, "■ 조직도", [title, "", "", "", "", "", "", "", "", "", ""]);');
+  });
+
+  it("removes stale crop data from head-office PPT photo shapes", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("function removePictureCrop");
+    expect(source).toContain('return picXml.replace(/<a:srcRect\\b[^>]*\\/>/g, "");');
+    expect(source).toContain("function normalizePictureShape");
+    expect(source).toContain("return removePictureCrop(removePictureRotation(picXml));");
+    expect(source).toContain("return normalizePictureShape(setFrameTransform(picXml, frame));");
+    expect(source).toContain("return normalizePictureShape(picXml).replace(/r:embed=\"[^\"]+\"/, `r:embed=\"${relationshipId}\"`);");
+    expect(source).toContain("pic = normalizePictureShape(pic);");
   });
 });

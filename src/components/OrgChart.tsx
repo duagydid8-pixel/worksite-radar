@@ -319,7 +319,7 @@ function escapeXmlText(value: string | number) {
 function replaceTextRuns(xml: string, values: Array<string | number>) {
   let index = 0;
   return xml.replace(/<a:t>([\s\S]*?)<\/a:t>/g, (match) => {
-    if (index >= values.length) return match;
+    if (index >= values.length) return "<a:t></a:t>";
     const value = escapeXmlText(values[index]);
     index += 1;
     return `<a:t>${value}</a:t>`;
@@ -423,8 +423,16 @@ function removePictureRotation(picXml: string) {
   return picXml.replace(/<a:xfrm[^>]*>/, "<a:xfrm>");
 }
 
+function removePictureCrop(picXml: string) {
+  return picXml.replace(/<a:srcRect\b[^>]*\/>/g, "");
+}
+
+function normalizePictureShape(picXml: string) {
+  return removePictureCrop(removePictureRotation(picXml));
+}
+
 function setPictureFrameTransform(picXml: string, frame: PptFrameRect) {
-  return removePictureRotation(setFrameTransform(picXml, frame));
+  return normalizePictureShape(setFrameTransform(picXml, frame));
 }
 
 function getMaxShapeId(xml: string) {
@@ -440,7 +448,7 @@ function uniquifyShape(shapeXml: string, id: number, name: string) {
 }
 
 function replacePicEmbed(picXml: string, relationshipId: string) {
-  return picXml.replace(/r:embed="[^"]+"/, `r:embed="${relationshipId}"`);
+  return normalizePictureShape(picXml).replace(/r:embed="[^"]+"/, `r:embed="${relationshipId}"`);
 }
 
 function applyPicSlots(xml: string, slots: Array<{ picIndex: number; relationshipId: string | null }>) {
@@ -903,7 +911,7 @@ async function exportHeadOfficeTemplatePpt({
       if (!relationshipId) continue;
       let pic = replacePicEmbed(templatePic, relationshipId);
       pic = setFrameY(pic, baseY + yStep * (index + 1));
-      pic = removePictureRotation(pic);
+      pic = normalizePictureShape(pic);
       pic = uniquifyShape(pic, nextShapeId, "추가 사진");
       nextShapeId += 1;
       overflowPics.push(pic);
@@ -923,7 +931,7 @@ async function exportHeadOfficeTemplatePpt({
 
   const titleDate = getTodayTitleDate();
   const title = `   ■ 조직도_사업1본부_${activeSite.title} _${titleDate}`;
-  slideXml = replaceShapeTextContaining(slideXml, "■ 조직도", [title, "", "", "", "", "", "", "", "", "", ""]);
+  slideXml = replaceShapeTextContaining(slideXml, "■ 조직도", [title]);
   relXml = removeUnusedSlideImageRelationships(zip, relXml, slideXml);
 
   zip.file(slidePath, slideXml);
