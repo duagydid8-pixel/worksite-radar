@@ -65,15 +65,14 @@ describe("OrgChart PPT export", () => {
     expect(source).not.toContain("/<p:sp[\\s\\S]*?<\\/p:sp>/g");
   });
 
-  it("recreates head-office PPT markers for checked 3rd and local members", () => {
+  it("writes head-office PPT markers into the member name cell instead of floating shapes", () => {
     const source = readFileSync("src/components/OrgChart.tsx", "utf8");
 
-    expect(source).toContain("function extractHeadOfficeMarkerShapes");
-    expect(source).toContain("function appendHeadOfficeMarkerShapes");
-    expect(source).toContain("const originalMarkerShapes = extractHeadOfficeMarkerShapes(slideXml);");
-    expect(source).toContain("getHeadOfficeMarkerText(slot.member)");
-    expect(source).toContain("member: member");
-    expect(source).toContain("slideXml = appendHeadOfficeMarkerShapes(");
+    expect(source).toContain("function getHeadOfficeMemberNameText");
+    expect(source).toContain("`${spacedKoreanName(member.name)} ${getHeadOfficeMarkerText(member)}`.trim()");
+    expect(source).toContain('member ? getHeadOfficeMemberNameText(member) : ""');
+    expect(source).toContain("slideXml = removeHeadOfficeMarkerShapes(slideXml);");
+    expect(source).not.toContain("slideXml = appendHeadOfficeMarkerShapes(");
   });
 
   it("keeps generated head-office PPT blob URLs alive long enough for browser download", () => {
@@ -97,9 +96,22 @@ describe("OrgChart PPT export", () => {
     expect(relayoutIndex).toBeGreaterThan(exportStart);
     expect(relayoutIndex).toBeLessThan(framesIndex);
     expect(source).toContain("buildHeadOfficeTemplateLayout");
-    expect(source).toContain("createPhotoFrame");
+    expect(source).toContain("createPhotoFrameFromTable");
     expect(source).toContain("replaceIndexedFrameTransforms");
     expect(source).toContain("function scaleTableDimensions");
+  });
+
+  it("fits head-office PPT photos to the table photo cell", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("function getTableGridColumns");
+    expect(source).toContain("function getTableRowHeights");
+    expect(source).toContain("function createPhotoFrameFromTable");
+    expect(source).toContain("const columns = getTableGridColumns(tableXml);");
+    expect(source).toContain("const rows = getTableRowHeights(tableXml);");
+    expect(source).toContain("const relayoutedTableFrames = Array.from(nextXml.matchAll(PPT_TABLE_FRAME_REGEX)");
+    expect(source).toContain("const picFrames = buildHeadOfficePictureFrames(relayoutedTableFrames, layout.picTableIndexes);");
+    expect(source).not.toContain("createPhotoFrame(cardFrame)");
   });
 
   it("writes head-office PPT role cells from app data instead of preserving template slot labels", () => {
@@ -125,7 +137,7 @@ describe("OrgChart PPT export", () => {
     expect(source).toContain("function removePictureRotation");
     expect(source).toContain("return picXml.replace(/<a:xfrm[^>]*>/, \"<a:xfrm>\");");
     expect(source).toContain("setPictureFrameTransform");
-    expect(source).toContain("replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, layout.picFrames, setPictureFrameTransform)");
+    expect(source).toContain("replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, picFrames, setPictureFrameTransform)");
     expect(source).toContain("return removePictureCrop(removePictureRotation(picXml));");
     expect(source).toContain("pic = normalizePictureShape(pic);");
   });

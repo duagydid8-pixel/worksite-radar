@@ -398,10 +398,6 @@ function setFrameY(frameXml: string, y: number) {
   return frameXml.replace(/<a:off x="(\d+)" y="\d+"\/>/, `<a:off x="$1" y="${Math.round(y)}"/>`);
 }
 
-function setFramePosition(frameXml: string, x: number, y: number) {
-  return frameXml.replace(/<a:off x="\d+" y="\d+"\/>/, `<a:off x="${Math.round(x)}" y="${Math.round(y)}"/>`);
-}
-
 function scaleTableDimensions(frameXml: string, frame: PptFrameRect) {
   if (!frameXml.includes("<a:tbl>")) return frameXml;
   const currentW = getFrameWidth(frameXml);
@@ -500,18 +496,6 @@ function getMemberMarkerText(member?: Pick<OrgMember, "border_color">) {
   return MEMBER_BORDER_OPTIONS.find((option) => option.color === member?.border_color)?.marker ?? "";
 }
 
-function replaceShapeTextRuns(shapeXml: string, value: string) {
-  const escaped = escapeXmlText(value);
-  let replaced = false;
-  return shapeXml.replace(/<a:t>([\s\S]*?)<\/a:t>/g, () => {
-    if (!replaced) {
-      replaced = true;
-      return `<a:t>${escaped}</a:t>`;
-    }
-    return "<a:t></a:t>";
-  });
-}
-
 function isHeadOfficeMarkerText(plainText: string) {
   return MEMBER_BORDER_OPTIONS.some((option) => option.marker && plainText.includes(option.marker));
 }
@@ -520,10 +504,8 @@ function getHeadOfficeMarkerText(member?: Pick<OrgMember, "border_color">) {
   return getMemberMarkerText(member);
 }
 
-function extractHeadOfficeMarkerShapes(xml: string) {
-  return Array.from(xml.matchAll(PPT_SHAPE_REGEX), (match) => match[0]).filter((shapeXml) => (
-    isHeadOfficeMarkerText(getShapePlainText(shapeXml))
-  ));
+function getHeadOfficeMemberNameText(member: OrgMember) {
+  return `${spacedKoreanName(member.name)} ${getHeadOfficeMarkerText(member)}`.trim();
 }
 
 function removeHeadOfficeMarkerShapes(xml: string) {
@@ -531,22 +513,6 @@ function removeHeadOfficeMarkerShapes(xml: string) {
     const plainText = getShapePlainText(shapeXml);
     return isHeadOfficeMarkerText(plainText) ? "" : shapeXml;
   });
-}
-
-function getMedian(values: number[]) {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)];
-}
-
-function getNearestFrameIndex(targetFrame: string, frames: string[]) {
-  const targetX = getFrameX(targetFrame);
-  const targetY = getFrameY(targetFrame);
-  return frames.reduce<{ index: number | null; score: number }>((best, frame, index) => {
-    const frameRight = getFrameX(frame) + getFrameWidth(frame);
-    const score = Math.abs(targetX - frameRight) + Math.abs(targetY - getFrameY(frame)) * 3;
-    return score < best.score ? { index, score } : best;
-  }, { index: null, score: Number.POSITIVE_INFINITY }).index;
 }
 
 function replaceIndexedFrameTransforms(
@@ -563,13 +529,42 @@ function replaceIndexedFrameTransforms(
   });
 }
 
-function createPhotoFrame(cardFrame: PptFrameRect) {
-  return {
-    x: cardFrame.x + emu(0.04),
-    y: cardFrame.y + emu(0.11),
-    w: emu(0.54),
-    h: cardFrame.h - emu(0.14),
+function getTableGridColumns(tableXml: string) {
+  return Array.from(tableXml.matchAll(/<a:gridCol w="(\d+)"/g), (match) => Number(match[1]));
+}
+
+function getTableRowHeights(tableXml: string) {
+  return Array.from(tableXml.matchAll(/<a:tr h="(\d+)"/g), (match) => Number(match[1]));
+}
+
+function createPhotoFrameFromTable(tableXml: string) {
+  const columns = getTableGridColumns(tableXml);
+  const rows = getTableRowHeights(tableXml);
+  const frame = {
+    x: getFrameX(tableXml),
+    y: getFrameY(tableXml),
+    w: getFrameWidth(tableXml),
+    h: getFrameHeight(tableXml),
   };
+  const headerH = rows[0] ?? Math.round(frame.h / 4);
+  const photoW = columns[0] ?? Math.round(frame.w / 4);
+  const photoH = rows.slice(1).reduce((sum, height) => sum + height, 0) || frame.h - headerH;
+  const inset = emu(0.004);
+  return {
+    x: frame.x + inset,
+    y: frame.y + headerH + inset,
+    w: Math.max(1, photoW - inset * 2),
+    h: Math.max(1, photoH - inset * 2),
+  };
+}
+
+function buildHeadOfficePictureFrames(tableFrames: string[], picTableIndexes: Map<number, number>) {
+  const picFrames = new Map<number, PptFrameRect>();
+  for (const [picIndex, tableIndex] of picTableIndexes.entries()) {
+    const tableXml = tableFrames[tableIndex];
+    if (tableXml) picFrames.set(picIndex, createPhotoFrameFromTable(tableXml));
+  }
+  return picFrames;
 }
 
 function buildHeadOfficeTemplateLayout() {
@@ -582,18 +577,13 @@ function buildHeadOfficeTemplateLayout() {
   const columnXs = [0.1, 2.46, 4.82, 7.18, 9.54].map(emu);
 
   const tableFrames = new Map<number, PptFrameRect>();
-  const picFrames = new Map<number, PptFrameRect>();
+  const picTableIndexes = new Map<number, number>();
   const shapeFrames = new Map<number, PptFrameRect>();
   const connectorFrames = new Map<number, PptFrameRect>();
 
   const managerFrame = { x: emu(4.66), y: emu(1.48), w: emu(2.36), h: emu(0.94) };
   tableFrames.set(0, managerFrame);
-  picFrames.set(0, {
-    x: managerFrame.x + emu(0.06),
-    y: managerFrame.y + emu(0.2),
-    w: emu(0.58),
-    h: emu(0.61),
-  });
+  picTableIndexes.set(0, 0);
 
   [
     { col: 0, headerShapeIndex: 5, tableIndexes: [4, 8, 29, 26, 27], picIndexes: [1, 28, 25, 26, 23] },
@@ -613,7 +603,7 @@ function buildHeadOfficeTemplateLayout() {
       const cardFrame = { x, y: rowYs[rowIndex], w: cardW, h: cardH };
       tableFrames.set(tableIndex, cardFrame);
       const picIndex = team.picIndexes[rowIndex];
-      if (picIndex !== undefined) picFrames.set(picIndex, createPhotoFrame(cardFrame));
+      if (picIndex !== undefined) picTableIndexes.set(picIndex, tableIndex);
     });
   });
 
@@ -627,14 +617,15 @@ function buildHeadOfficeTemplateLayout() {
   connectorFrames.set(4, { x: columnCenters[0], y: lineY, w: 1, h: headerConnectorH });
   connectorFrames.set(5, { x: columnCenters[4], y: lineY, w: 1, h: headerConnectorH });
 
-  return { tableFrames, picFrames, shapeFrames, connectorFrames };
+  return { tableFrames, picTableIndexes, shapeFrames, connectorFrames };
 }
 
 function relayoutHeadOfficeTemplateSlide(xml: string) {
   const layout = buildHeadOfficeTemplateLayout();
-  const originalTableFrames = Array.from(xml.matchAll(PPT_TABLE_FRAME_REGEX), (match) => match[0]);
   let nextXml = replaceIndexedFrameTransforms(xml, PPT_TABLE_FRAME_REGEX, layout.tableFrames);
-  nextXml = replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, layout.picFrames, setPictureFrameTransform);
+  const relayoutedTableFrames = Array.from(nextXml.matchAll(PPT_TABLE_FRAME_REGEX), (match) => match[0]);
+  const picFrames = buildHeadOfficePictureFrames(relayoutedTableFrames, layout.picTableIndexes);
+  nextXml = replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, picFrames, setPictureFrameTransform);
   nextXml = replaceIndexedFrameTransforms(nextXml, PPT_CONNECTOR_REGEX, layout.connectorFrames);
 
   let shapeIndex = 0;
@@ -642,70 +633,10 @@ function relayoutHeadOfficeTemplateSlide(xml: string) {
     const headerFrame = layout.shapeFrames.get(shapeIndex);
     shapeIndex += 1;
     if (headerFrame) return setFrameTransform(shapeXml, headerFrame);
-    if (!isHeadOfficeMarkerText(getShapePlainText(shapeXml))) return shapeXml;
-
-    const tableIndex = getNearestFrameIndex(shapeXml, originalTableFrames);
-    const tableFrame = tableIndex === null ? null : layout.tableFrames.get(tableIndex);
-    if (!tableFrame) return shapeXml;
-
-    const markerW = getFrameWidth(shapeXml) || emu(0.42);
-    const markerH = getFrameHeight(shapeXml) || emu(0.2);
-    return setFrameTransform(shapeXml, {
-      x: tableFrame.x + tableFrame.w - markerW - emu(0.08),
-      y: tableFrame.y + emu(0.07),
-      w: markerW,
-      h: markerH,
-    });
+    return shapeXml;
   });
 
   return nextXml;
-}
-
-function getNearestHeadOfficeTableFrame(markerShape: string, tableFrames: string[]) {
-  const markerX = getFrameX(markerShape);
-  const markerY = getFrameY(markerShape);
-  return tableFrames.reduce<{ frame: string | null; score: number }>((best, frame) => {
-    const tableRight = getFrameX(frame) + getFrameWidth(frame);
-    const score = Math.abs(markerX - tableRight) + Math.abs(markerY - getFrameY(frame)) * 3;
-    return score < best.score ? { frame, score } : best;
-  }, { frame: null, score: Number.POSITIVE_INFINITY }).frame;
-}
-
-function getHeadOfficeMarkerOffset(markerShapes: string[], tableFrames: string[]) {
-  const offsets = markerShapes.flatMap((shapeXml) => {
-    const tableFrame = getNearestHeadOfficeTableFrame(shapeXml, tableFrames);
-    return tableFrame ? [{ x: getFrameX(shapeXml) - getFrameX(tableFrame), y: getFrameY(shapeXml) - getFrameY(tableFrame) }] : [];
-  });
-  return {
-    x: getMedian(offsets.map((offset) => offset.x)) || 1370000,
-    y: getMedian(offsets.map((offset) => offset.y)) || 70000,
-  };
-}
-
-function appendHeadOfficeMarkerShapes(
-  xml: string,
-  tableFrames: string[],
-  markerTemplates: string[],
-  slots: Array<{ member?: OrgMember; visible?: boolean }>,
-  startShapeId: number,
-) {
-  const template = markerTemplates[0];
-  if (!template) return xml;
-  const offset = getHeadOfficeMarkerOffset(markerTemplates, tableFrames);
-  let nextShapeId = startShapeId;
-  const markerShapes: string[] = [];
-  slots.forEach((slot, index) => {
-    if (slot.visible === false) return;
-    const markerText = getHeadOfficeMarkerText(slot.member);
-    const tableFrame = tableFrames[index];
-    if (!markerText || !tableFrame) return;
-    let markerShape = replaceShapeTextRuns(template, markerText);
-    markerShape = setFramePosition(markerShape, getFrameX(tableFrame) + offset.x, getFrameY(tableFrame) + offset.y);
-    markerShape = uniquifyShape(markerShape, nextShapeId, "인원 구분");
-    nextShapeId += 1;
-    markerShapes.push(markerShape);
-  });
-  return markerShapes.length > 0 ? xml.replace("</p:spTree>", `${markerShapes.join("")}</p:spTree>`) : xml;
 }
 
 function getMaxRelationshipId(relXml: string) {
@@ -753,7 +684,6 @@ async function exportHeadOfficeTemplatePpt({
   slideXml = relayoutHeadOfficeTemplateSlide(slideXml);
   const tableRegex = PPT_TABLE_FRAME_REGEX;
   const originalTableFrames = Array.from(slideXml.matchAll(tableRegex), (match) => match[0]);
-  const originalMarkerShapes = extractHeadOfficeMarkerShapes(slideXml);
   const picRegex = PPT_PIC_REGEX;
   const originalPics = Array.from(slideXml.matchAll(picRegex), (match) => match[0]);
 
@@ -771,7 +701,7 @@ async function exportHeadOfficeTemplatePpt({
     undefined,
     undefined,
     member?.rank ?? "",
-    member ? spacedKoreanName(member.name) : "",
+    member ? getHeadOfficeMemberNameText(member) : "",
     undefined,
     "E-MAIL",
     member?.email ?? "",
@@ -926,8 +856,6 @@ async function exportHeadOfficeTemplatePpt({
   if (overflowPics.length > 0) {
     slideXml = slideXml.replace("</p:spTree>", `${overflowPics.join("")}</p:spTree>`);
   }
-
-  slideXml = appendHeadOfficeMarkerShapes(slideXml, originalTableFrames, originalMarkerShapes, tableSlots, getMaxShapeId(slideXml) + 1);
 
   const titleDate = getTodayTitleDate();
   const title = `   ■ 조직도_사업1본부_${activeSite.title} _${titleDate}`;
