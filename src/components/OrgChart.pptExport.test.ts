@@ -49,7 +49,7 @@ describe("OrgChart PPT export", () => {
   it("removes head-office PPT table frames for people that are not in the list", () => {
     const source = readFileSync("src/components/OrgChart.tsx", "utf8");
 
-    expect(source).toContain("const memberTableSlot = (member?: OrgMember)");
+    expect(source).toContain("const memberTableSlot = (member: OrgMember | undefined, picIndex: number)");
     expect(source).toContain("visible: Boolean(member)");
     expect(source).toContain('return slot.visible === false ? "" : replaceTableCellTexts(tableXml, slot.cells);');
     expect(source).not.toContain("{ cells: memberCells(design[0]) }");
@@ -100,5 +100,32 @@ describe("OrgChart PPT export", () => {
     expect(source).toContain("createPhotoFrame");
     expect(source).toContain("replaceIndexedFrameTransforms");
     expect(source).toContain("function scaleTableDimensions");
+  });
+
+  it("writes head-office PPT role cells from app data instead of preserving template slot labels", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("return tableXml.replace(/<a:tc(?:\\s[^>]*)?>[\\s\\S]*?<\\/a:tc>/g");
+    expect(source).toContain("member?.position ?? \"\"");
+    expect(source).toContain("siteManager.role ?? \"현장소장\"");
+    expect(source).not.toContain("const memberCells = (member?: OrgMember) => [\n    undefined,");
+  });
+
+  it("derives head-office PPT photo slots from the same slots used for table text", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("photoSlot?: { picIndex: number; photoUrl?: string }");
+    expect(source).toContain("const photoSlots = tableSlots.flatMap");
+    expect(source).not.toContain("const photoSlots: Array<{ picIndex: number; photoUrl?: string }> = [");
+  });
+
+  it("removes stale rotation from head-office PPT photo shapes", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("function removePictureRotation");
+    expect(source).toContain("return picXml.replace(/<a:xfrm[^>]*>/, \"<a:xfrm>\");");
+    expect(source).toContain("setPictureFrameTransform");
+    expect(source).toContain("replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, layout.picFrames, setPictureFrameTransform)");
+    expect(source).toContain("pic = removePictureRotation(pic);");
   });
 });

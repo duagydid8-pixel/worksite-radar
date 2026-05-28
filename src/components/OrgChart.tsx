@@ -340,7 +340,7 @@ function replaceCellText(cellXml: string, value: string | number) {
 
 function replaceTableCellTexts(tableXml: string, cells: Array<string | number | undefined>) {
   let cellIndex = 0;
-  return tableXml.replace(/<a:tc>[\s\S]*?<\/a:tc>/g, (cellXml) => {
+  return tableXml.replace(/<a:tc(?:\s[^>]*)?>[\s\S]*?<\/a:tc>/g, (cellXml) => {
     const value = cells[cellIndex];
     cellIndex += 1;
     return value === undefined ? cellXml : replaceCellText(cellXml, value);
@@ -417,6 +417,14 @@ function setFrameTransform(frameXml: string, frame: PptFrameRect) {
   return scaleTableDimensions(frameXml, frame)
     .replace(/<a:off x="\d+" y="\d+"\/>/, `<a:off x="${Math.round(frame.x)}" y="${Math.round(frame.y)}"/>`)
     .replace(/<a:ext cx="\d+" cy="\d+"\/>/, `<a:ext cx="${Math.round(frame.w)}" cy="${Math.round(frame.h)}"/>`);
+}
+
+function removePictureRotation(picXml: string) {
+  return picXml.replace(/<a:xfrm[^>]*>/, "<a:xfrm>");
+}
+
+function setPictureFrameTransform(picXml: string, frame: PptFrameRect) {
+  return removePictureRotation(setFrameTransform(picXml, frame));
 }
 
 function getMaxShapeId(xml: string) {
@@ -533,12 +541,17 @@ function getNearestFrameIndex(targetFrame: string, frames: string[]) {
   }, { index: null, score: Number.POSITIVE_INFINITY }).index;
 }
 
-function replaceIndexedFrameTransforms(xml: string, regex: RegExp, frames: Map<number, PptFrameRect>) {
+function replaceIndexedFrameTransforms(
+  xml: string,
+  regex: RegExp,
+  frames: Map<number, PptFrameRect>,
+  transform: (frameXml: string, frame: PptFrameRect) => string = setFrameTransform,
+) {
   let index = 0;
   return xml.replace(regex, (frameXml) => {
     const frame = frames.get(index);
     index += 1;
-    return frame ? setFrameTransform(frameXml, frame) : frameXml;
+    return frame ? transform(frameXml, frame) : frameXml;
   });
 }
 
@@ -613,7 +626,7 @@ function relayoutHeadOfficeTemplateSlide(xml: string) {
   const layout = buildHeadOfficeTemplateLayout();
   const originalTableFrames = Array.from(xml.matchAll(PPT_TABLE_FRAME_REGEX), (match) => match[0]);
   let nextXml = replaceIndexedFrameTransforms(xml, PPT_TABLE_FRAME_REGEX, layout.tableFrames);
-  nextXml = replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, layout.picFrames);
+  nextXml = replaceIndexedFrameTransforms(nextXml, PPT_PIC_REGEX, layout.picFrames, setPictureFrameTransform);
   nextXml = replaceIndexedFrameTransforms(nextXml, PPT_CONNECTOR_REGEX, layout.connectorFrames);
 
   let shapeIndex = 0;
@@ -745,6 +758,9 @@ async function exportHeadOfficeTemplatePpt({
   const hasSiteManager = hasFilledSiteManager(siteManager);
 
   const memberCells = (member?: OrgMember) => [
+    member?.position ?? "",
+    undefined,
+    undefined,
     undefined,
     member?.rank ?? "",
     member ? spacedKoreanName(member.name) : "",
@@ -756,6 +772,9 @@ async function exportHeadOfficeTemplatePpt({
     member?.phone ?? "",
   ];
   const siteManagerCells = [
+    hasSiteManager ? siteManager.role ?? "현장소장" : "",
+    undefined,
+    undefined,
     undefined,
     hasSiteManager ? "수석" : "",
     hasSiteManager ? spacedKoreanName(siteManager.name) : "",
@@ -771,42 +790,48 @@ async function exportHeadOfficeTemplatePpt({
     ...headOfficeStats.map(([, value]) => value),
   ];
 
-  const memberTableSlot = (member?: OrgMember) => ({
+  const memberTableSlot = (member: OrgMember | undefined, picIndex: number) => ({
     cells: memberCells(member),
     visible: Boolean(member),
     member: member,
+    photoSlot: { picIndex, photoUrl: member?.photo_url },
   });
-  const tableSlots: Array<{ cells: Array<string | number | undefined>; visible?: boolean; member?: OrgMember }> = [
-    { cells: siteManagerCells, visible: hasSiteManager },
-    memberTableSlot(design[0]),
-    memberTableSlot(safety[0]),
-    memberTableSlot(office[0]),
-    memberTableSlot(construction[0]),
-    memberTableSlot(quality[0]),
-    memberTableSlot(quality[1]),
-    memberTableSlot(quality[2]),
-    memberTableSlot(construction[1]),
-    memberTableSlot(design[1]),
-    memberTableSlot(design[2]),
-    memberTableSlot(office[1]),
-    memberTableSlot(office[2]),
-    memberTableSlot(safety[1]),
+  const tableSlots: Array<{
+    cells: Array<string | number | undefined>;
+    visible?: boolean;
+    member?: OrgMember;
+    photoSlot?: { picIndex: number; photoUrl?: string };
+  }> = [
+    { cells: siteManagerCells, visible: hasSiteManager, photoSlot: { picIndex: 0, photoUrl: hasSiteManager ? siteManager.photo_url : "" } },
+    memberTableSlot(design[0], 2),
+    memberTableSlot(safety[0], 18),
+    memberTableSlot(office[0], 7),
+    memberTableSlot(construction[0], 1),
+    memberTableSlot(quality[0], 12),
+    memberTableSlot(quality[1], 13),
+    memberTableSlot(quality[2], 14),
+    memberTableSlot(construction[1], 28),
+    memberTableSlot(design[1], 3),
+    memberTableSlot(design[2], 4),
+    memberTableSlot(office[1], 8),
+    memberTableSlot(office[2], 9),
+    memberTableSlot(safety[1], 19),
     { cells: statsCells },
-    memberTableSlot(safety[2]),
-    memberTableSlot(safety[3]),
-    memberTableSlot(design[3]),
-    memberTableSlot(design[4]),
-    memberTableSlot(design[5]),
-    memberTableSlot(office[3]),
-    memberTableSlot(office[4]),
-    memberTableSlot(quality[3]),
-    memberTableSlot(quality[4]),
-    memberTableSlot(quality[5]),
-    memberTableSlot(safety[4]),
-    memberTableSlot(construction[3]),
-    memberTableSlot(construction[4]),
-    memberTableSlot(design[6]),
-    memberTableSlot(construction[2]),
+    memberTableSlot(safety[2], 20),
+    memberTableSlot(safety[3], 21),
+    memberTableSlot(design[3], 5),
+    memberTableSlot(design[4], 6),
+    memberTableSlot(design[5], 27),
+    memberTableSlot(office[3], 10),
+    memberTableSlot(office[4], 11),
+    memberTableSlot(quality[3], 15),
+    memberTableSlot(quality[4], 16),
+    memberTableSlot(quality[5], 17),
+    memberTableSlot(safety[4], 22),
+    memberTableSlot(construction[3], 26),
+    memberTableSlot(construction[4], 23),
+    memberTableSlot(design[6], 24),
+    memberTableSlot(construction[2], 25),
   ];
 
   let tableIndex = 0;
@@ -857,37 +882,7 @@ async function exportHeadOfficeTemplatePpt({
     nextRelationshipIndex += 1;
     return added.relationshipId;
   };
-  const photoSlots: Array<{ picIndex: number; photoUrl?: string }> = [
-    { picIndex: 0, photoUrl: hasSiteManager ? siteManager.photo_url : "" },
-    { picIndex: 1, photoUrl: construction[0]?.photo_url },
-    { picIndex: 2, photoUrl: design[0]?.photo_url },
-    { picIndex: 3, photoUrl: design[1]?.photo_url },
-    { picIndex: 4, photoUrl: design[2]?.photo_url },
-    { picIndex: 5, photoUrl: design[3]?.photo_url },
-    { picIndex: 6, photoUrl: design[4]?.photo_url },
-    { picIndex: 7, photoUrl: office[0]?.photo_url },
-    { picIndex: 8, photoUrl: office[1]?.photo_url },
-    { picIndex: 9, photoUrl: office[2]?.photo_url },
-    { picIndex: 10, photoUrl: office[3]?.photo_url },
-    { picIndex: 11, photoUrl: office[4]?.photo_url },
-    { picIndex: 12, photoUrl: quality[0]?.photo_url },
-    { picIndex: 13, photoUrl: quality[1]?.photo_url },
-    { picIndex: 14, photoUrl: quality[2]?.photo_url },
-    { picIndex: 15, photoUrl: quality[3]?.photo_url },
-    { picIndex: 16, photoUrl: quality[4]?.photo_url },
-    { picIndex: 17, photoUrl: quality[5]?.photo_url },
-    { picIndex: 18, photoUrl: safety[0]?.photo_url },
-    { picIndex: 19, photoUrl: safety[1]?.photo_url },
-    { picIndex: 20, photoUrl: safety[2]?.photo_url },
-    { picIndex: 21, photoUrl: safety[3]?.photo_url },
-    { picIndex: 22, photoUrl: safety[4]?.photo_url },
-    { picIndex: 23, photoUrl: construction[4]?.photo_url },
-    { picIndex: 24, photoUrl: design[6]?.photo_url },
-    { picIndex: 25, photoUrl: construction[2]?.photo_url },
-    { picIndex: 26, photoUrl: construction[3]?.photo_url },
-    { picIndex: 27, photoUrl: design[5]?.photo_url },
-    { picIndex: 28, photoUrl: construction[1]?.photo_url },
-  ];
+  const photoSlots = tableSlots.flatMap((slot) => slot.photoSlot ? [slot.photoSlot] : []);
   const resolvedPhotoSlots: Array<{ picIndex: number; relationshipId: string | null }> = [];
   for (const slot of photoSlots) {
     const relationshipId = await addImage(slot.photoUrl);
@@ -908,6 +903,7 @@ async function exportHeadOfficeTemplatePpt({
       if (!relationshipId) continue;
       let pic = replacePicEmbed(templatePic, relationshipId);
       pic = setFrameY(pic, baseY + yStep * (index + 1));
+      pic = removePictureRotation(pic);
       pic = uniquifyShape(pic, nextShapeId, "추가 사진");
       nextShapeId += 1;
       overflowPics.push(pic);

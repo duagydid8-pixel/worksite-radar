@@ -222,14 +222,26 @@ describe("analyzeFinalWorkUnits", () => {
     expect(row.checks).toContain("XERP 퇴근 19:06");
   });
 
-  it("rounds only out times from 49 minutes to the next hour", () => {
+  it("requires PMIS proof before accepting one or two minute fast XERP checkout", () => {
     const result = analyzeFinalWorkUnits({
       monthlyRecords: [
         {
-          site: "평택 P4-Ph4 초순수",
-          team: "태화_F",
-          name: "인정근로자",
+          site: "Site",
+          team: "Team_F",
+          name: "No Proof",
           birthDate: "900102",
+          date: "2026-05-21",
+          day: 21,
+          xerpIn: "06:30",
+          xerpOut: "16:49",
+          systemWorkUnits: 0.875,
+          workTime: "",
+        },
+        {
+          site: "Site",
+          team: "Team_F",
+          name: "One Minute Fast",
+          birthDate: "900103",
           date: "2026-05-21",
           day: 21,
           xerpIn: "06:30",
@@ -238,14 +250,26 @@ describe("analyzeFinalWorkUnits", () => {
           workTime: "",
         },
         {
-          site: "평택 P4-Ph4 초순수",
-          team: "태화_F",
-          name: "차감근로자",
-          birthDate: "900103",
+          site: "Site",
+          team: "Team_F",
+          name: "Two Minutes Fast",
+          birthDate: "900104",
           date: "2026-05-21",
           day: 21,
           xerpIn: "06:30",
           xerpOut: "16:48",
+          systemWorkUnits: 1,
+          workTime: "",
+        },
+        {
+          site: "Site",
+          team: "Team_F",
+          name: "Too Fast",
+          birthDate: "900105",
+          date: "2026-05-21",
+          day: 21,
+          xerpIn: "06:30",
+          xerpOut: "16:47",
           systemWorkUnits: 0.875,
           workTime: "",
         },
@@ -253,15 +277,21 @@ describe("analyzeFinalWorkUnits", () => {
       pmisByDate: {
         "2026-05-21": {
           dateLabel: "2026-05-21",
-          persons: [],
+          persons: [
+            { name: "One Minute Fast", firstIn: "06:29", lastOut: "17:03", totalEvents: 2 },
+            { name: "Two Minutes Fast", firstIn: "06:29", lastOut: "17:03", totalEvents: 2 },
+            { name: "Too Fast", firstIn: "06:29", lastOut: "17:03", totalEvents: 2 },
+          ],
         },
       },
       startDate: "2026-05-21",
       endDate: "2026-05-21",
     });
 
-    expect(result.rows.find((row) => row.name === "인정근로자")?.expectedWorkUnits).toBe(1);
-    expect(result.rows.find((row) => row.name === "차감근로자")?.expectedWorkUnits).toBe(0.875);
+    expect(result.rows.find((row) => row.name === "No Proof")?.expectedWorkUnits).toBe(0.875);
+    expect(result.rows.find((row) => row.name === "One Minute Fast")?.expectedWorkUnits).toBe(1);
+    expect(result.rows.find((row) => row.name === "Two Minutes Fast")?.expectedWorkUnits).toBe(1);
+    expect(result.rows.find((row) => row.name === "Too Fast")?.expectedWorkUnits).toBe(0.875);
   });
 
   it("keeps XERP&PMIS manual extra units separate from reflected work units", () => {
@@ -274,7 +304,7 @@ describe("analyzeFinalWorkUnits", () => {
         date: "2026-05-21",
         day: 21,
         xerpIn: "06:30",
-        xerpOut: "18:49",
+        xerpOut: "18:50",
         systemWorkUnits: 1,
         workTime: "",
       }],

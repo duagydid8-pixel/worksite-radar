@@ -135,12 +135,21 @@ function parseWorkUnitsText(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function roundOutMinutesForWorkUnits(value: string): number | null {
+function roundOutMinutesForWorkUnits(value: string, pmisOut = ""): number | null {
   const minutes = parseTimeMinutes(value);
   if (minutes === null) return null;
   const hour = Math.floor(minutes / 60);
   const minute = minutes % 60;
-  return (minute >= 49 ? hour + 1 : hour) * 60;
+  const nextHour = (hour + 1) * 60;
+  if (minute >= 50) return nextHour;
+
+  const pmisOutMinutes = parseTimeMinutes(pmisOut);
+  const fastCheckoutShortage = nextHour - 10 - minutes;
+  if (pmisOutMinutes !== null && pmisOutMinutes >= nextHour && fastCheckoutShortage >= 1 && fastCheckoutShortage <= 2) {
+    return nextHour;
+  }
+
+  return hour * 60;
 }
 
 function isWeekendDate(date: string): boolean {
@@ -155,9 +164,9 @@ function standardStartMinutes(team: string): number {
   return team.includes("태화_S") ? 7 * 60 + 30 : 7 * 60;
 }
 
-function calculateExpectedWorkUnits(date: string, team: string, inTime: string, outTime: string): number | null {
+function calculateExpectedWorkUnits(date: string, team: string, inTime: string, outTime: string, pmisOut = ""): number | null {
   const inMinutes = parseTimeMinutes(inTime);
-  const outMinutes = roundOutMinutesForWorkUnits(outTime);
+  const outMinutes = roundOutMinutesForWorkUnits(outTime, pmisOut);
   if (inMinutes === null || outMinutes === null || outMinutes <= inMinutes) return null;
 
   if (isWeekendDate(date)) {
@@ -398,7 +407,7 @@ function classifyRow(
   const outMinutes = parseTimeMinutes(record.xerpOut);
   const selectedIn = chooseEvidenceTime("in", record, pmisPerson, electronicCardPerson);
   const selectedOut = chooseEvidenceTime("out", record, pmisPerson, electronicCardPerson);
-  const expectedWorkUnits = calculateExpectedWorkUnits(record.date, record.team, selectedIn.value, selectedOut.value);
+  const expectedWorkUnits = calculateExpectedWorkUnits(record.date, record.team, selectedIn.value, selectedOut.value, pmisOut);
   const xerpPmisExtraUnits = xerpPmisEvidence.extraUnits;
   const reflectedWorkUnits = units === null ? null : roundWorkUnits(units);
   const missingWorkUnits =
