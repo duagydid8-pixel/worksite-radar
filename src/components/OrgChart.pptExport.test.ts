@@ -69,10 +69,21 @@ describe("OrgChart PPT export", () => {
     const source = readFileSync("src/components/OrgChart.tsx", "utf8");
 
     expect(source).toContain("function getHeadOfficeMemberNameText");
-    expect(source).toContain("`${spacedKoreanName(member.name)} ${getHeadOfficeMarkerText(member)}`.trim()");
+    expect(source).toContain("text: spacedKoreanName(member.name)");
+    expect(source).toContain("marker: getHeadOfficeMarkerText(member)");
     expect(source).toContain('member ? getHeadOfficeMemberNameText(member) : ""');
     expect(source).toContain("slideXml = removeHeadOfficeMarkerShapes(slideXml);");
     expect(source).not.toContain("slideXml = appendHeadOfficeMarkerShapes(");
+  });
+
+  it("formats head-office PPT member markers as blue text inside the name cell", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("interface HeadOfficeMemberNameCellValue");
+    expect(source).toContain("function replaceHeadOfficeMemberNameCellText");
+    expect(source).toContain("function setRunTextColor");
+    expect(source).toContain('setRunTextColor(replaceRunText(runs[0], ` ${value.marker}`), "0000FF")');
+    expect(source).toContain("return isHeadOfficeMemberNameCellValue(value)");
   });
 
   it("keeps generated head-office PPT blob URLs alive long enough for browser download", () => {

@@ -17,6 +17,8 @@ interface SiteManagerInfo { name: string; role?: string; phone: string; email: s
 interface OrgData { teams: OrgTeam[]; members: OrgMember[]; siteManager?: SiteManagerInfo; businessManager?: SiteManagerInfo; orgSourceVersion?: string; }
 type OrgSiteKey = "p4-ph4" | "p4-ph2" | "p5-ph1" | "head-office-p4-ph4" | "head-office-p4-ph2" | "head-office-p5-ph1";
 interface OrgSiteConfig { key: OrgSiteKey; label: string; title: string; docId: string; date: string; }
+interface HeadOfficeMemberNameCellValue { text: string; marker: string; }
+type TableCellValue = string | number | HeadOfficeMemberNameCellValue | undefined;
 
 const RANKS = ["수석", "책임", "선임", "사원"] as const;
 const TEAM_COLORS = ["#2563eb", "#7c3aed", "#059669", "#dc2626", "#d97706", "#0891b2", "#be185d", "#4f46e5", "#15803d", "#b45309"];
@@ -338,12 +340,43 @@ function replaceCellText(cellXml: string, value: string | number) {
   });
 }
 
-function replaceTableCellTexts(tableXml: string, cells: Array<string | number | undefined>) {
+function isHeadOfficeMemberNameCellValue(value: TableCellValue): value is HeadOfficeMemberNameCellValue {
+  return typeof value === "object" && value !== null && "text" in value && "marker" in value;
+}
+
+function replaceRunText(runXml: string, value: string | number) {
+  const escaped = escapeXmlText(value);
+  return runXml.replace(/<a:t>[\s\S]*?<\/a:t>/, `<a:t>${escaped}</a:t>`);
+}
+
+function setRunTextColor(runXml: string, color: string) {
+  return runXml.replace(/<a:srgbClr val="[^"]+"/, `<a:srgbClr val="${color}"`);
+}
+
+function replaceHeadOfficeMemberNameCellText(cellXml: string, value: HeadOfficeMemberNameCellValue) {
+  if (!value.marker) return replaceCellText(cellXml, value.text);
+  const runs = Array.from(cellXml.matchAll(/<a:r>[\s\S]*?<\/a:r>/g), (match) => match[0]);
+  if (runs.length === 0) return replaceCellText(cellXml, `${value.text} ${value.marker}`);
+
+  const nameRun = replaceRunText(runs[0], value.text);
+  const markerRun = setRunTextColor(replaceRunText(runs[0], ` ${value.marker}`), "0000FF");
+  let replaced = false;
+  return cellXml.replace(/<a:r>[\s\S]*?<\/a:r>/g, () => {
+    if (replaced) return "";
+    replaced = true;
+    return `${nameRun}${markerRun}`;
+  });
+}
+
+function replaceTableCellTexts(tableXml: string, cells: TableCellValue[]) {
   let cellIndex = 0;
   return tableXml.replace(/<a:tc(?:\s[^>]*)?>[\s\S]*?<\/a:tc>/g, (cellXml) => {
     const value = cells[cellIndex];
     cellIndex += 1;
-    return value === undefined ? cellXml : replaceCellText(cellXml, value);
+    if (value === undefined) return cellXml;
+    return isHeadOfficeMemberNameCellValue(value)
+      ? replaceHeadOfficeMemberNameCellText(cellXml, value)
+      : replaceCellText(cellXml, value);
   });
 }
 
@@ -505,7 +538,10 @@ function getHeadOfficeMarkerText(member?: Pick<OrgMember, "border_color">) {
 }
 
 function getHeadOfficeMemberNameText(member: OrgMember) {
-  return `${spacedKoreanName(member.name)} ${getHeadOfficeMarkerText(member)}`.trim();
+  return {
+    text: spacedKoreanName(member.name),
+    marker: getHeadOfficeMarkerText(member),
+  };
 }
 
 function removeHeadOfficeMarkerShapes(xml: string) {
@@ -735,7 +771,7 @@ async function exportHeadOfficeTemplatePpt({
     photoSlot: { picIndex, photoUrl: member?.photo_url },
   });
   const tableSlots: Array<{
-    cells: Array<string | number | undefined>;
+    cells: TableCellValue[];
     visible?: boolean;
     member?: OrgMember;
     photoSlot?: { picIndex: number; photoUrl?: string };
