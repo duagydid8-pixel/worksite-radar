@@ -24,7 +24,7 @@ import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreServi
 import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power, FilePenLine } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -43,6 +43,7 @@ const LazyElcdComparePage = lazy(() => import("@/components/ElcdComparePage"));
 const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMailRequest"));
 const LazyPayrollPage = lazy(() => import("@/components/PayrollPage"));
 const LazyAdditionalWorkScanPage = lazy(() => import("@/components/AdditionalWorkScanPage"));
+const LazyPayrollJobTitleChangePage = lazy(() => import("@/components/PayrollJobTitleChangePage"));
 const LazyRcmDraftImageExport = lazy(() => import("@/components/RcmDraftImageExport"));
 
 function LazyPanel({ children }: { children: ReactNode }) {
@@ -186,12 +187,13 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
 type TeamFilter = "전체" | "한성" | "태화" | "현채";
 type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
 type AttendanceSubTab = "근태현황" | "연차현황";
-type PayrollSubTab = "급여대장보정" | "추가공수스캔";
+type PayrollSubTab = "급여대장보정" | "추가공수스캔" | "직종변경";
 
 const ATTENDANCE_SUB_TABS: AttendanceSubTab[] = ["근태현황", "연차현황"];
 const PAYROLL_SUB_TABS: { value: PayrollSubTab; label: string; icon: React.ReactNode }[] = [
   { value: "급여대장보정", label: "공수자동보정", icon: <BookText className="h-3.5 w-3.5" /> },
   { value: "추가공수스캔", label: "추가공수 스캔추출", icon: <ScanText className="h-3.5 w-3.5" /> },
+  { value: "직종변경", label: "직종변경", icon: <FilePenLine className="h-3.5 w-3.5" /> },
 ];
 
 const ROW_ORDER_CONTEXTS = ["attendance_한성_F", "attendance_태화_F", "attendance_현채", "leave"];
@@ -2193,7 +2195,7 @@ const Index = () => {
             <div>
               <div className="p-4 pb-0 md:hidden">
                 <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-                  <div className="grid grid-cols-2 gap-1">
+                  <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
                     {PAYROLL_SUB_TABS.map((option) => (
                       <button
                         key={option.value}
@@ -2212,7 +2214,9 @@ const Index = () => {
                 </div>
               </div>
               <LazyPanel>
-                {payrollSubTab === "급여대장보정" ? <LazyPayrollPage /> : <LazyAdditionalWorkScanPage />}
+                {payrollSubTab === "급여대장보정" && <LazyPayrollPage />}
+                {payrollSubTab === "추가공수스캔" && <LazyAdditionalWorkScanPage />}
+                {payrollSubTab === "직종변경" && <LazyPayrollJobTitleChangePage />}
               </LazyPanel>
             </div>
           )}
