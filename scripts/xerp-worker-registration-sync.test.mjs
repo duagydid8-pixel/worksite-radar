@@ -5,10 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildXerpWorkerRegistrationUrl,
   createDownloadSession,
+  extractDailyAttendanceDateFromFileName,
   getXerpProfileDir,
+  isDailyAttendanceSummaryWorkbookName,
   isWorkerRegistrationWorkbookName,
   isLoginLikelyRequired,
+  scanDailyAttendanceSummaryDownloads,
   scanWorkerRegistrationDownloads,
+  selectLatestDailyAttendanceSummaryFile,
   selectLatestWorkerRegistrationFile,
   startXerpWorkerRegistrationServer,
 } from "./xerp-worker-registration-sync.mjs";
@@ -70,6 +74,72 @@ describe("xerp-worker-registration-sync file scanner", () => {
 
   it("returns null when no matching workbook exists", () => {
     expect(selectLatestWorkerRegistrationFile([])).toBeNull();
+  });
+
+  it("recognizes XERP daily attendance summary workbook names", () => {
+    expect(isDailyAttendanceSummaryWorkbookName("일일출역집계_20260630.xlsx")).toBe(true);
+    expect(isDailyAttendanceSummaryWorkbookName("일일출역_평택 P4-PH4 초순수_2026-06-30.xls")).toBe(true);
+    expect(isDailyAttendanceSummaryWorkbookName("일일출력_2026.06.30.xlsx")).toBe(true);
+    expect(isDailyAttendanceSummaryWorkbookName("근로자 등록_10037_20260630132922.xlsx")).toBe(false);
+    expect(isDailyAttendanceSummaryWorkbookName("~$일일출역집계_20260630.xlsx")).toBe(false);
+    expect(isDailyAttendanceSummaryWorkbookName("일일출역집계.csv")).toBe(false);
+  });
+
+  it("extracts requested dates from daily attendance workbook names", () => {
+    expect(extractDailyAttendanceDateFromFileName("일일출역집계_20260630.xlsx")).toBe("2026-06-30");
+    expect(extractDailyAttendanceDateFromFileName("일일출역_2026.06.30.xlsx")).toBe("2026-06-30");
+    expect(extractDailyAttendanceDateFromFileName("일일출력_2026-06-30.xlsx")).toBe("2026-06-30");
+    expect(extractDailyAttendanceDateFromFileName("일일출역집계.xlsx")).toBeNull();
+  });
+
+  it("selects the latest daily attendance workbook preferring the requested date", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-"));
+    try {
+      const olderMatch = path.join(dir, "일일출역집계_20260630.xlsx");
+      const newerWrongDate = path.join(dir, "일일출역집계_20260701.xlsx");
+      const newerMatch = path.join(dir, "일일출력_평택 P4-PH4 초순수_2026-06-30.xlsx");
+
+      await writeFile(olderMatch, "older");
+      await writeFile(newerWrongDate, "wrong");
+      await writeFile(newerMatch, "right");
+
+      const base = new Date("2026-06-30T00:00:00.000Z");
+      await utimes(olderMatch, base, base);
+      await utimes(newerWrongDate, new Date(base.getTime() + 60_000), new Date(base.getTime() + 60_000));
+      await utimes(newerMatch, new Date(base.getTime() + 120_000), new Date(base.getTime() + 120_000));
+
+      const selected = await selectLatestDailyAttendanceSummaryFile({
+        downloadsDir: dir,
+        site: "PH4",
+        date: "2026-06-30",
+        startedAtMs: base.getTime() - 1,
+      });
+
+      expect(selected?.filePath).toBe(newerMatch);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scans daily attendance downloads and returns base64 workbook content", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-scan-"));
+    try {
+      const workbook = path.join(dir, "일일출역집계_20260630.xlsx");
+      await writeFile(workbook, Buffer.from("daily-attendance"));
+
+      const scanned = await scanDailyAttendanceSummaryDownloads({
+        downloadsDir: dir,
+        site: "PH4",
+        date: "2026-06-30",
+        startedAtMs: 0,
+      });
+
+      expect(scanned.found).toBe(true);
+      expect(scanned.file.fileName).toBe("일일출역집계_20260630.xlsx");
+      expect(Buffer.from(scanned.file.base64, "base64").toString("utf8")).toBe("daily-attendance");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

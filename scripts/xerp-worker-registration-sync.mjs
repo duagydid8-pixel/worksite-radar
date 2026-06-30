@@ -13,6 +13,7 @@ export const DEFAULT_DOWNLOADS_DIR = process.env.USERPROFILE
 export const XERP_MAIN_URL = "https://hansung.xerp.co.kr/com/actionMain.do#";
 
 const WORKER_REGISTRATION_WORKBOOK_RE = /^근로자\s*등록_.*\.(xlsx|xls)$/i;
+const DAILY_ATTENDANCE_KEYWORDS = ["일일출역집계", "일일출역", "일일출력"];
 
 export const XERP_WORKER_REGISTRATION_SITES = {
   PH4: { key: "PH4", label: "P4-PH4", xerpSiteName: "평택 P4-PH4 초순수" },
@@ -41,6 +42,59 @@ export function isLoginLikelyRequired(textSnapshot = "") {
 
 export function isWorkerRegistrationWorkbookName(fileName) {
   return !fileName.startsWith("~$") && WORKER_REGISTRATION_WORKBOOK_RE.test(fileName);
+}
+
+function toIsoDateFromParts(year, month, day) {
+  const normalizedYear = Number(year);
+  const normalizedMonth = Number(month);
+  const normalizedDay = Number(day);
+  if (
+    !Number.isInteger(normalizedYear) ||
+    !Number.isInteger(normalizedMonth) ||
+    !Number.isInteger(normalizedDay)
+  ) {
+    return null;
+  }
+
+  const candidate = new Date(Date.UTC(normalizedYear, normalizedMonth - 1, normalizedDay));
+  if (
+    candidate.getUTCFullYear() !== normalizedYear ||
+    candidate.getUTCMonth() !== normalizedMonth - 1 ||
+    candidate.getUTCDate() !== normalizedDay
+  ) {
+    return null;
+  }
+
+  return `${String(normalizedYear).padStart(4, "0")}-${String(normalizedMonth).padStart(2, "0")}-${String(normalizedDay).padStart(2, "0")}`;
+}
+
+export function normalizeXerpDailyAttendanceDate(value) {
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return toIsoDateFromParts(match[1], match[2], match[3]);
+}
+
+export function formatXerpDailyAttendanceDateForInput(value) {
+  return normalizeXerpDailyAttendanceDate(value);
+}
+
+export function extractDailyAttendanceDateFromFileName(name) {
+  const base = path.basename(String(name ?? ""));
+  const compact = base.match(/(^|[^\d])(20\d{2})(\d{2})(\d{2})(?!\d)/);
+  if (compact) return toIsoDateFromParts(compact[2], compact[3], compact[4]);
+
+  const separated = base.match(/(^|[^\d])(20\d{2})[-._년\s]+(\d{1,2})[-._월\s]+(\d{1,2})(?:일)?(?!\d)/);
+  if (separated) return toIsoDateFromParts(separated[2], separated[3], separated[4]);
+
+  return null;
+}
+
+export function isDailyAttendanceSummaryWorkbookName(fileName) {
+  const base = path.basename(String(fileName ?? ""));
+  if (!base || base.startsWith("~$")) return false;
+  if (!/\.(xlsx|xls)$/i.test(base)) return false;
+  return DAILY_ATTENDANCE_KEYWORDS.some((keyword) => base.includes(keyword));
 }
 
 export async function collectWorkerRegistrationCandidates({
@@ -85,6 +139,92 @@ export async function scanWorkerRegistrationDownloads({
     modifiedAtMs: latest.modifiedAtMs,
     size: latest.size,
     base64: buffer.toString("base64"),
+  };
+}
+
+async function collectDailyAttendanceSummaryCandidates({
+  downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  site,
+  date,
+  startedAtMs = 0,
+} = {}) {
+  const entries = await readdir(downloadsDir, { withFileTypes: true }).catch(() => []);
+  const candidates = [];
+  const requestedDate = normalizeXerpDailyAttendanceDate(date);
+  const siteDefinition = XERP_WORKER_REGISTRATION_SITES[site];
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !isDailyAttendanceSummaryWorkbookName(entry.name)) continue;
+
+    const filePath = path.join(downloadsDir, entry.name);
+    const fileStat = await stat(filePath).catch(() => null);
+    if (!fileStat || fileStat.mtimeMs < startedAtMs) continue;
+
+    const upperName = entry.name.toUpperCase();
+    const extractedDate = extractDailyAttendanceDateFromFileName(entry.name);
+    const nameContainsSite = Boolean(
+      siteDefinition &&
+        (entry.name.includes(siteDefinition.xerpSiteName) ||
+          entry.name.includes(siteDefinition.label) ||
+          upperName.includes(siteDefinition.key)),
+    );
+
+    candidates.push({
+      fileName: entry.name,
+      filePath,
+      path: filePath,
+      modifiedAtMs: fileStat.mtimeMs,
+      mtimeMs: fileStat.mtimeMs,
+      size: fileStat.size,
+      extractedDate,
+      matchesDate: Boolean(requestedDate && extractedDate === requestedDate),
+      nameContainsSite,
+    });
+  }
+
+  return candidates;
+}
+
+export async function selectLatestDailyAttendanceSummaryFile({
+  downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  site,
+  date,
+  startedAtMs = 0,
+} = {}) {
+  const candidates = await collectDailyAttendanceSummaryCandidates({ downloadsDir, site, date, startedAtMs });
+  if (candidates.length === 0) return null;
+
+  return candidates.sort((a, b) => {
+    if (a.matchesDate !== b.matchesDate) return a.matchesDate ? -1 : 1;
+    if (a.nameContainsSite !== b.nameContainsSite) return a.nameContainsSite ? -1 : 1;
+    return b.modifiedAtMs - a.modifiedAtMs;
+  })[0];
+}
+
+export async function scanDailyAttendanceSummaryDownloads({
+  downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  site,
+  date,
+  startedAtMs = 0,
+} = {}) {
+  const latest = await selectLatestDailyAttendanceSummaryFile({ downloadsDir, site, date, startedAtMs });
+  if (!latest) {
+    return { found: false, file: null };
+  }
+
+  const buffer = await readFile(latest.filePath);
+  return {
+    found: true,
+    file: {
+      fileName: latest.fileName,
+      name: latest.fileName,
+      filePath: latest.filePath,
+      path: latest.filePath,
+      modifiedAtMs: latest.modifiedAtMs,
+      mtimeMs: latest.modifiedAtMs,
+      size: latest.size,
+      base64: buffer.toString("base64"),
+    },
   };
 }
 
