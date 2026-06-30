@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import { emptyRow, EMPLOYEE_EXPORT_HEADERS, getEmployeeStatusCounts, parseImportedSheet } from "./NewEmployeeList";
+import {
+  emptyRow,
+  EMPLOYEE_EXPORT_HEADERS,
+  getDuplicateNameCounts,
+  getEmployeeStatusCounts,
+  parseImportedSheet,
+} from "./NewEmployeeList";
 
 describe("NewEmployeeList memo field", () => {
   it("creates new rows with an empty memo", () => {
@@ -77,5 +83,16 @@ describe("NewEmployeeList import cleanup", () => {
       { 이름: "퇴사자", 입사일: "2026-01-01", 퇴사일: "2026-05-01" },
       { 이름: "날짜누락", 입사일: "", 퇴사일: "" },
     ])).toEqual({ total: 3, active: 1, resigned: 1, unknown: 1 });
+  });
+});
+
+describe("NewEmployeeList duplicate names", () => {
+  it("counts only non-empty repeated names", () => {
+    expect(getDuplicateNameCounts([
+      { 이름: "김철수" },
+      { 이름: " 김철수 " },
+      { 이름: "이영희" },
+      { 이름: "" },
+    ])).toEqual(new Map([["김철수", 2]]));
   });
 });
