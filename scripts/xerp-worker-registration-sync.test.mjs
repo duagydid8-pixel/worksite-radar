@@ -256,6 +256,68 @@ describe("xerp-worker-registration-sync server", () => {
     }
   });
 
+  it("validates daily attendance input and exposes downloaded files", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-endpoint-"));
+    const downloadDailyAttendanceSummaryWorkbook = vi.fn(async ({ downloadsDir }) => {
+      const workbookPath = path.join(downloadsDir, "일일출역집계_20260630.xlsx");
+      await writeFile(workbookPath, "downloaded");
+      return {
+        ok: true,
+        mode: "downloaded",
+        filePath: workbookPath,
+        fileName: "일일출역집계_20260630.xlsx",
+        startedAtMs: 10,
+        finishedAtMs: 20,
+      };
+    });
+
+    try {
+      const baseUrl = await startTestServer({ downloadsDir: dir, downloadDailyAttendanceSummaryWorkbook });
+
+      const statusResponse = await fetch(`${baseUrl}/xerp-daily-attendance/status`);
+      const statusJson = await statusResponse.json();
+      expect(statusResponse.status).toBe(200);
+      expect(statusJson.ok).toBe(true);
+      expect(statusJson.port).toBeGreaterThan(0);
+      expect(statusJson.sites).toEqual([
+        { key: "PH4", label: "평택 P4-PH4 초순수" },
+        { key: "PH2", label: "평택 P4-PH2 초순수" },
+      ]);
+
+      const invalidResponse = await fetch(`${baseUrl}/xerp-daily-attendance/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: "P5PH1", date: "2026-06-30" }),
+      });
+      expect(invalidResponse.status).toBe(400);
+
+      const downloadResponse = await fetch(`${baseUrl}/xerp-daily-attendance/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: "PH4", date: "2026-06-30" }),
+      });
+      const downloadJson = await downloadResponse.json();
+      expect(downloadResponse.status).toBe(200);
+      expect(downloadJson.mode).toBe("downloaded");
+      expect(downloadDailyAttendanceSummaryWorkbook).toHaveBeenCalledWith({
+        site: "PH4",
+        date: "2026-06-30",
+        downloadsDir: dir,
+      });
+
+      const latestResponse = await fetch(
+        `${baseUrl}/xerp-daily-attendance/latest?site=PH4&date=2026-06-30&startedAtMs=0`,
+      );
+      const latestJson = await latestResponse.json();
+      expect(latestResponse.status).toBe(200);
+      expect(latestJson.found).toBe(true);
+      expect(latestJson.file.fileName).toBe("일일출역집계_20260630.xlsx");
+      expect(Buffer.from(latestJson.file.base64, "base64").toString("utf8")).toBe("downloaded");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("handles CORS preflight", async () => {
     const baseUrl = await startTestServer();
     const response = await fetch(`${baseUrl}/xerp-worker-registration/status`, {
