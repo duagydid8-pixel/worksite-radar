@@ -1,9 +1,13 @@
 import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildXerpWorkerRegistrationUrl,
+  createDownloadSession,
+  getXerpProfileDir,
   isWorkerRegistrationWorkbookName,
+  isLoginLikelyRequired,
   scanWorkerRegistrationDownloads,
   selectLatestWorkerRegistrationFile,
   startXerpWorkerRegistrationServer,
@@ -69,6 +73,39 @@ describe("xerp-worker-registration-sync file scanner", () => {
   });
 });
 
+describe("xerp-worker-registration-sync browser automation helpers", () => {
+  it("builds the XERP main URL", () => {
+    expect(buildXerpWorkerRegistrationUrl()).toBe("https://hansung.xerp.co.kr/com/actionMain.do#");
+  });
+
+  it("builds a deterministic Playwright profile directory", () => {
+    expect(getXerpProfileDir({ localAppData: "C:\\LocalAppData" })).toBe(
+      path.join("C:\\LocalAppData", "worksite-radar", "xerp-worker-registration-profile"),
+    );
+  });
+
+  it("creates a download session payload", () => {
+    expect(
+      createDownloadSession({
+        site: "PH4",
+        mode: "browser-automation",
+        startedAtMs: 1782800000000,
+      }),
+    ).toMatchObject({
+      ok: true,
+      site: "PH4",
+      siteName: "평택 P4-PH4 초순수",
+      startedAtMs: 1782800000000,
+      mode: "browser-automation",
+    });
+  });
+
+  it("detects likely XERP login screens", () => {
+    expect(isLoginLikelyRequired("로그인\n아이디\n비밀번호")).toBe(true);
+    expect(isLoginLikelyRequired("노무관리 근로자관리 근로자 등록")).toBe(false);
+  });
+});
+
 describe("xerp-worker-registration-sync server", () => {
   it("serves local helper status", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-worker-"));
@@ -99,6 +136,32 @@ describe("xerp-worker-registration-sync server", () => {
 
     expect(response.status).toBe(400);
     expect(json.error).toContain("지원하지 않는 현장");
+  });
+
+  it("delegates supported downloads to the injected automation function", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-worker-"));
+    const downloadWorkerRegistrationWorkbook = vi.fn().mockResolvedValue({
+      ok: true,
+      site: "PH4",
+      siteName: "평택 P4-PH4 초순수",
+      startedAtMs: 1782800000000,
+      mode: "browser-automation",
+    });
+    try {
+      const baseUrl = await startTestServer({ downloadsDir: dir, downloadWorkerRegistrationWorkbook });
+      const response = await fetch(`${baseUrl}/xerp-worker-registration/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: "PH4" }),
+      });
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.mode).toBe("browser-automation");
+      expect(downloadWorkerRegistrationWorkbook).toHaveBeenCalledWith({ site: "PH4", downloadsDir: dir });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("returns the latest workbook as base64", async () => {
