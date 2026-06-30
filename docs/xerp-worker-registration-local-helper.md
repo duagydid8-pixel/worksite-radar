@@ -58,3 +58,39 @@ npx playwright install chromium
 9. Click `적용`.
 
 Manual Excel upload remains available.
+
+## Daily Attendance Summary Import
+
+The same helper also supports the `XERP & PMIS` screen's `출역관리 > 일일출역집계` import.
+
+Supported sites:
+
+- `PH4`: `평택 P4-PH4 초순수`
+- `PH2`: `평택 P4-PH2 초순수`
+
+`P5-PH1` is excluded because that XERP site uses different credentials.
+
+Date behavior:
+
+- The app uses the `XERP & PMIS` `업로드 날짜` as the XERP query date.
+- Imported rows are saved under the same `업로드 날짜`.
+- If the downloaded workbook filename contains another date, the selected `업로드 날짜` still wins.
+
+Flow:
+
+1. Start the helper with `npm run xerp:worker`.
+2. Open Worksite Radar.
+3. Go to `XERP & PMIS`.
+4. Select `업로드 날짜`.
+5. Click `XERP 가져오기`.
+6. If XERP asks for login, log in inside the visible Chromium window.
+7. Click `XERP 가져오기` again after login.
+8. The helper opens `출역관리 > 일일출역집계`, selects the matching XERP site/date, downloads Excel, and the app saves it to the selected date.
+
+Daily attendance endpoints:
+
+```text
+GET  /xerp-daily-attendance/status
+POST /xerp-daily-attendance/download
+GET  /xerp-daily-attendance/latest
+```
