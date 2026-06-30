@@ -18,6 +18,8 @@
     "attendance:watch:network": "node scripts/attendance-folder-watcher.mjs --network",
     "rcm:image": "node scripts/rcm-draft-image-server.mjs",
     "rcm:image:network": "node scripts/rcm-draft-image-server.mjs --network",
+    "xerp:worker": "node scripts/xerp-worker-registration-sync.mjs",
+    "playwright:install": "playwright install chromium",
     "dev:network": "node scripts/dev-with-services.mjs --network"
   },
   "dependencies": {
