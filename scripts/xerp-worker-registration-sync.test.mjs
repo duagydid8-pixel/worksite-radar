@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildXerpWorkerRegistrationUrl,
+  clickTextInAnyFrame,
   createDownloadSession,
   extractDailyAttendanceDateFromFileName,
   getXerpProfileDir,
@@ -173,6 +174,34 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
   it("detects likely XERP login screens", () => {
     expect(isLoginLikelyRequired("로그인\n아이디\n비밀번호")).toBe(true);
     expect(isLoginLikelyRequired("노무관리 근로자관리 근로자 등록")).toBe(false);
+  });
+
+  it("retries menu clicks when an XERP frame is detached mid-click", async () => {
+    const detachedFrame = {
+      getByText: vi.fn(() => ({
+        first: () => ({
+          click: vi.fn().mockRejectedValue(new Error("locator.click: Frame was detached")),
+        }),
+      })),
+    };
+    const click = vi.fn().mockResolvedValue(undefined);
+    const activeFrame = {
+      getByText: vi.fn(() => ({
+        first: () => ({ click }),
+      })),
+    };
+    const waitForTimeout = vi.fn().mockResolvedValue(undefined);
+    const page = {
+      frames: vi.fn()
+        .mockReturnValueOnce([detachedFrame])
+        .mockReturnValueOnce([activeFrame]),
+      waitForTimeout,
+    };
+
+    await expect(clickTextInAnyFrame(page, "출역관리")).resolves.toBe(true);
+    expect(page.frames).toHaveBeenCalledTimes(2);
+    expect(waitForTimeout).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
   });
 });
 

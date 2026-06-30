@@ -390,14 +390,26 @@ export async function launchXerpContext({
   return { context, page };
 }
 
-export async function clickTextInAnyFrame(page, text) {
+function isTransientFrameClickError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Frame was detached|Execution context was destroyed|Target closed|Page closed/i.test(message);
+}
+
+export async function clickTextInAnyFrame(page, text, { attempts = 4 } = {}) {
   let lastError = null;
-  for (const frame of page.frames()) {
-    try {
-      await frame.getByText(text, { exact: true }).first().click({ timeout: 3000 });
-      return true;
-    } catch (error) {
-      lastError = error;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    for (const frame of page.frames()) {
+      if (typeof frame.isDetached === "function" && frame.isDetached()) continue;
+      try {
+        await frame.getByText(text, { exact: true }).first().click({ timeout: 3000 });
+        return true;
+      } catch (error) {
+        lastError = error;
+        if (isTransientFrameClickError(error)) break;
+      }
+    }
+    if (attempt < attempts - 1) {
+      await page.waitForTimeout?.(300);
     }
   }
   throw new Error(`XERP 화면에서 '${text}' 항목을 찾지 못했습니다: ${lastError?.message || "unknown error"}`);
