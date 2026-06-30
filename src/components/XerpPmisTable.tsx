@@ -6,6 +6,12 @@ import { toast } from "sonner";
 import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
 import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadEmployeesP5PH1FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS, loadPerfectAttendanceWeekdayHolidaysFS, savePerfectAttendanceWeekdayHolidaysFS } from "@/lib/firestoreService";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
+import {
+  decodeBase64Workbook,
+  fetchLatestXerpDailyAttendanceFile,
+  requestXerpDailyAttendanceDownload,
+  type XerpDailyAttendanceSite,
+} from "@/lib/localXerpDailyAttendanceClient";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -889,6 +895,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [selectedDate, setSelectedDate] = useState<string>(TODAY);
   const [resignedNames, setResignedNames] = useState<Set<string>>(new Set());
   const [uploadDate, setUploadDate] = useState<string>(TODAY);
+  const [xerpImporting, setXerpImporting] = useState(false);
   const [search, setSearch] = useState("");
   const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -903,6 +910,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [perfectDialog, setPerfectDialog] = useState<"perfect" | "failed" | "reserve" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadedTemplateBuffersRef = useRef<Record<string, ArrayBuffer>>({});
+  const canUseXerpDailyImport = isAdmin && site !== "P5PH1";
 
   // 달력 모달 상태
   const [calendarEmp, setCalendarEmp] = useState<XerpPmisRow | null>(null);
@@ -1275,6 +1283,49 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     }
   };
 
+  const handleXerpDailyImport = async () => {
+    if (!canUseXerpDailyImport) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(uploadDate)) {
+      toast.error("XERP 조회 날짜를 먼저 선택하세요.");
+      return;
+    }
+
+    setXerpImporting(true);
+    try {
+      const xerpSite = site as XerpDailyAttendanceSite;
+      const session = await requestXerpDailyAttendanceDownload(xerpSite, uploadDate);
+      if (session.mode === "login-required") {
+        toast.info("열린 XERP 창에서 로그인한 뒤 다시 XERP 가져오기를 눌러주세요.");
+        return;
+      }
+
+      const latest = await fetchLatestXerpDailyAttendanceFile(xerpSite, uploadDate, session.startedAtMs);
+      if (!latest.found || !latest.file) {
+        toast.error("다운로드된 일일출역집계 엑셀을 찾지 못했습니다.");
+        return;
+      }
+
+      const buffer = decodeBase64Workbook(latest.file.base64);
+      const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
+      const imported = parseSheet(wb);
+      if (imported.length === 0) {
+        toast.error("일일출역집계 엑셀에서 가져올 행이 없습니다.");
+        return;
+      }
+
+      uploadedTemplateBuffersRef.current[uploadDate] = buffer.slice(0);
+      const nextMap = { ...dateMap, [uploadDate]: imported };
+      setDateMap(nextMap);
+      syncXerpFS(nextMap);
+      setSelectedDate(uploadDate);
+      toast.success(`${latest.file.fileName}에서 ${imported.length.toLocaleString()}건을 가져왔습니다.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "XERP 일일출역집계 가져오기에 실패했습니다.");
+    } finally {
+      setXerpImporting(false);
+    }
+  };
+
   // ── 폴더 일괄 업로드 (File System Access API) ──
   const handleFolderUpload = async () => {
     if (!("showDirectoryPicker" in window)) {
@@ -1565,6 +1616,17 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
               <Upload className="h-3.5 w-3.5" />
               업로드
             </button>
+            {canUseXerpDailyImport && (
+              <button
+                type="button"
+                onClick={handleXerpDailyImport}
+                disabled={xerpImporting}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-sky-600 text-white text-xs font-semibold hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {xerpImporting ? "가져오는 중" : "XERP 가져오기"}
+              </button>
+            )}
             <button
               onClick={handleFolderUpload}
               title="폴더를 선택하면 안에 있는 모든 Excel 파일을 날짜별로 자동 업로드"
