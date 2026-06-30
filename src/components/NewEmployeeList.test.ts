@@ -1,12 +1,43 @@
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { readFileSync } from "node:fs";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
-import {
+import NewEmployeeList, {
   emptyRow,
   EMPLOYEE_EXPORT_HEADERS,
   getDuplicateNameCounts,
   getEmployeeStatusCounts,
   parseImportedSheet,
 } from "./NewEmployeeList";
+
+vi.mock("@/lib/firestoreService", () => ({
+  loadEmployeesPH4FS: vi.fn().mockResolvedValue([]),
+  saveEmployeesPH4FS: vi.fn().mockResolvedValue(true),
+  loadEmployeesPH2FS: vi.fn().mockResolvedValue([]),
+  saveEmployeesPH2FS: vi.fn().mockResolvedValue(true),
+  loadEmployeesP5PH1FS: vi.fn().mockResolvedValue([]),
+  saveEmployeesP5PH1FS: vi.fn().mockResolvedValue(true),
+}));
+
+describe("NewEmployeeList XERP import controls", () => {
+  it("shows XERP import on the default PH4 tab", async () => {
+    render(createElement(NewEmployeeList));
+
+    expect(await screen.findByText("XERP 가져오기")).toBeTruthy();
+  });
+
+  it("wires XERP import for PH4 and PH2 but not P5-PH1", () => {
+    const source = readFileSync("src/components/NewEmployeeList.tsx", "utf8");
+    const p5Start = source.indexOf('<TabsContent value="p5ph1">');
+    const p5End = source.indexOf("</TabsContent>", p5Start);
+    const p5Block = source.slice(p5Start, p5End);
+
+    expect(source).toContain('xerpSite="PH4"');
+    expect(source).toContain('xerpSite="PH2"');
+    expect(p5Block).not.toContain("xerpSite=");
+  });
+});
 
 describe("NewEmployeeList memo field", () => {
   it("creates new rows with an empty memo", () => {

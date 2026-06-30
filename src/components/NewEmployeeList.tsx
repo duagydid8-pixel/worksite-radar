@@ -7,6 +7,16 @@ import {
   loadEmployeesPH2FS, saveEmployeesPH2FS,
   loadEmployeesP5PH1FS, saveEmployeesP5PH1FS,
 } from "@/lib/firestoreService";
+import {
+  decodeBase64Workbook,
+  fetchLatestXerpWorkerRegistrationFile,
+  requestXerpWorkerRegistrationDownload,
+} from "@/lib/localXerpWorkerRegistrationClient";
+import {
+  getXerpWorkerRegistrationSite,
+  summarizeXerpWorkerRegistrationRows,
+  type XerpWorkerRegistrationSite,
+} from "@/lib/xerpWorkerRegistration";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 interface NewEmployee {
@@ -255,9 +265,10 @@ export const EMPLOYEE_EXPORT_HEADERS = [
 interface EmployeeTabContentProps {
   loadFn: () => Promise<unknown[] | null>;
   saveFn: (rows: unknown[]) => Promise<boolean>;
+  xerpSite?: XerpWorkerRegistrationSite;
 }
 
-function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
+function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProps) {
   const [rows, setRows] = useState<NewEmployee[]>([emptyRow()]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -266,6 +277,12 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   const resizeRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<NewEmployee | null>(null);
+  const [xerpImporting, setXerpImporting] = useState(false);
+  const [pendingXerpImport, setPendingXerpImport] = useState<null | {
+    fileName: string;
+    rows: NewEmployee[];
+    summary: ReturnType<typeof summarizeXerpWorkerRegistrationRows>;
+  }>(null);
 
   const getColW = (key: string) => colWidths[key] ?? DEFAULT_COL_WIDTHS[key] ?? 80;
 
@@ -318,10 +335,10 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   }, []);
 
   // Firestore 저장 헬퍼
-  const syncFS = useCallback((newRows: NewEmployee[]) => {
-    saveFn(sanitizeEmployeeRows(newRows)).then((ok) => {
-      if (!ok) toast.error("Firestore 저장 실패");
-    });
+  const syncFS = useCallback(async (newRows: NewEmployee[]) => {
+    const ok = await saveFn(sanitizeEmployeeRows(newRows));
+    if (!ok) toast.error("Firestore 저장 실패");
+    return ok;
   }, [saveFn]);
 
   const openEdit = useCallback((row: NewEmployee) => {
@@ -411,6 +428,51 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  const handleXerpImport = async () => {
+    if (!xerpSite) return;
+    setXerpImporting(true);
+
+    try {
+      const site = getXerpWorkerRegistrationSite(xerpSite);
+      const downloadSession = await requestXerpWorkerRegistrationDownload(xerpSite);
+      let latest = await fetchLatestXerpWorkerRegistrationFile(xerpSite, downloadSession.startedAtMs);
+
+      if (!latest.file && downloadSession.mode === "download-folder-watch") {
+        latest = await fetchLatestXerpWorkerRegistrationFile(xerpSite, 0);
+      }
+
+      if (!latest.file) {
+        toast.error(`${site.xerpSiteName} 근로자 등록 엑셀을 찾지 못했습니다. XERP에서 엑셀을 다운로드한 뒤 다시 가져오세요.`);
+        return;
+      }
+
+      const wb = XLSX.read(decodeBase64Workbook(latest.file.base64), { type: "array", cellDates: false });
+      const imported = sanitizeEmployeeRows(parseImportedSheet(wb));
+      if (imported.length === 0) {
+        toast.error(`${latest.file.fileName}: 데이터가 없습니다. 엑셀 헤더를 확인하세요.`);
+        return;
+      }
+
+      setPendingXerpImport({
+        fileName: latest.file.fileName,
+        rows: imported,
+        summary: summarizeXerpWorkerRegistrationRows(imported),
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "XERP 가져오기에 실패했습니다.");
+    } finally {
+      setXerpImporting(false);
+    }
+  };
+
+  const applyPendingXerpImport = async () => {
+    if (!pendingXerpImport) return;
+    setRows(pendingXerpImport.rows);
+    const ok = await syncFS(pendingXerpImport.rows);
+    if (ok) toast.success(`${pendingXerpImport.fileName} 적용 완료`);
+    setPendingXerpImport(null);
   };
 
   const handleFolderImport = async () => {
@@ -703,6 +765,53 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
         onChange={handleFileUpload}
       />
 
+      {pendingXerpImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
+            <div className="mb-4">
+              <h3 className="text-base font-extrabold text-slate-950">XERP 근로자 명단 적용</h3>
+              <p className="mt-1 break-all text-xs font-semibold text-slate-500">
+                {pendingXerpImport.fileName}
+              </p>
+            </div>
+            <dl className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-lg border border-slate-200 px-3 py-2">
+                <dt className="text-xs font-bold text-slate-400">전체 인원</dt>
+                <dd className="mt-1 font-extrabold text-slate-950">{pendingXerpImport.summary.total}</dd>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <dt className="text-xs font-bold text-emerald-600">재직</dt>
+                <dd className="mt-1 font-extrabold text-emerald-800">{pendingXerpImport.summary.active}</dd>
+              </div>
+              <div className="rounded-lg border border-slate-200 px-3 py-2">
+                <dt className="text-xs font-bold text-slate-400">퇴직</dt>
+                <dd className="mt-1 font-extrabold text-slate-700">{pendingXerpImport.summary.resigned}</dd>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                <dt className="text-xs font-bold text-amber-700">동명이인 그룹</dt>
+                <dd className="mt-1 font-extrabold text-amber-800">{pendingXerpImport.summary.duplicateNameGroups}</dd>
+              </div>
+            </dl>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingXerpImport(null)}
+                className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={applyPendingXerpImport}
+                className="h-10 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white hover:bg-slate-700"
+              >
+                적용
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 툴바 */}
       <div className="shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -779,6 +888,17 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
           <Upload className="h-4 w-4 text-slate-400" />
           엑셀 업로드
         </button>
+        {xerpSite && (
+          <button
+            type="button"
+            onClick={handleXerpImport}
+            disabled={xerpImporting}
+            className="flex h-10 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-4 text-sm font-extrabold text-sky-700 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Download className="h-4 w-4" />
+            {xerpImporting ? "가져오는 중..." : "XERP 가져오기"}
+          </button>
+        )}
         <button
           onClick={handleFolderImport}
           title="폴더를 선택하면 신규자명단(UI 업로드).xlsx 파일을 자동으로 불러옵니다"
@@ -977,12 +1097,14 @@ export default function NewEmployeeList() {
           <EmployeeTabContent
             loadFn={loadEmployeesPH4FS}
             saveFn={saveEmployeesPH4FS}
+            xerpSite="PH4"
           />
         </TabsContent>
         <TabsContent value="ph2">
           <EmployeeTabContent
             loadFn={loadEmployeesPH2FS}
             saveFn={saveEmployeesPH2FS}
+            xerpSite="PH2"
           />
         </TabsContent>
         <TabsContent value="p5ph1">
