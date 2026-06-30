@@ -123,6 +123,20 @@ function hasEmployeeName(row: Partial<NewEmployee>): boolean {
   return Boolean(String(row.이름 ?? "").trim());
 }
 
+export function getDuplicateNameCounts(rows: Pick<Partial<NewEmployee>, "이름">[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const name = String(row.이름 ?? "").trim();
+    if (!name) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+
+  for (const [name, count] of counts) {
+    if (count < 2) counts.delete(name);
+  }
+  return counts;
+}
+
 export function parseImportedSheet(wb: XLSX.WorkBook): NewEmployee[] {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
@@ -360,6 +374,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
   const statusCounts = useMemo(() => getEmployeeStatusCounts(rows), [rows]);
   const activeCount = statusCounts.active;
   const resignedCount = statusCounts.resigned;
+  const duplicateNameCounts = useMemo(() => getDuplicateNameCounts(rows), [rows]);
 
   const addRow = () => {
     const next = [...rows, emptyRow()];
@@ -791,7 +806,7 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
           <colgroup>
             <col style={{ width: 44 }} />
             <col style={{ width: 90 }} />
-            <col style={{ width: 90 }} />
+            <col style={{ width: 128 }} />
             {[
               "주민번호", "연락처", "연령", "남/여", "입사일", "퇴사일",
               "근속일수", "근속개월", "근속현황",
@@ -843,6 +858,8 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
               displayRows.map((row, idx) => {
                 const { days, months, status } = calcTenure(row.입사일, row.퇴사일);
                 const age = calcAge(row.주민번호);
+                const duplicateNameCount = duplicateNameCounts.get(row.이름.trim()) ?? 0;
+                const isDuplicateName = duplicateNameCount > 1;
                 return (
                   <tr key={row.id} className="group border-b border-slate-100 last:border-0 hover:bg-slate-50">
                     <td className={tdSticky("left-0") + " px-3 py-2.5 text-center font-medium text-slate-400 w-[44px]"}>
@@ -854,9 +871,19 @@ function EmployeeTabContent({ loadFn, saveFn }: EmployeeTabContentProps) {
                     <td className={tdSticky("left-[134px]", "px-1 py-1.5 shadow-[2px_0_4px_-1px_rgba(15,23,42,0.10)]")}>
                       <button
                         onClick={() => openEdit(row)}
-                        className="group/name flex min-w-[64px] w-full items-center gap-1 rounded px-2 py-1 text-left text-xs font-extrabold text-slate-900 transition-colors hover:bg-slate-100"
+                        className={`group/name flex min-w-[64px] w-full items-center gap-1 rounded px-2 py-1 text-left text-xs font-extrabold transition-colors ${
+                          isDuplicateName
+                            ? "bg-amber-100 text-amber-950 ring-1 ring-amber-300 hover:bg-amber-200"
+                            : "text-slate-900 hover:bg-slate-100"
+                        }`}
+                        title={isDuplicateName ? `동명이인 ${duplicateNameCount}명` : undefined}
                       >
-                        <span className="flex-1">{row.이름 || <span className="font-normal text-slate-400">이름 없음</span>}</span>
+                        <span className="min-w-0 flex-1 truncate">{row.이름 || <span className="font-normal text-slate-400">이름 없음</span>}</span>
+                        {isDuplicateName && (
+                          <span className="shrink-0 rounded bg-amber-500 px-1 py-0.5 text-[10px] font-black leading-none text-white">
+                            동명이인
+                          </span>
+                        )}
                         <Pencil className="h-3 w-3 opacity-0 group-hover/name:opacity-60 shrink-0 transition-opacity" />
                       </button>
                     </td>
