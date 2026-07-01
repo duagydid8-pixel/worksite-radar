@@ -44,4 +44,11 @@ describe("OrgChart member auto-fill wiring", () => {
     expect(source).toContain('marker: "(3rd)"');
     expect(source).toContain("function getMemberMarkerText");
   });
+
+  it("keeps the head-office team delete button reachable on hover", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain('className="group min-w-0"');
+    expect(source).toContain('isHeadOfficeTemplate ? "hidden group-hover:block" : ""');
+  });
 });

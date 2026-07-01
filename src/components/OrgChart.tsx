@@ -1909,7 +1909,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
                 const { leader, others } = getMembersForTeam(team.id);
                 const teamMembers = leader ? [leader, ...others] : others;
                 return (
-                  <div key={team.id} className="min-w-0">
+                  <div key={team.id} className="group min-w-0">
                     <div className={`mb-1.5 flex h-8 items-center justify-between px-2 text-white ${
                       isHeadOfficeTemplate ? "mx-auto w-[92px] border border-blue-700 bg-blue-700" : "border border-[#2B3A67] bg-[#2B3A67]"
                     }`}>
