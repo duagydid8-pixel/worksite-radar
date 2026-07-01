@@ -246,6 +246,11 @@ function isLikelySplitName(value: string): boolean {
   return /^[가-힣]{2,4}$/.test(compact) || /^[A-Za-z]{2,20}$/.test(compact);
 }
 
+function isLikelyKoreanNameFragment(value: string): boolean {
+  const compact = value.replace(/\s+/g, "");
+  return /^[가-힣]{1,2}$/.test(compact);
+}
+
 function isLikelySplitTrade(value: string): boolean {
   const compact = value.replace(/\s+/g, "");
   if (!compact || isOcrHeaderCell(compact) || isOcrRowNumber(compact)) return false;
@@ -283,7 +288,31 @@ function parseIndexedPdfRows(lines: string[], knownNames: string[]): AdditionalW
     const secondCell = cells[i + 2];
     const thirdCell = cells[i + 3];
     const fourthCell = cells[i + 4];
+    const fifthCell = cells[i + 5];
     if (!nameCell || !secondCell || !thirdCell) continue;
+
+    if (fourthCell && fifthCell) {
+      const splitName = `${nameCell.clean}${secondCell.clean}`.replace(/\s+/g, "");
+      const splitUnits = parseSplitCellUnit(fifthCell.raw, fifthCell.clean);
+      if (
+        isLikelyKoreanNameFragment(nameCell.clean) &&
+        isLikelyKoreanNameFragment(secondCell.clean) &&
+        splitName.length >= 2 &&
+        splitName.length <= 4 &&
+        isLikelyIndexedTrade(thirdCell.clean) &&
+        isDateCell(fourthCell.clean) &&
+        splitUnits !== null
+      ) {
+        rows.push({
+          name: correctKnownName(splitName, knownNames),
+          trade: "",
+          units: splitUnits,
+          sourceLine: [rowNoCell.raw, nameCell.raw, secondCell.raw, thirdCell.raw, fourthCell.raw, fifthCell.raw].join(" "),
+        });
+        i += 5;
+        continue;
+      }
+    }
 
     if (isLikelySplitName(nameCell.clean) && isDateCell(secondCell.clean)) {
       const units = parseSplitCellUnit(thirdCell.raw, thirdCell.clean);

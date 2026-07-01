@@ -211,6 +211,21 @@ describe("additional work processor", () => {
     ]);
   });
 
+  it("parses indexed OCR PDF cells when a Korean name is split across text items", () => {
+    const rows = parseAdditionalWorkText(`
+      23
+      윤지
+      회
+      조공
+      2026-05-30
+      1.00
+    `);
+
+    expect(rows).toEqual([
+      expect.objectContaining({ name: "윤지회", trade: "", units: 1 }),
+    ]);
+  });
+
   it("normalizes 100 and 200 unit notation in plain OCR lines", () => {
     const rows = parseAdditionalWorkText(`
       송승석 공구장 100
