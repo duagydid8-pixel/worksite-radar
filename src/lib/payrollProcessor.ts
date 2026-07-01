@@ -7,7 +7,7 @@ import type { ManualAbsence } from "./manualAbsences";
 import { removeTransientNoOpChanges, type PayrollCellChange } from "./payrollChangeTracking";
 
 export function isMonthlyWorker(jobTitle: string): boolean {
-  return jobTitle.includes("관리자") || jobTitle === "차량운행";
+  return jobTitle.includes("관리자") || jobTitle.includes("차량운행");
 }
 
 function toDateStr(year: number, month: number, day: number): string {
@@ -47,6 +47,30 @@ interface SheetLayout {
   colJobTitle: number;
   colName: number;
   colDayStart: number;
+  colWorkDays?: number;
+  colOutputUnits?: number;
+  colAdditionalUnits?: number;
+  colTotalUnits?: number;
+  colUnitPrice?: number;
+  colExpense1?: number;
+  colExpense2?: number;
+  colSalary?: number;
+  colPensionBase?: number;
+}
+
+function findHeaderCol(
+  ws: XLSX.WorkSheet,
+  row0: number,
+  startCol: number,
+  endCol: number,
+  labels: string[]
+): number | undefined {
+  const normalizedLabels = labels.map((label) => label.replace(/\s+/g, ""));
+  for (let c = startCol; c <= endCol; c++) {
+    const text = getCellText(ws, row0, c).replace(/\s+/g, "");
+    if (normalizedLabels.includes(text)) return c;
+  }
+  return undefined;
 }
 
 function detectLayout(ws: XLSX.WorkSheet): SheetLayout | null {
@@ -55,8 +79,14 @@ function detectLayout(ws: XLSX.WorkSheet): SheetLayout | null {
     for (let c = 0; c <= Math.min(range.e.c, 20); c++) {
       if (getCellText(ws, r, c) === "직종") {
         const colJobTitle = c;
-        const colName = c + 1;
-        for (let dr = 1; dr <= 5; dr++) {
+        let colName = c + 1;
+        for (let nc = c + 1; nc <= Math.min(range.e.c, c + 8); nc++) {
+          if (getCellText(ws, r, nc) === "성명") {
+            colName = nc;
+            break;
+          }
+        }
+        for (let dr = 0; dr <= 5; dr++) {
           const dayRow = r + dr;
           for (let dc = 0; dc <= range.e.c - 2; dc++) {
             const v0 = parseInt(getCellText(ws, dayRow, dc));
@@ -67,7 +97,24 @@ function detectLayout(ws: XLSX.WorkSheet): SheetLayout | null {
             if (v0 < 1 || v0 > 29) continue; // must be plausible day numbers
             const colDayStart = dc - (v0 - 1); // extrapolate column for day 1
             if (colDayStart <= colName) continue; // day cols must be after name col
-            return { headerRow: r, dayRow, dataStartRow: dayRow + 1, colJobTitle, colName, colDayStart };
+            const summaryStartCol = colDayStart + 31;
+            return {
+              headerRow: r,
+              dayRow,
+              dataStartRow: Math.max(r, dayRow) + 1,
+              colJobTitle,
+              colName,
+              colDayStart,
+              colWorkDays: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["근무일수"]),
+              colOutputUnits: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["출력공수"]),
+              colAdditionalUnits: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["추가공수"]),
+              colTotalUnits: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["총공수"]),
+              colUnitPrice: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["단가"]),
+              colExpense1: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["경비(1)"]),
+              colExpense2: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["경비(2)", "추가공수X단가"]),
+              colSalary: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["급여액"]),
+              colPensionBase: findHeaderCol(ws, r, summaryStartCol, range.e.c, ["국민연금산정용참조보수월액"]),
+            };
           }
         }
       }
@@ -76,7 +123,25 @@ function detectLayout(ws: XLSX.WorkSheet): SheetLayout | null {
   return null;
 }
 
-function detectYearMonth(ws: XLSX.WorkSheet): { year: number; month: number } {
+function detectYearMonthFromFileName(fileName: string): { year: number; month: number } | null {
+  const compact = fileName.match(/(?:^|[^\d])((?:20)?\d{2})(0[1-9]|1[0-2])(?:[^\d]|$)/);
+  if (compact) {
+    const rawYear = compact[1];
+    const year = rawYear.length === 2 ? 2000 + parseInt(rawYear) : parseInt(rawYear);
+    return { year, month: parseInt(compact[2]) };
+  }
+
+  const separated = fileName.match(/(?:^|[^\d])((?:20)?\d{2})[._\-\s년]+(0?[1-9]|1[0-2])(?:월|[^\d]|$)/);
+  if (separated) {
+    const rawYear = separated[1];
+    const year = rawYear.length === 2 ? 2000 + parseInt(rawYear) : parseInt(rawYear);
+    return { year, month: parseInt(separated[2]) };
+  }
+
+  return null;
+}
+
+function detectYearMonth(ws: XLSX.WorkSheet, fileName = ""): { year: number; month: number } {
   const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
   for (let r = 0; r <= Math.min(range.e.r, 10); r++) {
     for (let c = 0; c <= Math.min(range.e.c, 30); c++) {
@@ -85,6 +150,8 @@ function detectYearMonth(ws: XLSX.WorkSheet): { year: number; month: number } {
       if (m) return { year: parseInt(m[1]), month: parseInt(m[2]) };
     }
   }
+  const fileYearMonth = detectYearMonthFromFileName(fileName);
+  if (fileYearMonth) return fileYearMonth;
   return { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
 }
 
@@ -177,6 +244,14 @@ function roundPayrollValue(value: number): number {
 
 function ceilToWorkUnit(value: number): number {
   return Math.ceil((value - 0.000001) / 0.125) * 0.125;
+}
+
+function roundMoney(value: number): number {
+  return Math.round(value);
+}
+
+function roundDownToThousand(value: number): number {
+  return Math.floor(value / 1000) * 1000;
 }
 
 // ── JSZip 기반 원본 XML 패치 (서식·조건부서식·테두리·셀병합 100% 보존) ──
@@ -284,20 +359,12 @@ function modifySheetXml(xml: string, cellChanges: Map<string, number>): string {
       const selfClose = xml.indexOf("/>", rPos);
       if (selfClose === -1) continue;
       const cellBlock = xml.substring(cOpen, selfClose + 2);
-      if (cellBlock.includes("<f>") || cellBlock.includes("<f ") || cellBlock.includes("<f\n") || cellBlock.includes("<f\t")) {
-        continue;
-      }
       const newBlock = cellBlock.replace(/\s*\/>$/, `><v>${newValue}</v></c>`);
       xml = xml.substring(0, cOpen) + newBlock + xml.substring(selfClose + 2);
       continue;
     }
 
     const cellBlock = xml.substring(cOpen, cClose + 4);
-
-    // 수식 셀은 건드리지 않음
-    if (cellBlock.includes("<f>") || cellBlock.includes("<f ") || cellBlock.includes("<f\n") || cellBlock.includes("<f\t")) {
-      continue;
-    }
 
     let newBlock: string;
     if (cellBlock.includes("<v>")) {
@@ -334,7 +401,8 @@ export async function processPayroll(
   leaveDetails: LeaveDetail[],
   employees: Employee[],
   schedule: ScheduleData | null,
-  manualAbsences: ManualAbsence[] = []
+  manualAbsences: ManualAbsence[] = [],
+  sourceFileName = ""
 ): Promise<PayrollResult> {
   const wb = XLSX.read(buffer, { type: "array", cellFormula: true });
 
@@ -357,7 +425,7 @@ export async function processPayroll(
     if (!ws) continue;
 
     if (!year) {
-      const ym = detectYearMonth(ws);
+      const ym = detectYearMonth(ws, sourceFileName);
       year = ym.year;
       month = ym.month;
     }
@@ -569,6 +637,29 @@ export async function processPayroll(
       }
 
       if (effectiveChanges.length > 0) {
+        const outputUnits = roundPayrollValue(newValues.reduce((s, v) => s + v, 0));
+        const additionalUnits = layout.colAdditionalUnits === undefined ? 0 : getCellNumber(ws, r, layout.colAdditionalUnits);
+        const totalUnits = roundPayrollValue(outputUnits + additionalUnits);
+        const unitPrice = layout.colUnitPrice === undefined ? 0 : getCellNumber(ws, r, layout.colUnitPrice);
+        const expense1 = layout.colExpense1 === undefined ? 0 : getCellNumber(ws, r, layout.colExpense1);
+        const expense2 = roundMoney(additionalUnits * unitPrice);
+        const salary = roundMoney(totalUnits * unitPrice + expense1);
+
+        const summaryChanges: Array<[number | undefined, number]> = [
+          [layout.colWorkDays, newValues.filter((value) => value > 0).length],
+          [layout.colOutputUnits, outputUnits],
+          [layout.colTotalUnits, totalUnits],
+          [layout.colExpense2, expense2],
+          [layout.colSalary, salary],
+          [layout.colPensionBase, roundDownToThousand(salary)],
+        ];
+
+        for (const [col, value] of summaryChanges) {
+          if (col === undefined) continue;
+          const addr = XLSX.utils.encode_cell({ r, c: col });
+          sheetCellChanges.set(addr, value);
+        }
+
         corrections.push({
           name,
           jobTitle,

@@ -157,7 +157,7 @@ export default function PayrollPage() {
     const employees = attendanceResult?.data?.employees ?? [];
     setManualAbsences(sortAbsences(savedManualAbsences));
 
-    const result = await processPayroll(buffer, annualLeaveMap, leaveDetails, employees, scheduleData, savedManualAbsences);
+    const result = await processPayroll(buffer, annualLeaveMap, leaveDetails, employees, scheduleData, savedManualAbsences, fileName);
 
     setCorrections(result.corrections);
     setOutputBuffer(result.outputBuffer);
