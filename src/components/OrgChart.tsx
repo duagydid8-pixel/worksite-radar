@@ -1910,11 +1910,17 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
                 const teamMembers = leader ? [leader, ...others] : others;
                 return (
                   <div key={team.id} className="group min-w-0">
-                    <div className={`mb-1.5 flex h-8 items-center justify-between px-2 text-white ${
-                      isHeadOfficeTemplate ? "mx-auto w-[92px] border border-blue-700 bg-blue-700" : "border border-[#2B3A67] bg-[#2B3A67]"
+                    <div className={`mb-1.5 flex h-8 items-center px-2 text-white ${
+                      isHeadOfficeTemplate ? "relative mx-auto w-[92px] justify-center border border-blue-700 bg-blue-700" : "justify-between border border-[#2B3A67] bg-[#2B3A67]"
                     }`}>
                       <span className={`${isHeadOfficeTemplate ? "w-full text-center text-[12px]" : "text-sm"} font-black`}>{team.name}</span>
-                      <button data-export-exclude="true" onClick={() => handleDeleteTeam(team.id)} className={`rounded p-1 text-white/65 hover:bg-white/15 hover:text-white ${isHeadOfficeTemplate ? "hidden group-hover:block" : ""}`}>
+                      <button
+                        data-export-exclude="true"
+                        aria-label={`${team.name} 삭제`}
+                        title={`${team.name} 삭제`}
+                        onClick={() => handleDeleteTeam(team.id)}
+                        className={`rounded p-1 text-white/80 hover:bg-white/15 hover:text-white ${isHeadOfficeTemplate ? "absolute right-0.5 top-1/2 -translate-y-1/2" : "shrink-0"}`}
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
