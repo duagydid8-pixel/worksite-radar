@@ -527,10 +527,21 @@ async function fillDailyAttendanceDateInAnyFrame(page, date) {
 
 function normalizePlaywrightError(error) {
   const message = error instanceof Error ? error.message : String(error);
-  if (/Executable doesn't exist|browserType\.launchPersistentContext|playwright install/i.test(message)) {
+  if (/Executable doesn't exist|playwright install/i.test(message)) {
     return new Error("Playwright Chromium 브라우저가 설치되어 있지 않습니다. npx playwright install chromium 실행 후 다시 시도하세요.");
   }
   return error;
+}
+
+function isXerpBrowserProfileInUse(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/ProcessSingleton|profile.*already in use|profile.*in use|user data directory.*in use/i.test(message)) {
+    return true;
+  }
+  return (
+    /xerp-worker-registration-profile/i.test(message) &&
+    /Target page, context or browser has been closed|launchPersistentContext|user-data-dir/i.test(message)
+  );
 }
 
 function isXerpManualInterventionRequired(error) {
@@ -573,6 +584,14 @@ export async function downloadWorkerRegistrationWorkbook({
 
     return createDownloadSession({ site, mode: "browser-automation", startedAtMs });
   } catch (error) {
+    if (isXerpBrowserProfileInUse(error)) {
+      keepContextOpen = true;
+      return {
+        ...createDownloadSession({ site, mode: "login-required", startedAtMs }),
+        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        message: "이미 열린 XERP 창이 있습니다. 그 창에서 로그인 또는 메뉴 상태를 확인하고, 창을 닫은 뒤 다시 XERP 가져오기를 눌러주세요.",
+      };
+    }
     if (isXerpManualInterventionRequired(error)) {
       keepContextOpen = true;
       return createDownloadSession({ site, mode: "login-required", startedAtMs });
@@ -673,6 +692,19 @@ export async function downloadDailyAttendanceSummaryWorkbook({
 
     throw new Error("일일출역집계 엑셀 다운로드를 확인하지 못했습니다.");
   } catch (error) {
+    if (isXerpBrowserProfileInUse(error)) {
+      keepContextOpen = true;
+      return {
+        ok: true,
+        site: normalizedSite,
+        siteName: siteDefinition.xerpSiteName,
+        date: normalizedDate,
+        startedAtMs,
+        mode: "login-required",
+        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        message: "이미 열린 XERP 창이 있습니다. 그 창에서 로그인 또는 메뉴 상태를 확인하고, 창을 닫은 뒤 다시 XERP 가져오기를 눌러주세요.",
+      };
+    }
     if (isXerpManualInterventionRequired(error)) {
       keepContextOpen = true;
       return {

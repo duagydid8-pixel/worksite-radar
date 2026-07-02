@@ -1295,7 +1295,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       const xerpSite = site as XerpDailyAttendanceSite;
       const session = await requestXerpDailyAttendanceDownload(xerpSite, uploadDate);
       if (session.mode === "login-required") {
-        toast.info("열린 XERP 창에서 로그인한 뒤 다시 XERP 가져오기를 눌러주세요.");
+        toast.info(session.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP 가져오기를 눌러주세요.");
         return;
       }
 

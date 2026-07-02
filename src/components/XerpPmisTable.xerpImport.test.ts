@@ -22,6 +22,10 @@ describe("XerpPmisTable XERP daily attendance import wiring", () => {
     expect(source).toContain("setSelectedDate(uploadDate)");
   });
 
+  it("shows the local helper message when XERP login is required", () => {
+    expect(source).toContain("session.message");
+  });
+
   it("adds a visible XERP import command near the PMIS upload controls", () => {
     expect(source).toContain("XERP 가져오기");
     expect(source).toContain("handleXerpDailyImport");

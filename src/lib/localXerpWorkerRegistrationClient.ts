@@ -18,6 +18,8 @@ export type LocalXerpWorkerRegistrationDownloadResponse = {
   siteName: string;
   startedAtMs: number;
   mode: string;
+  message?: string;
+  profileDir?: string;
 };
 
 export type LocalXerpWorkerRegistrationLatestResponse = {

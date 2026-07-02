@@ -437,6 +437,11 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
     try {
       const site = getXerpWorkerRegistrationSite(xerpSite);
       const downloadSession = await requestXerpWorkerRegistrationDownload(xerpSite);
+      if (downloadSession.mode === "login-required") {
+        toast.info(downloadSession.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP 가져오기를 눌러주세요.");
+        return;
+      }
+
       let latest = await fetchLatestXerpWorkerRegistrationFile(xerpSite, downloadSession.startedAtMs);
 
       if (!latest.file && downloadSession.mode === "download-folder-watch") {

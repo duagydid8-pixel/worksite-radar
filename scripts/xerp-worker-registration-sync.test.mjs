@@ -235,6 +235,34 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(closed).toBe(false);
   });
 
+  it("treats an already-open XERP browser profile as a login-required session", async () => {
+    const result = await downloadDailyAttendanceSummaryWorkbook({
+      site: "PH4",
+      date: "2026-07-02",
+      launchContext: async () => {
+        throw new Error("browserType.launchPersistentContext: Failed to create a ProcessSingleton for your profile directory. This means that the profile is already in use.");
+      },
+    });
+
+    expect(result.mode).toBe("login-required");
+    expect(result.message).toContain("XERP");
+  });
+
+  it("treats a closed launch with the XERP profile as a login-required session", async () => {
+    const result = await downloadDailyAttendanceSummaryWorkbook({
+      site: "PH4",
+      date: "2026-07-02",
+      launchContext: async () => {
+        throw new Error(
+          "browserType.launchPersistentContext: Target page, context or browser has been closed\n--user-data-dir=C:\\Users\\bongryong\\AppData\\Local\\worksite-radar\\xerp-worker-registration-profile",
+        );
+      },
+    });
+
+    expect(result.mode).toBe("login-required");
+    expect(result.message).toContain("XERP");
+  });
+
   it("retries menu clicks when an XERP frame is detached mid-click", async () => {
     const detachedFrame = {
       getByText: vi.fn(() => ({
