@@ -28,6 +28,7 @@ interface NewEmployee {
   남여: string;
   입사일: string;
   퇴사일: string;
+  이관처: string;
   신청공종: string;
   단가: string;
   단가변동: string;
@@ -56,7 +57,8 @@ function calcAge(jumin: string): string {
 
 function calcTenure(
   입사일: string,
-  퇴사일: string
+  퇴사일: string,
+  이관처?: string
 ): { days: string; months: string; status: string } {
   if (!입사일) return { days: "", months: "", status: "" };
   const start = new Date(입사일);
@@ -67,11 +69,8 @@ function calcTenure(
   if (diffMs < 0) return { days: "", months: "", status: "" };
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   const months = Math.floor(days / 30.4375);
-  return {
-    days: String(days),
-    months: String(months),
-    status: 퇴사일 ? "퇴사" : "재직중",
-  };
+  const status = 이관처 ? "이관자" : 퇴사일 ? "퇴사" : "재직중";
+  return { days: String(days), months: String(months), status };
 }
 
 // 엑셀 셀 값을 YYYY-MM-DD 문자열로 변환
@@ -113,6 +112,7 @@ const HEADER_MAP: Record<string, keyof NewEmployee> = {
   "남/여": "남여", 남여: "남여", 남녀: "남여", 성별: "남여",
   입사일: "입사일",
   퇴사일: "퇴사일",
+  이관처: "이관처",
   신청공종: "신청공종", 공종: "신청공종", 직종: "신청공종",
   단가: "단가",
   단가변동: "단가변동", 노임: "단가변동",
@@ -209,6 +209,7 @@ export function emptyRow(): NewEmployee {
     남여: "",
     입사일: "",
     퇴사일: "",
+    이관처: "",
     신청공종: "",
     단가: "",
     단가변동: "",
@@ -229,22 +230,24 @@ export function sanitizeEmployeeRows(rows: Partial<NewEmployee>[]): NewEmployee[
   return rows.map(normalizeEmployee).filter(hasEmployeeName);
 }
 
-export function getEmployeeStatusCounts(rows: Pick<NewEmployee, "이름" | "입사일" | "퇴사일">[]) {
+export function getEmployeeStatusCounts(rows: Pick<NewEmployee, "이름" | "입사일" | "퇴사일" | "이관처">[]) {
   let total = 0;
   let active = 0;
   let resigned = 0;
+  let transferred = 0;
   let unknown = 0;
 
   for (const row of rows) {
     if (!hasEmployeeName(row)) continue;
     total += 1;
-    const { status } = calcTenure(row.입사일, row.퇴사일);
+    const { status } = calcTenure(row.입사일, row.퇴사일, row.이관처);
     if (status === "재직중") active += 1;
     else if (status === "퇴사") resigned += 1;
+    else if (status === "이관자") transferred += 1;
     else unknown += 1;
   }
 
-  return { total, active, resigned, unknown };
+  return { total, active, resigned, transferred, unknown };
 }
 
 const RIGHT_FIELDS: (keyof NewEmployee)[] = ["신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "메모"];
@@ -272,10 +275,11 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
   const [rows, setRows] = useState<NewEmployee[]>([emptyRow()]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"전체" | "재직중" | "퇴사">("전체");
+  const [statusFilter, setStatusFilter] = useState<"전체" | "재직중" | "퇴사" | "이관자">("전체");
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
   const resizeRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const iwanFileInputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<NewEmployee | null>(null);
   const [xerpImporting, setXerpImporting] = useState(false);
   const [pendingXerpImport, setPendingXerpImport] = useState<null | {
@@ -365,7 +369,7 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
       if (search.trim() && !r.이름.includes(search.trim())) return false;
       if (statusFilter !== "전체") {
         if (!hasEmployeeName(r)) return false;
-        const { status } = calcTenure(r.입사일, r.퇴사일);
+        const { status } = calcTenure(r.입사일, r.퇴사일, r.이관처);
         if (status !== statusFilter) return false;
       }
       return true;
@@ -377,11 +381,11 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
     return rows
       .filter((r) => {
         if (!hasEmployeeName(r)) return false;
-        const { months, status } = calcTenure(r.입사일, r.퇴사일);
+        const { months, status } = calcTenure(r.입사일, r.퇴사일, r.이관처);
         return status === "재직중" && Number(months) >= 10;
       })
       .map((r) => {
-        const { days, months } = calcTenure(r.입사일, r.퇴사일);
+        const { days, months } = calcTenure(r.입사일, r.퇴사일, r.이관처);
         const remaining = Math.max(0, 365 - Number(days));
         return { ...r, months: Number(months), days: Number(days), remaining };
       })
@@ -391,6 +395,7 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
   const statusCounts = useMemo(() => getEmployeeStatusCounts(rows), [rows]);
   const activeCount = statusCounts.active;
   const resignedCount = statusCounts.resigned;
+  const transferredCount = statusCounts.transferred;
   const duplicateNameCounts = useMemo(() => getDuplicateNameCounts(rows), [rows]);
 
   const addRow = () => {
@@ -527,13 +532,61 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
     }
   };
 
+  const handleIwanUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    try {
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
+      if (raw.length < 2) { toast.error("파일에 데이터가 없습니다."); return; }
+
+      const headers = (raw[0] as unknown[]).map((h) => String(h).trim());
+      const nameIdx = headers.findIndex((h) => ["이름", "성명"].includes(h));
+      const rrnIdx = headers.findIndex((h) => ["주민번호", "주민등록번호"].includes(h));
+      const siteIdx = headers.findIndex((h) => ["이관처", "공사", "이관현장"].includes(h));
+
+      if (nameIdx === -1 && rrnIdx === -1) {
+        toast.error("이름 또는 주민번호 열을 찾을 수 없습니다.");
+        return;
+      }
+
+      const iwanMap = new Map<string, string>();
+      for (const row of raw.slice(1) as unknown[][]) {
+        const name = nameIdx >= 0 ? String(row[nameIdx] ?? "").trim() : "";
+        const rrn = rrnIdx >= 0 ? String(row[rrnIdx] ?? "").replace(/-/g, "") : "";
+        const site = siteIdx >= 0 ? String(row[siteIdx] ?? "").trim() : "이관";
+        if (!name && !rrn) continue;
+        if (rrn) iwanMap.set(rrn, site);
+        if (name) iwanMap.set(name, site);
+      }
+
+      let updated = 0;
+      const newRows = rows.map((r) => {
+        const rrn = r.주민번호.replace(/-/g, "");
+        const site = (rrn && iwanMap.get(rrn)) ?? iwanMap.get(r.이름.trim());
+        if (site !== undefined) { updated++; return { ...r, 이관처: site }; }
+        return r;
+      });
+
+      setRows(newRows);
+      syncFS(newRows);
+      toast.success(`이관자 ${updated}명 적용 완료`);
+    } catch {
+      toast.error("파일을 읽는 중 오류가 발생했습니다.");
+    }
+  };
+
   const exportToExcel = () => {
     const exportRows = rows.filter(hasEmployeeName);
     const dataRows = exportRows.map((r, i) => {
-      const { days, months, status } = calcTenure(r.입사일, r.퇴사일);
+      const { days, months, status } = calcTenure(r.입사일, r.퇴사일, r.이관처);
+      const 퇴사일표시 = r.이관처 ? `이관자(${r.이관처})` : r.퇴사일;
       return [
         i + 1, r.현장구분, r.이름, r.주민번호, r.연락처,
-        calcAge(r.주민번호), r.남여, r.입사일, r.퇴사일,
+        calcAge(r.주민번호), r.남여, r.입사일, 퇴사일표시,
         days, months, status,
         r.신청공종, r.단가, r.단가변동, r.은행명, r.계좌번호, r.주소, r.메모,
       ];
@@ -562,7 +615,7 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
   const tdSticky = (left: string, extra = "") =>
     `${tdStickyBase} sticky z-10 ${left}${extra ? ` ${extra}` : ""}`;
 
-  const draftTenure = draft ? calcTenure(draft.입사일, draft.퇴사일) : null;
+  const draftTenure = draft ? calcTenure(draft.입사일, draft.퇴사일, draft.이관처) : null;
   const draftAge = draft ? calcAge(draft.주민번호) : "";
 
   return (
@@ -643,6 +696,19 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
                       onChange={(e) => updateDraft("퇴사일", e.target.value)}
                       className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                     />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs font-semibold text-muted-foreground block mb-1">이관처</label>
+                    <select
+                      value={draft.이관처}
+                      onChange={(e) => updateDraft("이관처", e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    >
+                      <option value="">— 이관 없음 —</option>
+                      <option value="PH2">PH2</option>
+                      <option value="P5-PH1">P5-PH1</option>
+                      <option value="PH4">PH4</option>
+                    </select>
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground block mb-1">근속일수 (자동)</label>
@@ -761,13 +827,20 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
         </div>
       )}
 
-      {/* hidden file input */}
+      {/* hidden file inputs */}
       <input
         ref={fileInputRef}
         type="file"
         accept=".xlsx,.xls"
         className="hidden"
         onChange={handleFileUpload}
+      />
+      <input
+        ref={iwanFileInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="hidden"
+        onChange={handleIwanUpload}
       />
 
       {pendingXerpImport && (
@@ -859,9 +932,9 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
             </button>
           )}
         </div>
-        {/* 재직/퇴사 필터 */}
+        {/* 재직/퇴사/이관자 필터 */}
         <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
-          {(["전체", "재직중", "퇴사"] as const).map((opt) => (
+          {(["전체", "재직중", "퇴사", "이관자"] as const).map((opt) => (
             <button
               key={opt}
               onClick={() => setStatusFilter(opt)}
@@ -871,11 +944,13 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
                     ? "bg-white text-rose-700 shadow-sm"
                     : opt === "재직중"
                     ? "bg-white text-emerald-700 shadow-sm"
+                    : opt === "이관자"
+                    ? "bg-white text-amber-700 shadow-sm"
                     : "bg-white text-slate-950 shadow-sm"
                   : "text-slate-500 hover:text-slate-900"
               }`}
             >
-              {opt}
+              {opt}{opt === "이관자" && transferredCount > 0 ? ` (${transferredCount})` : ""}
             </button>
           ))}
         </div>
@@ -911,6 +986,13 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
         >
           <FolderOpen className="h-4 w-4" />
           폴더에서 불러오기
+        </button>
+        <button
+          onClick={() => iwanFileInputRef.current?.click()}
+          className="flex h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-4 text-sm font-extrabold text-amber-700 transition-colors hover:bg-amber-100"
+        >
+          <Upload className="h-4 w-4" />
+          이관자 업로드
         </button>
         <button
           onClick={exportToExcel}
@@ -981,7 +1063,7 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
               </tr>
             ) : (
               displayRows.map((row, idx) => {
-                const { days, months, status } = calcTenure(row.입사일, row.퇴사일);
+                const { days, months, status } = calcTenure(row.입사일, row.퇴사일, row.이관처);
                 const age = calcAge(row.주민번호);
                 const duplicateNameCount = duplicateNameCounts.get(row.이름.trim()) ?? 0;
                 const isDuplicateName = duplicateNameCount > 1;
@@ -1026,8 +1108,8 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
                     <td className="overflow-hidden whitespace-nowrap px-3 py-2.5 text-xs font-medium text-slate-600">
                       {row.입사일 || <span className="text-slate-300">—</span>}
                     </td>
-                    <td className={`overflow-hidden whitespace-nowrap px-3 py-2.5 text-xs font-semibold ${row.퇴사일 ? "bg-rose-50 text-rose-600" : "text-slate-500"}`}>
-                      {row.퇴사일 || <span className="font-normal text-slate-300">—</span>}
+                    <td className={`overflow-hidden whitespace-nowrap px-3 py-2.5 text-xs font-semibold ${row.이관처 ? "bg-amber-50 text-amber-700" : row.퇴사일 ? "bg-rose-50 text-rose-600" : "text-slate-500"}`}>
+                      {row.이관처 ? `이관자(${row.이관처})` : row.퇴사일 || <span className="font-normal text-slate-300">—</span>}
                     </td>
                     <td className="overflow-hidden px-2 py-2.5 text-center text-xs font-medium text-slate-500">
                       {days ? `${days}일` : "—"}
