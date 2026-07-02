@@ -1215,7 +1215,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
     setSearchQuery("");
     loadOrgDataForSite(activeSite).then((data) => {
       const d = data as OrgData | null;
-      const hasSavedData = Boolean(d && Array.isArray(d.teams) && d.teams.length > 0 && d.orgSourceVersion === expectedOrgSourceVersion);
+      const hasSavedData = Boolean(d && Array.isArray(d.teams) && d.teams.length > 0);
       const shouldIgnoreSavedHeadOfficeSeed = Boolean(
         d &&
         isHeadOfficeTemplate &&

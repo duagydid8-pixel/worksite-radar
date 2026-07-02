@@ -52,4 +52,11 @@ describe("OrgChart member auto-fill wiring", () => {
     expect(source).toContain('aria-label={`${team.name} 삭제`}');
     expect(source).not.toContain('isHeadOfficeTemplate ? "hidden group-hover:block" : ""');
   });
+
+  it("loads saved org charts even when their source version is stale", () => {
+    const source = readFileSync("src/components/OrgChart.tsx", "utf8");
+
+    expect(source).toContain("const hasSavedData = Boolean(d && Array.isArray(d.teams) && d.teams.length > 0);");
+    expect(source).not.toContain("d.orgSourceVersion === expectedOrgSourceVersion");
+  });
 });
