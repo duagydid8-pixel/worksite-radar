@@ -269,6 +269,7 @@ export function createXerpWorkerRegistrationRequestHandler({
   getPort = () => DEFAULT_XERP_WORKER_REGISTRATION_PORT,
   downloadWorkerRegistrationWorkbook: runWorkerRegistrationDownload = downloadWorkerRegistrationWorkbook,
   downloadDailyAttendanceSummaryWorkbook: runDailyAttendanceDownload = downloadDailyAttendanceSummaryWorkbook,
+  uploadPmisAttendanceWorkbook: runPmisAttendanceUpload = uploadPmisAttendanceWorkbook,
 } = {}) {
   return async function handleXerpWorkerRegistrationRequest(req, res) {
     writeCorsHeaders(req, res);
@@ -364,6 +365,24 @@ export function createXerpWorkerRegistrationRequestHandler({
           startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : 0,
         });
         sendJson(res, 200, { ok: true, site, date, ...result });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/xerp-pmis-attendance/upload") {
+        const body = await readJsonBody(req);
+        const site = normalizeXerpDailyAttendanceSite(body.site);
+        const date = normalizeXerpDailyAttendanceDate(body.date);
+        if (!site || !date) {
+          sendJson(res, 400, { error: "지원하지 않는 현장 또는 날짜입니다. PH4 또는 PH2와 YYYY-MM-DD 날짜만 사용할 수 있습니다." });
+          return;
+        }
+        if (!body.filePath && !body.fileBase64) {
+          sendJson(res, 400, { error: "filePath 또는 fileBase64를 제공해야 합니다." });
+          return;
+        }
+
+        const result = await runPmisAttendanceUpload({ site, date, filePath: body.filePath, fileBase64: body.fileBase64, fileName: body.fileName, downloadsDir });
+        sendJson(res, 200, result);
         return;
       }
 
@@ -721,6 +740,150 @@ export async function downloadDailyAttendanceSummaryWorkbook({
     throw normalizePlaywrightError(error);
   } finally {
     if (!keepContextOpen) await context?.close().catch(() => undefined);
+  }
+}
+
+export async function openPmisAttendanceUploadPage(page) {
+  await page.goto(XERP_MAIN_URL, { waitUntil: "domcontentloaded" });
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+
+  for (const frame of page.frames()) {
+    const text = await frame.locator("body").innerText({ timeout: 3000 }).catch(() => "");
+    if (isLoginLikelyRequired(text)) return { status: "login-required" };
+  }
+
+  let opened = false;
+  for (const frame of page.frames()) {
+    const result = await frame.evaluate(() => {
+      const el = document.querySelector('[data-pgmcode="CM251200"]');
+      if (!el) return false;
+      el.click();
+      return true;
+    }).catch(() => false);
+    if (result) { opened = true; break; }
+  }
+
+  if (!opened) {
+    throw new Error("XERP 화면에서 'PMIS 출역일보 Upload' 메뉴를 찾지 못했습니다.");
+  }
+
+  await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+  await page.waitForTimeout(1500);
+  return { status: "ready" };
+}
+
+export async function uploadPmisAttendanceWorkbook({
+  site,
+  date,
+  filePath,
+  fileBase64,
+  fileName,
+  downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  launchContext = launchXerpContext,
+  openPage = openPmisAttendanceUploadPage,
+} = {}) {
+  const normalizedSite = normalizeXerpDailyAttendanceSite(site);
+  const normalizedDate = normalizeXerpDailyAttendanceDate(date);
+  if (!normalizedSite || !normalizedDate) {
+    throw new Error("지원하지 않는 현장 또는 날짜입니다.");
+  }
+
+  const siteDefinition = XERP_WORKER_REGISTRATION_SITES[normalizedSite];
+  const startedAtMs = Date.now();
+  let context;
+  let keepContextOpen = false;
+  let tempFilePath = null;
+
+  try {
+    // base64로 파일이 오면 임시 파일로 저장
+    let uploadFilePath = filePath;
+    if (!uploadFilePath && fileBase64) {
+      await mkdir(downloadsDir, { recursive: true });
+      const baseName = fileName || `pmis_upload_${normalizedSite}_${normalizedDate}.xlsx`;
+      tempFilePath = path.join(downloadsDir, `~tmp_${Date.now()}_${baseName}`);
+      await import("node:fs/promises").then(({ writeFile: wf }) =>
+        wf(tempFilePath, Buffer.from(fileBase64, "base64"))
+      );
+      uploadFilePath = tempFilePath;
+    }
+
+    if (!uploadFilePath) throw new Error("업로드할 파일을 찾을 수 없습니다.");
+
+    const launched = await launchContext({ downloadsDir });
+    context = launched.context;
+    const page = launched.page;
+
+    const openResult = await openPage(page);
+    if (openResult.status === "login-required") {
+      keepContextOpen = true;
+      return {
+        ok: true,
+        site: normalizedSite,
+        siteName: siteDefinition.xerpSiteName,
+        date: normalizedDate,
+        startedAtMs,
+        mode: "login-required",
+        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        message: "XERP 로그인 후 다시 시도하세요.",
+      };
+    }
+
+    await selectXerpSiteInAnyFrame(page, siteDefinition);
+    await fillDailyAttendanceDateInAnyFrame(page, normalizedDate);
+
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent("filechooser", { timeout: 10000 }),
+      clickTextInAnyFrame(page, "엑셀업로드"),
+    ]);
+    await fileChooser.setFiles(uploadFilePath);
+
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+    await page.waitForTimeout(1500);
+
+    await clickTextInAnyFrame(page, "저장");
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    return {
+      ok: true,
+      site: normalizedSite,
+      siteName: siteDefinition.xerpSiteName,
+      date: normalizedDate,
+      startedAtMs,
+      finishedAtMs: Date.now(),
+      mode: "uploaded",
+    };
+  } catch (error) {
+    if (isXerpBrowserProfileInUse(error)) {
+      keepContextOpen = true;
+      return {
+        ok: true,
+        site: normalizedSite,
+        siteName: siteDefinition?.xerpSiteName,
+        date: normalizedDate,
+        startedAtMs,
+        mode: "login-required",
+        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        message: "이미 열린 XERP 창이 있습니다. 그 창을 닫은 뒤 다시 시도하세요.",
+      };
+    }
+    if (isXerpManualInterventionRequired(error)) {
+      keepContextOpen = true;
+      return {
+        ok: true,
+        site: normalizedSite,
+        siteName: siteDefinition?.xerpSiteName,
+        date: normalizedDate,
+        startedAtMs,
+        mode: "login-required",
+        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        message: "열린 XERP 창에서 로그인 또는 메뉴 상태를 확인한 뒤 다시 시도하세요.",
+      };
+    }
+    throw normalizePlaywrightError(error);
+  } finally {
+    if (!keepContextOpen) await context?.close().catch(() => undefined);
+    if (tempFilePath) await import("node:fs/promises").then(({ unlink }) => unlink(tempFilePath).catch(() => {}));
   }
 }
 
