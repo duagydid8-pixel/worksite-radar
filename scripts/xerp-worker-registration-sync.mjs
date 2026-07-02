@@ -452,8 +452,10 @@ export async function openDailyAttendanceSummaryPage(page) {
   await page.goto(buildXerpWorkerRegistrationUrl(), { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
 
-  const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
-  if (isLoginLikelyRequired(bodyText)) return { status: "login-required" };
+  for (const frame of page.frames()) {
+    const text = await frame.locator("body").innerText({ timeout: 2000 }).catch(() => "");
+    if (isLoginLikelyRequired(text)) return { status: "login-required" };
+  }
 
   if (!bodyText.includes("일일출역집계")) {
     await clickTextInAnyFrame(page, "출역관리");
@@ -563,8 +565,7 @@ function isXerpBrowserProfileInUse(error) {
   ) {
     return true;
   }
-  // 프로필 경로 없이 context가 닫힌 경우 — 다른 XERP 창이 같은 프로필을 점유 중일 때 발생
-  return /Target page, context or browser has been closed/i.test(message);
+  return false;
 }
 
 function isXerpManualInterventionRequired(error) {
