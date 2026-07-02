@@ -894,6 +894,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [dateMap, setDateMap] = useState<DateMap>({});
   const [selectedDate, setSelectedDate] = useState<string>(TODAY);
   const [resignedNames, setResignedNames] = useState<Set<string>>(new Set());
+  const [activeNames, setActiveNames] = useState<Set<string>>(new Set());
   const [uploadDate, setUploadDate] = useState<string>(TODAY);
   const [xerpImporting, setXerpImporting] = useState(false);
   const [search, setSearch] = useState("");
@@ -954,11 +955,11 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     else setCalendarMonth((m) => m + 1);
   };
 
-  // 연속 3일 이상 결근 감지 — 퇴사자 제외
+  // 연속 3일 이상 결근 감지 — 기술인 명단 재직중인 직원만
   const absentEmployees = useMemo(() => {
     const allAbsent = detectConsecutiveAbsences(dateMap);
-    return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
-  }, [dateMap, resignedNames]);
+    return allAbsent.filter((emp) => activeNames.has(emp.성명));
+  }, [dateMap, activeNames]);
 
   // 월별 통계
   const monthlyStats = useMemo(() => calcMonthlyStats(dateMap), [dateMap]);
@@ -1026,15 +1027,19 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   useEffect(() => {
     // 퇴사자 명단 로드 (PH4 + PH2 + P5-PH1)
     Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS(), loadEmployeesP5PH1FS()]).then(([ph4, ph2, p5]) => {
-      const names = new Set<string>();
+      const resigned = new Set<string>();
+      const active = new Set<string>();
       for (const rows of [ph4, ph2, p5]) {
         if (!Array.isArray(rows)) continue;
         for (const emp of rows as { 이름?: string; 퇴사일?: string; 이관처?: string }[]) {
           const name = emp.이름?.trim();
-          if ((emp.퇴사일 || emp.이관처) && name) names.add(name);
+          if (!name) continue;
+          if (emp.퇴사일 || emp.이관처) resigned.add(name);
+          else active.add(name);
         }
       }
-      setResignedNames(names);
+      setResignedNames(resigned);
+      setActiveNames(active);
     });
 
     loadXerp().then((fsMap) => {
