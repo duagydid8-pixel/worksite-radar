@@ -452,12 +452,14 @@ export async function openDailyAttendanceSummaryPage(page) {
   await page.goto(buildXerpWorkerRegistrationUrl(), { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
 
+  let allFrameText = "";
   for (const frame of page.frames()) {
     const text = await frame.locator("body").innerText({ timeout: 2000 }).catch(() => "");
     if (isLoginLikelyRequired(text)) return { status: "login-required" };
+    allFrameText += text;
   }
 
-  if (!bodyText.includes("일일출역집계")) {
+  if (!allFrameText.includes("일일출역집계")) {
     await clickTextInAnyFrame(page, "출역관리");
     await page.waitForTimeout(500);
   }
