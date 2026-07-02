@@ -263,6 +263,19 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(result.message).toContain("XERP");
   });
 
+  it("treats bare 'Target page, context or browser has been closed' as login-required", async () => {
+    const result = await downloadDailyAttendanceSummaryWorkbook({
+      site: "PH4",
+      date: "2026-07-02",
+      launchContext: async () => {
+        throw new Error("page.waitForTimeout: Target page, context or browser has been closed");
+      },
+    });
+
+    expect(result.mode).toBe("login-required");
+    expect(result.message).toContain("XERP");
+  });
+
   it("retries menu clicks when an XERP frame is detached mid-click", async () => {
     const detachedFrame = {
       getByText: vi.fn(() => ({

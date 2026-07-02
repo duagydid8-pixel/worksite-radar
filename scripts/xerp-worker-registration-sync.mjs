@@ -557,10 +557,14 @@ function isXerpBrowserProfileInUse(error) {
   if (/ProcessSingleton|profile.*already in use|profile.*in use|user data directory.*in use/i.test(message)) {
     return true;
   }
-  return (
+  if (
     /xerp-worker-registration-profile/i.test(message) &&
     /Target page, context or browser has been closed|launchPersistentContext|user-data-dir/i.test(message)
-  );
+  ) {
+    return true;
+  }
+  // 프로필 경로 없이 context가 닫힌 경우 — 다른 XERP 창이 같은 프로필을 점유 중일 때 발생
+  return /Target page, context or browser has been closed/i.test(message);
 }
 
 function isXerpManualInterventionRequired(error) {
