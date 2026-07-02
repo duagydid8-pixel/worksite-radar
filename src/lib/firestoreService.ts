@@ -16,8 +16,9 @@
  *   }
  */
 import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "./firebase";
+import { getOrgPhotoContentType, getOrgPhotoExtension, getOrgPhotoStoragePath, isInlineOrgPhoto } from "./orgPhotoStorage";
 import type { ScheduleData } from "./scheduleTypes";
 import type { ManualAbsence } from "./manualAbsences";
 import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
@@ -57,6 +58,20 @@ export async function loadOrgFS(docId = "org") {
 }
 export async function saveOrgFS(data: object, docId = "org") {
   return fsSet(docId, data);
+}
+
+export async function uploadOrgPhotoFS(docId: string, ownerId: string, photoUrl: string): Promise<string | null> {
+  if (!isInlineOrgPhoto(photoUrl)) return photoUrl;
+  if (!storage) return null;
+  try {
+    const path = getOrgPhotoStoragePath(docId, ownerId, Date.now(), getOrgPhotoExtension(photoUrl));
+    const storageRef = ref(storage, path);
+    await uploadString(storageRef, photoUrl, "data_url", { contentType: getOrgPhotoContentType(photoUrl) });
+    return getDownloadURL(storageRef);
+  } catch (e) {
+    console.error("[Storage] uploadOrgPhotoFS 실패:", e);
+    return null;
+  }
 }
 
 // ── 기술인 및 관리자 명단 — P4-PH4 초순수 ───────────
