@@ -6,6 +6,9 @@ import {
   buildXerpWorkerRegistrationUrl,
   clickTextInAnyFrame,
   createDownloadSession,
+  DEFAULT_XERP_WORKER_REGISTRATION_PORT,
+  downloadDailyAttendanceSummaryWorkbook,
+  downloadWorkerRegistrationWorkbook,
   extractDailyAttendanceDateFromFileName,
   getXerpProfileDir,
   isDailyAttendanceSummaryWorkbookName,
@@ -38,6 +41,12 @@ async function startTestServer(options = {}) {
   const address = server.address();
   return `http://127.0.0.1:${address.port}`;
 }
+
+describe("xerp-worker-registration-sync server defaults", () => {
+  it("uses a dedicated default port that does not conflict with the RCM image server", () => {
+    expect(DEFAULT_XERP_WORKER_REGISTRATION_PORT).toBe(8793);
+  });
+});
 
 describe("xerp-worker-registration-sync file scanner", () => {
   it("recognizes XERP worker-registration workbook names", () => {
@@ -173,7 +182,57 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
 
   it("detects likely XERP login screens", () => {
     expect(isLoginLikelyRequired("로그인\n아이디\n비밀번호")).toBe(true);
+    expect(isLoginLikelyRequired("사용자 ID\n비밀번호\n로그인")).toBe(true);
     expect(isLoginLikelyRequired("노무관리 근로자관리 근로자 등록")).toBe(false);
+  });
+
+  it("keeps the worker-registration browser open when login is required", async () => {
+    let closed = false;
+    const result = await downloadWorkerRegistrationWorkbook({
+      site: "PH4",
+      launchContext: async () => ({
+        context: { close: async () => { closed = true; } },
+        page: {},
+      }),
+      openPage: async () => ({ status: "login-required" }),
+    });
+
+    expect(result.mode).toBe("login-required");
+    expect(closed).toBe(false);
+  });
+
+  it("keeps the daily-attendance browser open when login is required", async () => {
+    let closed = false;
+    const result = await downloadDailyAttendanceSummaryWorkbook({
+      site: "PH4",
+      date: "2026-07-02",
+      launchContext: async () => ({
+        context: { close: async () => { closed = true; } },
+        page: {},
+      }),
+      openPage: async () => ({ status: "login-required" }),
+    });
+
+    expect(result.mode).toBe("login-required");
+    expect(closed).toBe(false);
+  });
+
+  it("keeps the daily-attendance browser open when the XERP menu cannot be found", async () => {
+    let closed = false;
+    const result = await downloadDailyAttendanceSummaryWorkbook({
+      site: "PH4",
+      date: "2026-07-02",
+      launchContext: async () => ({
+        context: { close: async () => { closed = true; } },
+        page: {},
+      }),
+      openPage: async () => {
+        throw new Error("XERP 화면에서 '출역관리' 항목을 찾지 못했습니다");
+      },
+    });
+
+    expect(result.mode).toBe("login-required");
+    expect(closed).toBe(false);
   });
 
   it("retries menu clicks when an XERP frame is detached mid-click", async () => {

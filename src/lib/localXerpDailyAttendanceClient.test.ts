@@ -25,14 +25,14 @@ describe("localXerpDailyAttendanceClient", () => {
       jsonResponse({
         ok: true,
         downloadsDir: "C:\\Users\\bongryong\\Downloads",
-        port: 8791,
+        port: 8793,
         sites: [{ key: "PH4", label: "평택 P4-PH4 초순수" }],
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(fetchXerpDailyAttendanceStatus()).resolves.toMatchObject({ ok: true, port: 8791 });
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8791/xerp-daily-attendance/status");
+    await expect(fetchXerpDailyAttendanceStatus()).resolves.toMatchObject({ ok: true, port: 8793 });
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8793/xerp-daily-attendance/status");
   });
 
   it("posts the selected site and upload date to the daily attendance download endpoint", async () => {
@@ -52,7 +52,7 @@ describe("localXerpDailyAttendanceClient", () => {
       date: "2026-06-30",
       mode: "downloaded",
     });
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8791/xerp-daily-attendance/download", {
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8793/xerp-daily-attendance/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ site: "PH2", date: "2026-06-30" }),
@@ -81,7 +81,7 @@ describe("localXerpDailyAttendanceClient", () => {
       file: { fileName: "일일출역집계_20260630.xlsx" },
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8791/xerp-daily-attendance/latest?site=PH4&date=2026-06-30&startedAtMs=1782800000000",
+      "http://127.0.0.1:8793/xerp-daily-attendance/latest?site=PH4&date=2026-06-30&startedAtMs=1782800000000",
     );
   });
 

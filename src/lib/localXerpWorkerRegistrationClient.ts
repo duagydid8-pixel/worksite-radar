@@ -1,6 +1,7 @@
 import type { XerpWorkerRegistrationSite } from "./xerpWorkerRegistration";
 
-export const DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL = "http://127.0.0.1:8791";
+export const DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL = "http://127.0.0.1:8793";
+const LEGACY_XERP_WORKER_REGISTRATION_SERVER_URL = "http://127.0.0.1:8791";
 export const XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY =
   "worksite-radar:xerp-worker-registration-server-url";
 
@@ -36,7 +37,10 @@ export function getXerpWorkerRegistrationServerUrl() {
     window.localStorage.getItem(XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY) ||
     DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL;
   try {
-    return new URL(configured).origin;
+    const origin = new URL(configured).origin;
+    return origin === LEGACY_XERP_WORKER_REGISTRATION_SERVER_URL
+      ? DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL
+      : origin;
   } catch {
     return DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL;
   }

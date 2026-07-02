@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import { rejectDisallowedOrigin, writeCorsHeaders } from "./local-service-cors.mjs";
 
-export const DEFAULT_XERP_WORKER_REGISTRATION_PORT = 8791;
+export const DEFAULT_XERP_WORKER_REGISTRATION_PORT = Number(process.env.XERP_WORKER_REGISTRATION_PORT || 8793);
 export const DEFAULT_DOWNLOADS_DIR = process.env.USERPROFILE
   ? path.join(process.env.USERPROFILE, "Downloads")
   : path.join(os.homedir(), "Downloads");
@@ -533,21 +533,30 @@ function normalizePlaywrightError(error) {
   return error;
 }
 
+function isXerpManualInterventionRequired(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /XERP .*항목을 찾지 못했습니다/.test(message);
+}
+
 export async function downloadWorkerRegistrationWorkbook({
   site,
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  launchContext = launchXerpContext,
+  openPage = openWorkerRegistrationPage,
 } = {}) {
   const siteDefinition = XERP_WORKER_REGISTRATION_SITES[site];
   const startedAtMs = Date.now();
   let context;
+  let keepContextOpen = false;
 
   try {
-    const launched = await launchXerpContext({ downloadsDir });
+    const launched = await launchContext({ downloadsDir });
     context = launched.context;
     const page = launched.page;
 
-    const openResult = await openWorkerRegistrationPage(page);
+    const openResult = await openPage(page);
     if (openResult.status === "login-required") {
+      keepContextOpen = true;
       return createDownloadSession({ site, mode: "login-required", startedAtMs });
     }
 
@@ -564,9 +573,13 @@ export async function downloadWorkerRegistrationWorkbook({
 
     return createDownloadSession({ site, mode: "browser-automation", startedAtMs });
   } catch (error) {
+    if (isXerpManualInterventionRequired(error)) {
+      keepContextOpen = true;
+      return createDownloadSession({ site, mode: "login-required", startedAtMs });
+    }
     throw normalizePlaywrightError(error);
   } finally {
-    await context?.close().catch(() => undefined);
+    if (!keepContextOpen) await context?.close().catch(() => undefined);
   }
 }
 
@@ -574,6 +587,8 @@ export async function downloadDailyAttendanceSummaryWorkbook({
   site,
   date,
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  launchContext = launchXerpContext,
+  openPage = openDailyAttendanceSummaryPage,
 } = {}) {
   const normalizedSite = normalizeXerpDailyAttendanceSite(site);
   const normalizedDate = normalizeXerpDailyAttendanceDate(date);
@@ -584,15 +599,17 @@ export async function downloadDailyAttendanceSummaryWorkbook({
   const siteDefinition = XERP_WORKER_REGISTRATION_SITES[normalizedSite];
   const startedAtMs = Date.now();
   let context;
+  let keepContextOpen = false;
 
   try {
     await mkdir(downloadsDir, { recursive: true });
-    const launched = await launchXerpContext({ downloadsDir });
+    const launched = await launchContext({ downloadsDir });
     context = launched.context;
     const page = launched.page;
 
-    const openResult = await openDailyAttendanceSummaryPage(page);
+    const openResult = await openPage(page);
     if (openResult.status === "login-required") {
+      keepContextOpen = true;
       return {
         ok: true,
         site: normalizedSite,
@@ -656,9 +673,22 @@ export async function downloadDailyAttendanceSummaryWorkbook({
 
     throw new Error("일일출역집계 엑셀 다운로드를 확인하지 못했습니다.");
   } catch (error) {
+    if (isXerpManualInterventionRequired(error)) {
+      keepContextOpen = true;
+      return {
+        ok: true,
+        site: normalizedSite,
+        siteName: siteDefinition.xerpSiteName,
+        date: normalizedDate,
+        startedAtMs,
+        mode: "login-required",
+        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        message: "열린 XERP 창에서 로그인 또는 메뉴 상태를 확인한 뒤 다시 시도하세요.",
+      };
+    }
     throw normalizePlaywrightError(error);
   } finally {
-    await context?.close().catch(() => undefined);
+    if (!keepContextOpen) await context?.close().catch(() => undefined);
   }
 }
 

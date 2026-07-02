@@ -25,6 +25,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 describe("localXerpWorkerRegistrationClient", () => {
   it("uses the default local helper URL", () => {
     expect(getXerpWorkerRegistrationServerUrl()).toBe(DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL);
+    expect(DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL).toBe("http://127.0.0.1:8793");
   });
 
   it("uses a locally configured helper URL", () => {
@@ -36,10 +37,19 @@ describe("localXerpWorkerRegistrationClient", () => {
   it("normalizes locally configured helper URLs to the server origin", () => {
     window.localStorage.setItem(
       XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY,
-      "http://127.0.0.1:8791/",
+      "http://127.0.0.1:8793/",
     );
 
-    expect(getXerpWorkerRegistrationServerUrl()).toBe("http://127.0.0.1:8791");
+    expect(getXerpWorkerRegistrationServerUrl()).toBe("http://127.0.0.1:8793");
+  });
+
+  it("migrates the legacy XERP helper port that conflicts with the RCM image server", () => {
+    window.localStorage.setItem(
+      XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY,
+      "http://127.0.0.1:8791",
+    );
+
+    expect(getXerpWorkerRegistrationServerUrl()).toBe(DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL);
   });
 
   it("fetches local helper status", async () => {
@@ -47,7 +57,7 @@ describe("localXerpWorkerRegistrationClient", () => {
       jsonResponse({
         ok: true,
         downloadsDir: "C:\\Users\\bongryong\\Downloads",
-        port: 8791,
+        port: 8793,
         sites: {},
       }),
     );
@@ -55,10 +65,10 @@ describe("localXerpWorkerRegistrationClient", () => {
 
     await expect(fetchXerpWorkerRegistrationStatus()).resolves.toMatchObject({
       ok: true,
-      port: 8791,
+      port: 8793,
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8791/xerp-worker-registration/status",
+      "http://127.0.0.1:8793/xerp-worker-registration/status",
     );
   });
 
@@ -79,7 +89,7 @@ describe("localXerpWorkerRegistrationClient", () => {
       startedAtMs: 1782800000000,
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8791/xerp-worker-registration/download",
+      "http://127.0.0.1:8793/xerp-worker-registration/download",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -108,7 +118,7 @@ describe("localXerpWorkerRegistrationClient", () => {
       file: { fileName: "근로자 등록_10037_20260630132922.xlsx" },
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:8791/xerp-worker-registration/latest?site=PH2&startedAtMs=1782800000000",
+      "http://127.0.0.1:8793/xerp-worker-registration/latest?site=PH2&startedAtMs=1782800000000",
     );
   });
 
