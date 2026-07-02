@@ -19,6 +19,14 @@ service firebase.storage {
         && request.resource.contentType == 'application/pdf';
     }
 
+    match /org-photos/{docId}/{fileName} {
+      allow read: if signedIn();
+      allow write: if isAdmin()
+        && request.resource != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|gif|webp)');
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

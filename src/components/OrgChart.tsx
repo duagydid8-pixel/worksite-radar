@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
-import { loadOrgFS, saveOrgFS } from "@/lib/firestoreService";
+import { loadOrgFS, saveOrgFS, uploadOrgPhotoFS } from "@/lib/firestoreService";
 import { applyOrgManagerAutoFill, applyOrgMemberAutoFill, buildOrgManagerAutoFillSources, buildOrgMemberAutoFillSources, type OrgManagerAutoFillSource, type OrgMemberAutoFillSource } from "@/lib/orgMemberAutoFill";
 import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_DATA, HEAD_OFFICE_ORG_VERSION, PPT_MEMBER_BORDER_COLORS, PPT_ORG_DATA, PPT_ORG_VERSION } from "@/lib/pptOrgData";
 import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2, RotateCw } from "lucide-react";
@@ -36,6 +36,7 @@ const MEMBER_BORDER_OPTIONS = [
 ] as const;
 const DEFAULT_BM: SiteManagerInfo = { name: "사업 1본부 팀장", role: "사업 1본부 팀장", phone: "", email: "", photo_url: "" };
 const DEFAULT_SM: SiteManagerInfo = { name: "현장소장", phone: "", email: "", photo_url: "" };
+const DEFAULT_PM: SiteManagerInfo = { name: "", role: "PM", phone: "", email: "", photo_url: "" };
 const ORG_SITES: OrgSiteConfig[] = [
   { key: "p4-ph4", label: "P4-PH4", title: "P4 PH4 초순수", docId: "org_p4_ph4", date: "26.05.12" },
   { key: "p4-ph2", label: "P4-PH2", title: "P4 PH2 초순수", docId: "org_p4_ph2", date: "26.05.12" },
@@ -205,6 +206,90 @@ function hasFilledSiteManager(siteManager: SiteManagerInfo) {
   return Boolean(siteManager.phone || siteManager.email || siteManager.photo_url || (siteManager.name && siteManager.name !== DEFAULT_SM.name));
 }
 
+function isDefaultBusinessManagerPlaceholder(manager?: SiteManagerInfo) {
+  return Boolean(
+    !manager ||
+    (
+      manager.name === DEFAULT_BM.name &&
+      (manager.role ?? "") === DEFAULT_BM.role &&
+      !manager.phone &&
+      !manager.email &&
+      !manager.photo_url
+    ),
+  );
+}
+
+function normalizeBusinessManagerForSite(siteKey: OrgSiteKey, manager?: SiteManagerInfo) {
+  if (siteKey === "head-office-p5-ph1") {
+    if (isDefaultBusinessManagerPlaceholder(manager)) return { ...DEFAULT_PM };
+    return {
+      ...manager!,
+      role: manager!.role && manager!.role !== DEFAULT_BM.role ? manager!.role : DEFAULT_PM.role,
+    };
+  }
+  return manager ?? DEFAULT_BM;
+}
+
+function hasFilledHeadOfficePmManager(pmManager?: SiteManagerInfo) {
+  return Boolean(pmManager?.phone || pmManager?.email || pmManager?.photo_url || pmManager?.name);
+}
+
+function getHeadOfficeTopManagerCount(siteKey: OrgSiteKey | undefined, siteManager: SiteManagerInfo, pmManager?: SiteManagerInfo) {
+  const siteManagerCount = hasFilledSiteManager(siteManager) ? 1 : 0;
+  const normalizedPmManager = siteKey === "head-office-p5-ph1" ? normalizeBusinessManagerForSite(siteKey, pmManager) : pmManager;
+  const pmCount = siteKey === "head-office-p5-ph1" && hasFilledHeadOfficePmManager(normalizedPmManager) ? 1 : 0;
+  return siteManagerCount + pmCount;
+}
+
+function headOfficeManagerCells(manager: SiteManagerInfo, fallbackRole: string, visible: boolean, rank = "수석") {
+  return [
+    visible ? manager.role || fallbackRole : "",
+    undefined,
+    undefined,
+    undefined,
+    visible ? rank : "",
+    visible ? spacedKoreanName(manager.name) : "",
+    undefined,
+    "E-MAIL",
+    visible ? manager.email : "",
+    undefined,
+    "H.P",
+    visible ? manager.phone : "",
+  ];
+}
+
+export function buildHeadOfficeTopManagerSlots({
+  siteKey,
+  siteManager,
+  pmManager,
+}: {
+  siteKey: OrgSiteKey | string;
+  siteManager: SiteManagerInfo;
+  pmManager: SiteManagerInfo;
+}) {
+  const hasSiteManager = hasFilledSiteManager(siteManager);
+  const normalizedPmManager = normalizeBusinessManagerForSite(siteKey as OrgSiteKey, pmManager);
+  const slots = [
+    {
+      key: "siteManager",
+      cells: headOfficeManagerCells(siteManager, "현장소장", hasSiteManager),
+      visible: hasSiteManager,
+      photoUrl: hasSiteManager ? siteManager.photo_url : "",
+    },
+  ];
+
+  if (siteKey === "head-office-p5-ph1") {
+    slots.push({
+      key: "pm",
+      cells: headOfficeManagerCells(normalizedPmManager, "PM", true, ""),
+      visible: true,
+      photoUrl: normalizedPmManager.photo_url,
+    });
+  }
+
+  return slots;
+}
+
 function pptColor(color: string) {
   return color.replace("#", "").toUpperCase();
 }
@@ -282,15 +367,24 @@ function getEmploymentStat(members: OrgMember[]) {
   return formatEmploymentCount(regular, members.length - regular);
 }
 
-function getHeadOfficeStats(teams: OrgTeam[], members: OrgMember[], siteManager: SiteManagerInfo) {
-  const hasSiteManager = hasFilledSiteManager(siteManager);
-  const regular = members.filter(isRegularMember).length + (hasSiteManager ? 1 : 0);
+function getHeadOfficeStats(teams: OrgTeam[], members: OrgMember[], siteManager: SiteManagerInfo, pmManager?: SiteManagerInfo, siteKey?: OrgSiteKey) {
+  const topManagerCount = getHeadOfficeTopManagerCount(siteKey, siteManager, pmManager);
+  const regular = members.filter(isRegularMember).length + topManagerCount;
   const nonRegular = members.length - members.filter(isRegularMember).length;
   return [
     ["총원", formatEmploymentCount(regular, nonRegular)],
-    ["현장/소장", hasSiteManager ? 1 : 0],
+    ["현장/소장", topManagerCount],
     ...HEAD_OFFICE_TEAM_LABELS.map((label) => [label, getEmploymentStat(getTeamMembers(teams, members, `${label}팀`))] as [string, string | number]),
   ] as Array<[string, string | number]>;
+}
+
+export function splitOrgTeamMembersForDisplay<T extends { is_leader: boolean; sort_order: number }>(members: T[]) {
+  const leaders = members.filter((member) => member.is_leader).sort((a, b) => a.sort_order - b.sort_order);
+  const nonLeaders = members.filter((member) => !member.is_leader).sort((a, b) => a.sort_order - b.sort_order);
+  return {
+    leader: leaders[0] ?? null,
+    others: [...leaders.slice(1), ...nonLeaders].sort((a, b) => a.sort_order - b.sort_order),
+  };
 }
 
 async function imageSrcToDataUri(src: string): Promise<string | null> {
@@ -603,6 +697,10 @@ function buildHeadOfficePictureFrames(tableFrames: string[], picTableIndexes: Ma
   return picFrames;
 }
 
+function getP5HeadOfficePmFrame() {
+  return { x: emu(7.14), y: emu(1.48), w: emu(2.36), h: emu(0.94) };
+}
+
 function buildHeadOfficeTemplateLayout() {
   const cardW = emu(2.08);
   const cardH = emu(0.58);
@@ -675,6 +773,28 @@ function relayoutHeadOfficeTemplateSlide(xml: string) {
   return nextXml;
 }
 
+// shape indices that correspond to team header labels (공사/설계/공무/품질/안전)
+const HEAD_OFFICE_HEADER_SHAPE_TEAM_MAP = new Map<number, string>([
+  [1, "설계"],
+  [2, "공무"],
+  [3, "안전"],
+  [5, "공사"],
+  [6, "품질"],
+]);
+
+function replaceHeadOfficeTeamHeaderNames(xml: string, teams: OrgTeam[]) {
+  let shapeIndex = 0;
+  return xml.replace(PPT_SHAPE_REGEX, (shapeXml) => {
+    const teamLabel = HEAD_OFFICE_HEADER_SHAPE_TEAM_MAP.get(shapeIndex);
+    shapeIndex += 1;
+    if (!teamLabel) return shapeXml;
+    const team = teams.find(
+      (t) => normalizeTeamName(t.name) === `${teamLabel}팀` || normalizeTeamName(t.name) === teamLabel,
+    );
+    return replaceTextRuns(shapeXml, [team?.name ?? ""]);
+  });
+}
+
 function getMaxRelationshipId(relXml: string) {
   let maxId = 1;
   for (const match of relXml.matchAll(/Id="rId(\d+)"/g)) {
@@ -700,11 +820,13 @@ async function addPptImageRelationship(zip: JSZip, relXml: string, imageSrc: str
 
 async function exportHeadOfficeTemplatePpt({
   activeSite,
+  businessManager,
   siteManager,
   teams,
   members,
 }: {
-  activeSite: { label: string; title: string; date: string };
+  activeSite: { key: OrgSiteKey; label: string; title: string; date: string };
+  businessManager: SiteManagerInfo;
   siteManager: SiteManagerInfo;
   teams: OrgTeam[];
   members: OrgMember[];
@@ -718,6 +840,7 @@ async function exportHeadOfficeTemplatePpt({
   let slideXml = await zip.file(slidePath)!.async("string");
   let relXml = await zip.file(relsPath)!.async("string");
   slideXml = relayoutHeadOfficeTemplateSlide(slideXml);
+  slideXml = replaceHeadOfficeTeamHeaderNames(slideXml, teams);
   const tableRegex = PPT_TABLE_FRAME_REGEX;
   const originalTableFrames = Array.from(slideXml.matchAll(tableRegex), (match) => match[0]);
   const picRegex = PPT_PIC_REGEX;
@@ -728,8 +851,14 @@ async function exportHeadOfficeTemplatePpt({
   const office = getTeamMembers(teams, members, "공무팀");
   const quality = getTeamMembers(teams, members, "품질팀");
   const safety = getTeamMembers(teams, members, "안전팀");
-  const headOfficeStats = getHeadOfficeStats(teams, members, siteManager);
+  const headOfficeStats = getHeadOfficeStats(teams, members, siteManager, businessManager, activeSite.key);
   const hasSiteManager = hasFilledSiteManager(siteManager);
+  const topManagerSlots = buildHeadOfficeTopManagerSlots({
+    siteKey: activeSite.key,
+    siteManager,
+    pmManager: businessManager,
+  });
+  const pmManagerSlot = topManagerSlots.find((slot) => slot.key === "pm");
 
   const memberCells = (member?: OrgMember) => [
     member?.position ?? "",
@@ -819,6 +948,16 @@ async function exportHeadOfficeTemplatePpt({
 
   let nextShapeId = getMaxShapeId(slideXml) + 1;
   const overflowFrames: string[] = [];
+  if (pmManagerSlot?.visible) {
+    const managerTemplateFrame = originalTableFrames[0];
+    if (managerTemplateFrame) {
+      let pmFrame = replaceTableCellTexts(managerTemplateFrame, pmManagerSlot.cells);
+      pmFrame = setFrameTransform(pmFrame, getP5HeadOfficePmFrame());
+      pmFrame = uniquifyShape(pmFrame, nextShapeId, "PM");
+      nextShapeId += 1;
+      overflowFrames.push(pmFrame);
+    }
+  }
   const appendOverflow = (teamMembers: OrgMember[], capacity: number, lastFrameIndex: number, previousFrameIndex: number) => {
     if (teamMembers.length <= capacity) return;
     const templateFrame = originalTableFrames[lastFrameIndex];
@@ -865,6 +1004,20 @@ async function exportHeadOfficeTemplatePpt({
   slideXml = applyPicSlots(slideXml, resolvedPhotoSlots);
 
   const overflowPics: string[] = [];
+  if (pmManagerSlot?.photoUrl) {
+    const managerTemplateFrame = originalTableFrames[0];
+    const managerTemplatePic = originalPics[0];
+    const relationshipId = await addImage(pmManagerSlot.photoUrl);
+    if (managerTemplateFrame && managerTemplatePic && relationshipId) {
+      const pmTableFrame = setFrameTransform(managerTemplateFrame, getP5HeadOfficePmFrame());
+      let pic = replacePicEmbed(managerTemplatePic, relationshipId);
+      pic = setPictureFrameTransform(pic, createPhotoFrameFromTable(pmTableFrame));
+      pic = normalizePictureShape(pic);
+      pic = uniquifyShape(pic, nextShapeId, "PM 사진");
+      nextShapeId += 1;
+      overflowPics.push(pic);
+    }
+  }
   const appendOverflowPics = async (teamMembers: OrgMember[], capacity: number, lastPicIndex: number, previousPicIndex: number) => {
     if (teamMembers.length <= capacity) return;
     const templatePic = originalPics[lastPicIndex];
@@ -915,7 +1068,7 @@ function SiteManagerEditDialog({
   info: SiteManagerInfo;
   title: string;
   autoFillSources: readonly OrgManagerAutoFillSource[];
-  onSave: (i: SiteManagerInfo) => void;
+  onSave: (i: SiteManagerInfo) => void | Promise<void>;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<SiteManagerInfo>({ ...info });
@@ -993,7 +1146,7 @@ function SiteManagerEditDialog({
         </div>
         <div className="px-5 py-3 border-t border-border flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border text-muted-foreground hover:bg-muted">취소</button>
-          <button onClick={() => { onSave(draft); onClose(); }} className="px-4 py-2 text-sm rounded-lg bg-primary text-white font-semibold hover:bg-primary/90">적용</button>
+          <button onClick={async () => { await onSave(draft); onClose(); }} className="px-4 py-2 text-sm rounded-lg bg-primary text-white font-semibold hover:bg-primary/90">적용</button>
         </div>
       </div>
     </div>
@@ -1012,7 +1165,7 @@ function EditDialog({
 }: {
   member: OrgMember;
   autoFillSources: readonly OrgMemberAutoFillSource[];
-  onSave: (m: OrgMember) => void;
+  onSave: (m: OrgMember) => void | Promise<void>;
   onClose: () => void;
   onPhotoUpload: (memberId: string, file: File) => Promise<string | null>;
   onPhotoRemove: (memberId: string) => void;
@@ -1194,6 +1347,8 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   const chartRef = useRef<HTMLDivElement>(null);
   const activeSite = ORG_SITES.find((site) => site.key === activeSiteKey) ?? ORG_SITES[0];
   const isHeadOfficeTemplate = isHeadOfficeSiteKey(activeSite.key);
+  const showHeadOfficePmSlot = activeSite.key === "head-office-p5-ph1";
+  const businessManagerTitle = showHeadOfficePmSlot ? businessManager.role || "PM" : businessManager.role || "사업 1본부 팀장";
   const titleDate = getTodayTitleDate();
   const visibleOrgSites = showSiteTabs
     ? ORG_SITES.filter((site) => !isHeadOfficeSiteKey(site.key))
@@ -1224,13 +1379,13 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
       );
       if (hasSavedData && !shouldIgnoreSavedHeadOfficeSeed && d) {
         setTeams(d.teams); setMembers(d.members);
-        setBusinessManager(d.businessManager ?? DEFAULT_BM);
+        setBusinessManager(normalizeBusinessManagerForSite(activeSite.key, d.businessManager));
         setSiteManager(d.siteManager ?? DEFAULT_SM);
       } else {
         const initial = activeSite.key === "p4-ph4"
           ? createPptOrgData()
           : activeSite.key === "head-office-p4-ph4" ? createHeadOfficeOrgData() : createBlankOrgData();
-        setBusinessManager(initial.businessManager);
+        setBusinessManager(normalizeBusinessManagerForSite(activeSite.key, initial.businessManager));
         setSiteManager(initial.siteManager);
         setTeams(initial.teams);
         setMembers(initial.members);
@@ -1259,6 +1414,13 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
     setSaving(false);
   }, [teams, members, businessManager, siteManager, activeSite.docId, expectedOrgSourceVersion]);
 
+  const persistOrgPhotoUrl = useCallback(async (ownerId: string, photoUrl: string) => {
+    if (!photoUrl) return "";
+    const uploadedPhotoUrl = await uploadOrgPhotoFS(activeSite.docId, ownerId, photoUrl);
+    if (!uploadedPhotoUrl) throw new Error("org-photo-upload-failed");
+    return uploadedPhotoUrl;
+  }, [activeSite.docId]);
+
   const handleApplyPptOrg = useCallback(() => {
     const ppt = createPptOrgData();
     setBusinessManager(ppt.businessManager);
@@ -1281,13 +1443,13 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
 
   const handleApplyBlankOrg = useCallback(() => {
     const blank = createBlankOrgData();
-    setBusinessManager(blank.businessManager ?? DEFAULT_BM);
+    setBusinessManager(normalizeBusinessManagerForSite(activeSite.key, blank.businessManager ?? DEFAULT_BM));
     setSiteManager(blank.siteManager ?? DEFAULT_SM);
     setTeams(blank.teams);
     setMembers(blank.members);
     setDirty(true);
     toast.success(`${activeSite.label} 빈 조직도 틀을 적용했습니다.`);
-  }, [activeSite.label]);
+  }, [activeSite.key, activeSite.label]);
 
   const handleAddTeam = useCallback((name: string, color: string) => {
     const newTeam: OrgTeam = { id: crypto.randomUUID(), name, color, sort_order: teams.length };
@@ -1304,17 +1466,58 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
 
   const handleAddMember = useCallback((teamId: string) => {
     const count = members.filter((m) => m.team_id === teamId).length;
-    setMembers((prev) => [...prev, { id: crypto.randomUUID(), team_id: teamId, name: "이름 입력", position: "담당자", rank: "사원", phone: "", email: "", photo_url: "", is_leader: false, sort_order: count, border_color: MEMBER_BORDER_OPTIONS[0].color }]);
+    const newMember = { id: crypto.randomUUID(), team_id: teamId, name: "이름 입력", position: "담당자", rank: "사원", phone: "", email: "", photo_url: "", is_leader: false, sort_order: count, border_color: MEMBER_BORDER_OPTIONS[0].color };
+    setSearchQuery("");
+    setMembers((prev) => [...prev, newMember]);
+    setEditMember(newMember);
     setDirty(true);
   }, [members]);
 
   const handleDeleteMember = useCallback((memberId: string) => { setMembers((prev) => prev.filter((m) => m.id !== memberId)); setDirty(true); }, []);
 
-  const handleMemberSave = useCallback((updated: OrgMember) => { setMembers((prev) => prev.map((m) => (m.id === updated.id ? updated : m))); setEditMember(null); setDirty(true); }, []);
+  const handleMemberSave = useCallback(async (updated: OrgMember) => {
+    try {
+      const photoUrl = await persistOrgPhotoUrl(updated.id, updated.photo_url);
+      const savedMember = photoUrl === updated.photo_url ? updated : { ...updated, photo_url: photoUrl };
+      const nextMembers = members.map((m) => (m.id === savedMember.id ? savedMember : m));
+      setMembers(nextMembers);
+      setEditMember(null);
+      const ok = await saveOrgFS({ teams, members: nextMembers, businessManager, siteManager, orgSourceVersion: expectedOrgSourceVersion }, activeSite.docId);
+      if (ok) { setDirty(false); toast.success("구성원 정보가 저장되었습니다."); }
+      else { setDirty(true); toast.error("저장 실패 — 저장 버튼을 눌러주세요."); }
+    } catch {
+      setDirty(true);
+      toast.error("사진 저장소 업로드 실패 — 다시 시도해주세요.");
+    }
+  }, [members, teams, businessManager, siteManager, expectedOrgSourceVersion, activeSite.docId, persistOrgPhotoUrl]);
 
-  const handleBusinessManagerSave = useCallback((info: SiteManagerInfo) => { setBusinessManager(info); setDirty(true); }, []);
+  const handleBusinessManagerSave = useCallback(async (info: SiteManagerInfo) => {
+    try {
+      const photoUrl = await persistOrgPhotoUrl("business-manager", info.photo_url);
+      const nextBusinessManager = photoUrl === info.photo_url ? info : { ...info, photo_url: photoUrl };
+      setBusinessManager(nextBusinessManager);
+      const ok = await saveOrgFS({ teams, members, businessManager: nextBusinessManager, siteManager, orgSourceVersion: expectedOrgSourceVersion }, activeSite.docId);
+      if (ok) { setDirty(false); toast.success("팀장 정보가 저장되었습니다."); }
+      else { setDirty(true); toast.error("저장 실패 — 저장 버튼을 눌러주세요."); }
+    } catch {
+      setDirty(true);
+      toast.error("사진 저장소 업로드 실패 — 다시 시도해주세요.");
+    }
+  }, [teams, members, siteManager, expectedOrgSourceVersion, activeSite.docId, persistOrgPhotoUrl]);
 
-  const handleSiteManagerSave = useCallback((info: SiteManagerInfo) => { setSiteManager(info); setDirty(true); }, []);
+  const handleSiteManagerSave = useCallback(async (info: SiteManagerInfo) => {
+    try {
+      const photoUrl = await persistOrgPhotoUrl("site-manager", info.photo_url);
+      const nextSiteManager = photoUrl === info.photo_url ? info : { ...info, photo_url: photoUrl };
+      setSiteManager(nextSiteManager);
+      const ok = await saveOrgFS({ teams, members, businessManager, siteManager: nextSiteManager, orgSourceVersion: expectedOrgSourceVersion }, activeSite.docId);
+      if (ok) { setDirty(false); toast.success("소장 정보가 저장되었습니다."); }
+      else { setDirty(true); toast.error("저장 실패 — 저장 버튼을 눌러주세요."); }
+    } catch {
+      setDirty(true);
+      toast.error("사진 저장소 업로드 실패 — 다시 시도해주세요.");
+    }
+  }, [teams, members, businessManager, expectedOrgSourceVersion, activeSite.docId, persistOrgPhotoUrl]);
 
   const handlePhotoRemove = useCallback(async (memberId: string) => {
     const nextMembers = members.map((m) => (m.id === memberId ? { ...m, photo_url: "" } : m));
@@ -1327,25 +1530,26 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   const handlePhotoUpload = useCallback(async (memberId: string, file: File) => {
     try {
       const dataUrl = await compressImage(file);
-      const nextMembers = members.map((m) => (m.id === memberId ? { ...m, photo_url: dataUrl } : m));
+      const photoUrl = await persistOrgPhotoUrl(memberId, dataUrl);
+      const nextMembers = members.map((m) => (m.id === memberId ? { ...m, photo_url: photoUrl } : m));
       setMembers(nextMembers);
-      setEditMember((prev) => prev?.id === memberId ? { ...prev, photo_url: dataUrl } : prev);
+      setEditMember((prev) => prev?.id === memberId ? { ...prev, photo_url: photoUrl } : prev);
       // 즉시 Firestore 저장
       const ok = await saveOrgFS({ teams, members: nextMembers, businessManager, siteManager, orgSourceVersion: expectedOrgSourceVersion }, activeSite.docId);
       if (ok) {
         setDirty(false);
         toast.success("사진이 저장되었습니다.");
-        return dataUrl;
+        return photoUrl;
       } else {
         setDirty(true);
         toast.error("사진 저장 실패 — 저장 버튼을 눌러주세요.");
-        return dataUrl;
+        return photoUrl;
       }
     } catch {
-      toast.error("사진을 불러오는 중 오류가 발생했습니다.");
+      toast.error("사진 처리 또는 저장소 업로드 중 오류가 발생했습니다.");
       return null;
     }
-  }, [members, teams, businessManager, siteManager, activeSite.docId, expectedOrgSourceVersion]);
+  }, [members, teams, businessManager, siteManager, activeSite.docId, expectedOrgSourceVersion, persistOrgPhotoUrl]);
 
   const topManagerCount = [businessManager, siteManager].filter((manager) => manager.phone || manager.email || manager.photo_url).length;
   const totalMembers = members.length + topManagerCount;
@@ -1362,7 +1566,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
       return counts;
     }, {});
   }, [teams, teamCountById]);
-  const headOfficeStats = useMemo(() => getHeadOfficeStats(teams, members, siteManager), [teams, members, siteManager]);
+  const headOfficeStats = useMemo(() => getHeadOfficeStats(teams, members, siteManager, businessManager, activeSite.key), [teams, members, siteManager, businessManager, activeSite.key]);
   const displayTotalMembers = isHeadOfficeTemplate ? headOfficeStats[0]?.[1] : totalMembers;
   const memberAutoFillSources = useMemo(() => {
     const linkedMembers = Array.isArray(linkedOrgData?.members) ? linkedOrgData.members : [];
@@ -1416,7 +1620,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   const handleExportPpt = useCallback(async () => {
     try {
       if (isHeadOfficeTemplate) {
-        await exportHeadOfficeTemplatePpt({ activeSite, siteManager, teams, members });
+        await exportHeadOfficeTemplatePpt({ activeSite, businessManager, siteManager, teams, members });
         toast.success("본사 송부용 원본 PPT 양식에 앱 데이터를 반영했습니다.");
         return;
       }
@@ -1604,8 +1808,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         slide.addText(team.name, { x: x + 0.05, y: teamHeaderY + 0.08, w: colW - 0.1, h: 0.1, fontFace: "맑은 고딕", fontSize: 8.5, bold: true, color: "FFFFFF", margin: 0 });
 
         const tm = members.filter((m) => m.team_id === team.id);
-        const leaderMember = tm.filter((m) => m.is_leader).sort((a, b) => a.sort_order - b.sort_order)[0];
-        const otherMembers = tm.filter((m) => !m.is_leader).sort((a, b) => a.sort_order - b.sort_order);
+          const { leader: leaderMember, others: otherMembers } = splitOrgTeamMembersForDisplay(tm);
 
         const addMemberCard = async (member: OrgMember, cx: number, cy: number, cw: number, isLeaderCard = false) => {
           const borderColor = pptColor(member.border_color ?? PPT_MEMBER_BORDER_COLORS[member.name] ?? team.color);
@@ -1754,10 +1957,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
   const getMembersForTeam = useCallback((teamId: string) => {
     let mems = members.filter((m) => m.team_id === teamId);
     if (searchQuery.trim()) mems = mems.filter((m) => m.name.includes(searchQuery.trim()));
-    return {
-      leader: mems.filter((m) => m.is_leader).sort((a,b)=>a.sort_order-b.sort_order)[0] ?? null,
-      others: mems.filter((m) => !m.is_leader).sort((a,b)=>a.sort_order-b.sort_order),
-    };
+    return splitOrgTeamMembersForDisplay(mems);
   }, [members, searchQuery]);
 
   return (
@@ -1885,17 +2085,24 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
             </div>
           </div>
 
-          <div className={`mb-4 grid gap-10 px-16 ${isHeadOfficeTemplate ? "grid-cols-1 justify-items-center" : "grid-cols-[1fr_1fr]"}`}>
-            {!isHeadOfficeTemplate && (
-              <PptManagerCard info={businessManager} title={businessManager.role || "사업 1본부 팀장"} onEdit={() => setEditBusinessManager(true)} />
-            )}
-            <div className={isHeadOfficeTemplate ? "w-[360px]" : ""}>
-              {isHeadOfficeTemplate ? (
-                <HeadOfficeManagerCard info={siteManager} title={siteManager.role || "현장소장"} onEdit={() => setEditSiteManager(true)} />
-              ) : (
+          <div className={`mb-4 grid gap-10 px-16 ${isHeadOfficeTemplate ? (showHeadOfficePmSlot ? "grid-cols-2 justify-items-center" : "grid-cols-1 justify-items-center") : "grid-cols-[1fr_1fr]"}`}>
+            {isHeadOfficeTemplate ? (
+              <>
+                <div className="w-[360px]">
+                  <HeadOfficeManagerCard info={siteManager} title={siteManager.role || "현장소장"} onEdit={() => setEditSiteManager(true)} />
+                </div>
+                {showHeadOfficePmSlot && (
+                  <div className="w-[360px]">
+                    <HeadOfficeManagerCard info={businessManager} title={businessManagerTitle} rank="" onEdit={() => setEditBusinessManager(true)} />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <PptManagerCard info={businessManager} title={businessManagerTitle} onEdit={() => setEditBusinessManager(true)} />
                 <PptManagerCard info={siteManager} title={siteManager.role || "사업 1본부 현장 소장"} onEdit={() => setEditSiteManager(true)} />
-              )}
-            </div>
+              </>
+            )}
           </div>
 
           <div className="relative mb-3 h-7">
@@ -1972,7 +2179,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         </div>
       )}
 
-      {editBusinessManager && <SiteManagerEditDialog info={businessManager} title={businessManager.role || "사업 1본부 팀장"} autoFillSources={managerAutoFillSources} onSave={handleBusinessManagerSave} onClose={() => setEditBusinessManager(false)} />}
+      {editBusinessManager && <SiteManagerEditDialog info={businessManager} title={businessManagerTitle} autoFillSources={managerAutoFillSources} onSave={handleBusinessManagerSave} onClose={() => setEditBusinessManager(false)} />}
       {editSiteManager && <SiteManagerEditDialog info={siteManager} title={siteManager.role || "사업 1본부 현장 소장"} autoFillSources={managerAutoFillSources} onSave={handleSiteManagerSave} onClose={() => setEditSiteManager(false)} />}
       {editMember && <EditDialog member={editMember} autoFillSources={memberAutoFillSources} onSave={handleMemberSave} onClose={() => setEditMember(null)} onPhotoUpload={handlePhotoUpload} onPhotoRemove={handlePhotoRemove} uploading={false} />}
       {showAddTeam && <AddTeamDialog onAdd={handleAddTeam} onClose={() => setShowAddTeam(false)} usedColors={teams.map((t) => t.color)} />}
@@ -2050,7 +2257,7 @@ function headOfficeMarker(member: OrgMember) {
   return getHeadOfficeMarkerText(member);
 }
 
-function HeadOfficeManagerCard({ info, title, onEdit }: { info: SiteManagerInfo; title: string; onEdit: () => void }) {
+function HeadOfficeManagerCard({ info, title, rank = "수석", onEdit }: { info: SiteManagerInfo; title: string; rank?: string; onEdit: () => void }) {
   return (
     <button
       onClick={onEdit}
@@ -2068,7 +2275,7 @@ function HeadOfficeManagerCard({ info, title, onEdit }: { info: SiteManagerInfo;
           {title}
         </div>
         <div className="grid grid-cols-[48px_1fr] text-[10px] font-bold text-black">
-          <div className="flex items-center justify-center border-b border-r border-black">수석</div>
+          <div className="flex items-center justify-center border-b border-r border-black">{rank}</div>
           <div className="flex items-center justify-center border-b border-black text-[13px] font-black">{spacedKoreanName(info.name)}</div>
           <div className="flex items-center justify-center border-b border-r border-black">E-MAIL</div>
           <div className="flex items-center justify-center border-b border-black px-1 text-[8px]">{info.email}</div>
