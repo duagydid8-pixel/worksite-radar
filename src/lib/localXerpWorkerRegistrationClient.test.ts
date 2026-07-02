@@ -33,6 +33,15 @@ describe("localXerpWorkerRegistrationClient", () => {
     expect(getXerpWorkerRegistrationServerUrl()).toBe("http://127.0.0.1:9898");
   });
 
+  it("normalizes locally configured helper URLs to the server origin", () => {
+    window.localStorage.setItem(
+      XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY,
+      "http://127.0.0.1:8791/",
+    );
+
+    expect(getXerpWorkerRegistrationServerUrl()).toBe("http://127.0.0.1:8791");
+  });
+
   it("fetches local helper status", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

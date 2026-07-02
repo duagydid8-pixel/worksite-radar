@@ -32,10 +32,14 @@ export type LocalXerpWorkerRegistrationLatestResponse = {
 
 export function getXerpWorkerRegistrationServerUrl() {
   if (typeof window === "undefined") return DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL;
-  return (
+  const configured =
     window.localStorage.getItem(XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY) ||
-    DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL
-  );
+    DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL;
+  try {
+    return new URL(configured).origin;
+  } catch {
+    return DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL;
+  }
 }
 
 export function decodeBase64Workbook(base64: string) {
