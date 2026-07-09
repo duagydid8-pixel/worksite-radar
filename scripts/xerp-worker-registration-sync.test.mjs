@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
   buildXerpWorkerRegistrationUrl,
+  classifyXerpLoginText,
   clickTextInAnyFrame,
   closeReusableXerpContext,
   createDownloadSession,
@@ -16,6 +17,7 @@ import {
   isDailyAttendanceSummaryWorkbookName,
   isWorkerRegistrationWorkbookName,
   isLoginLikelyRequired,
+  getXerpLoginStatus,
   openXerpLoginWindow,
   scanDailyAttendanceSummaryDownloads,
   scanWorkerRegistrationDownloads,
@@ -221,6 +223,39 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(isLoginLikelyRequired("로그인\n아이디\n비밀번호")).toBe(true);
     expect(isLoginLikelyRequired("사용자 ID\n비밀번호\n로그인")).toBe(true);
     expect(isLoginLikelyRequired("노무관리 근로자관리 근로자 등록")).toBe(false);
+  });
+
+  it("classifies XERP login status from visible page text", () => {
+    expect(classifyXerpLoginText("로그인\n아이디\n비밀번호")).toMatchObject({
+      status: "login-required",
+      loggedIn: false,
+    });
+    expect(classifyXerpLoginText("노무관리 근로자관리 근로자 등록 출역관리")).toMatchObject({
+      status: "logged-in",
+      loggedIn: true,
+    });
+    expect(classifyXerpLoginText("")).toMatchObject({
+      status: "unknown",
+      loggedIn: false,
+    });
+  });
+
+  it("reads login status from the current XERP page frames", async () => {
+    const page = {
+      frames: () => [
+        {
+          locator: () => ({
+            innerText: vi.fn().mockResolvedValue("노무관리 근로자관리 근로자 등록"),
+          }),
+        },
+      ],
+    };
+
+    await expect(getXerpLoginStatus({ page })).resolves.toMatchObject({
+      ok: true,
+      status: "logged-in",
+      loggedIn: true,
+    });
   });
 
   it("opens a reusable XERP login window with the shared profile", async () => {
@@ -462,6 +497,28 @@ describe("xerp-worker-registration-sync server", () => {
       expect(response.status).toBe(200);
       expect(json.mode).toBe("login-window");
       expect(runXerpLoginOpen).toHaveBeenCalledWith({ downloadsDir: dir });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns the XERP login status through the local helper", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-login-status-"));
+    const runXerpLoginStatus = vi.fn().mockResolvedValue({
+      ok: true,
+      status: "logged-in",
+      loggedIn: true,
+      message: "XERP 로그인됨",
+    });
+    try {
+      const baseUrl = await startTestServer({ downloadsDir: dir, getXerpLoginStatus: runXerpLoginStatus });
+      const response = await fetch(`${baseUrl}/xerp-login/status`);
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.loggedIn).toBe(true);
+      expect(json.status).toBe("logged-in");
+      expect(runXerpLoginStatus).toHaveBeenCalled();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

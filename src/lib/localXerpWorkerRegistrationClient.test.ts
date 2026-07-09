@@ -4,6 +4,7 @@ import {
   XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY,
   decodeBase64Workbook,
   fetchLatestXerpWorkerRegistrationFile,
+  fetchXerpLoginStatus,
   fetchXerpWorkerRegistrationStatus,
   getXerpWorkerRegistrationServerUrl,
   requestXerpLoginWindowOpen,
@@ -117,6 +118,24 @@ describe("localXerpWorkerRegistrationClient", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8793/xerp-login/open", {
       method: "POST",
     });
+  });
+
+  it("fetches the shared XERP login status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        status: "logged-in",
+        loggedIn: true,
+        message: "XERP 로그인됨",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchXerpLoginStatus()).resolves.toMatchObject({
+      status: "logged-in",
+      loggedIn: true,
+    });
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8793/xerp-login/status");
   });
 
   it("falls back to the worker-registration download endpoint when the local helper is older", async () => {

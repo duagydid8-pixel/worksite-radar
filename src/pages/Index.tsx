@@ -22,7 +22,7 @@ import type { ParsedPmisData } from "@/components/PmisInOutLogTab";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreService";
 import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
-import { requestXerpLoginWindowOpen } from "@/lib/localXerpWorkerRegistrationClient";
+import { fetchXerpLoginStatus, requestXerpLoginWindowOpen } from "@/lib/localXerpWorkerRegistrationClient";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
 import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power, FilePenLine } from "lucide-react";
@@ -58,6 +58,7 @@ function LazyPanel({ children }: { children: ReactNode }) {
 
 type XerpSiteKey = "PH4" | "PH2" | "P5PH1";
 type XerpSubPage = "xerp" | "inout" | "final";
+type XerpLoginUiStatus = "idle" | "checking" | "login-required" | "logged-in" | "unavailable";
 
 const XERP_SITES = [
   { value: "PH4" as XerpSiteKey, label: "P4-PH4" },
@@ -428,6 +429,7 @@ const Index = () => {
   const [localWatchEnabled, setLocalWatchEnabled] = useState(() => localStorage.getItem(LOCAL_ATTENDANCE_WATCH_ENABLED_KEY) === "true");
   const [localWatchStatus, setLocalWatchStatus] = useState("자동감시가 꺼져 있습니다.");
   const [xerpLoginOpening, setXerpLoginOpening] = useState(false);
+  const [xerpLoginStatus, setXerpLoginStatus] = useState<XerpLoginUiStatus>("idle");
   const [hideAdminTodoToday, setHideAdminTodoToday] = useState(false);
   const [adminTodoDate, setAdminTodoDate] = useState(() => getLocalDateKey());
   const [adminTodoDraft, setAdminTodoDraft] = useState("");
@@ -460,17 +462,47 @@ const Index = () => {
     setAdminTodoDialogOpen(open);
   };
 
+  const checkXerpLoginStatus = useCallback(async () => {
+    try {
+      const status = await fetchXerpLoginStatus();
+      if (status.loggedIn) {
+        setXerpLoginStatus("logged-in");
+      } else if (status.status === "login-required") {
+        setXerpLoginStatus("login-required");
+      } else if (status.status === "no-window") {
+        setXerpLoginStatus("idle");
+      } else {
+        setXerpLoginStatus("checking");
+      }
+      return status;
+    } catch {
+      setXerpLoginStatus("unavailable");
+      return null;
+    }
+  }, []);
+
   const handleXerpLoginOpen = async () => {
     setXerpLoginOpening(true);
+    setXerpLoginStatus("checking");
     try {
       const result = await requestXerpLoginWindowOpen();
       toast.success(result.message || "XERP 로그인 창을 열었습니다. 로그인 후 XERP 가져오기를 눌러주세요.");
+      void checkXerpLoginStatus();
     } catch (error) {
+      setXerpLoginStatus("unavailable");
       toast.error(error instanceof Error ? error.message : "XERP 로그인 창을 열지 못했습니다.");
     } finally {
       setXerpLoginOpening(false);
     }
   };
+
+  useEffect(() => {
+    if (xerpLoginStatus !== "checking" && xerpLoginStatus !== "login-required") return;
+    const timer = window.setInterval(() => {
+      void checkXerpLoginStatus();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [checkXerpLoginStatus, xerpLoginStatus]);
 
   const saveAdminDailyTasks = useCallback((nextTasks: AdminDailyTask[]) => {
     setAdminDailyTasks(nextTasks);
@@ -1510,15 +1542,21 @@ const Index = () => {
               type="button"
               onClick={handleXerpLoginOpen}
               disabled={xerpLoginOpening}
-              className="ops-todo-button"
-              title="XERP 로그인 창 열기"
+              className={`ops-todo-button ${xerpLoginStatus === "logged-in" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""}`}
+              title={xerpLoginStatus === "logged-in" ? "XERP 로그인됨" : "XERP 로그인 창 열기"}
             >
-              {xerpLoginOpening ? (
+              {xerpLoginOpening || xerpLoginStatus === "checking" ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <LogIn className="h-3.5 w-3.5" />
               )}
-              {xerpLoginOpening ? "여는 중" : "XERP 로그인"}
+              {xerpLoginOpening
+                ? "여는 중"
+                : xerpLoginStatus === "logged-in"
+                  ? "XERP 로그인됨"
+                  : xerpLoginStatus === "checking"
+                    ? "확인 중"
+                    : "XERP 로그인"}
             </button>
             {isAdmin && (
               <button

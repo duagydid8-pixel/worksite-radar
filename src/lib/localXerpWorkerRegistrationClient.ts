@@ -41,6 +41,13 @@ export type LocalXerpLoginWindowOpenResponse = {
   message?: string;
 };
 
+export type LocalXerpLoginStatusResponse = {
+  ok: true;
+  status: "logged-in" | "login-required" | "no-window" | "unknown" | string;
+  loggedIn: boolean;
+  message?: string;
+};
+
 export function getXerpWorkerRegistrationServerUrl() {
   if (typeof window === "undefined") return DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL;
   const configured =
@@ -145,6 +152,14 @@ export async function requestXerpLoginWindowOpen() {
         "로컬 XERP 서버가 이전 버전이라 기존 XERP 가져오기 방식으로 로그인 창을 열었습니다. 로그인 후 다시 이용하세요.",
     };
   }
+}
+
+export async function fetchXerpLoginStatus() {
+  const response = await fetchXerpWorkerRegistrationOrThrow(
+    "/xerp-login/status",
+    "XERP 로그인 상태 확인",
+  );
+  return readJsonOrThrow<LocalXerpLoginStatusResponse>(response, "XERP 로그인 상태 확인");
 }
 
 export async function fetchLatestXerpWorkerRegistrationFile(

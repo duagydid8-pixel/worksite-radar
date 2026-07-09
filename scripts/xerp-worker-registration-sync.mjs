@@ -106,6 +106,40 @@ export function isLoginLikelyRequired(textSnapshot = "") {
   return /로그인|아이디|비밀번호|password|login/i.test(text);
 }
 
+export function classifyXerpLoginText(textSnapshot = "") {
+  const text = String(textSnapshot).replace(/\s+/g, " ").trim();
+  if (!text) {
+    return {
+      ok: true,
+      status: "unknown",
+      loggedIn: false,
+      message: "XERP 화면 상태를 아직 확인하지 못했습니다.",
+    };
+  }
+  if (/노무관리|근로자관리|근로자\s*등록|출역관리|일일출역집계|PMIS|로그아웃|업무관리/i.test(text)) {
+    return {
+      ok: true,
+      status: "logged-in",
+      loggedIn: true,
+      message: "XERP 로그인됨",
+    };
+  }
+  if (isLoginLikelyRequired(text)) {
+    return {
+      ok: true,
+      status: "login-required",
+      loggedIn: false,
+      message: "XERP 로그인이 필요합니다.",
+    };
+  }
+  return {
+    ok: true,
+    status: "unknown",
+    loggedIn: false,
+    message: "XERP 화면 상태를 아직 확인하지 못했습니다.",
+  };
+}
+
 export function isWorkerRegistrationWorkbookName(fileName) {
   return !fileName.startsWith("~$") && WORKER_REGISTRATION_WORKBOOK_RE.test(fileName);
 }
@@ -362,6 +396,7 @@ export function createXerpWorkerRegistrationRequestHandler({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   getPort = () => DEFAULT_XERP_WORKER_REGISTRATION_PORT,
   openXerpLoginWindow: runXerpLoginOpen = openXerpLoginWindow,
+  getXerpLoginStatus: runXerpLoginStatus = getXerpLoginStatus,
   downloadWorkerRegistrationWorkbook: runWorkerRegistrationDownload = downloadWorkerRegistrationWorkbook,
   downloadDailyAttendanceSummaryWorkbook: runDailyAttendanceDownload = downloadDailyAttendanceSummaryWorkbook,
   uploadPmisAttendanceWorkbook: runPmisAttendanceUpload = uploadPmisAttendanceWorkbook,
@@ -381,6 +416,11 @@ export function createXerpWorkerRegistrationRequestHandler({
     try {
       if (req.method === "POST" && url.pathname === "/xerp-login/open") {
         sendJson(res, 200, await runXerpLoginOpen({ downloadsDir }));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/xerp-login/status") {
+        sendJson(res, 200, await runXerpLoginStatus());
         return;
       }
 
@@ -531,6 +571,30 @@ export async function openXerpLoginWindow({
   } catch (error) {
     throw normalizePlaywrightError(error);
   }
+}
+
+export async function getXerpLoginStatus({ page } = {}) {
+  const activePage = page || (await getReusableXerpContext())?.page;
+  if (!isReusablePage(activePage)) {
+    return {
+      ok: true,
+      status: "no-window",
+      loggedIn: false,
+      message: "열린 XERP 로그인 창이 없습니다.",
+    };
+  }
+
+  let textSnapshot = "";
+  const frames = typeof activePage.frames === "function" ? activePage.frames() : [];
+  for (const frame of frames) {
+    const frameText = await Promise.resolve(frame.locator?.("body")?.innerText?.({ timeout: 1500 })).catch(() => "");
+    if (frameText) textSnapshot += `\n${frameText}`;
+  }
+  if (!textSnapshot && typeof activePage.locator === "function") {
+    textSnapshot = await activePage.locator("body").innerText({ timeout: 1500 }).catch(() => "");
+  }
+
+  return classifyXerpLoginText(textSnapshot);
 }
 
 function isTransientFrameClickError(error) {
@@ -1029,6 +1093,7 @@ export async function startXerpWorkerRegistrationServer({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   port = DEFAULT_XERP_WORKER_REGISTRATION_PORT,
   openXerpLoginWindow,
+  getXerpLoginStatus,
   downloadWorkerRegistrationWorkbook,
   downloadDailyAttendanceSummaryWorkbook,
 } = {}) {
@@ -1036,6 +1101,7 @@ export async function startXerpWorkerRegistrationServer({
   const handler = createXerpWorkerRegistrationRequestHandler({
     downloadsDir,
     openXerpLoginWindow,
+    getXerpLoginStatus,
     downloadWorkerRegistrationWorkbook,
     downloadDailyAttendanceSummaryWorkbook,
     getPort: () => {
