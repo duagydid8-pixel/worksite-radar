@@ -16,6 +16,13 @@ describe("XerpWorkReflection XERP daily attendance import wiring", () => {
     expect(source).toContain("XERP에서 가져오기");
   });
 
+  it("adds a visible XERP export command for extra-work upload", () => {
+    expect(source).toContain("requestXerpDailyAttendanceExtraWorkUpload");
+    expect(source).toContain("handleXerpWorkExport");
+    expect(source).toContain("XERP로 내보내기");
+    expect(source).toContain("buildAdjustedWorkbookBuffer");
+  });
+
   it("uses the selected work date for the XERP query and loaded work date", () => {
     expect(source).toContain("requestXerpDailyAttendanceDownload(syncSite, workDate)");
     expect(source).toContain("processWorkbookBuffer(buffer, latest.file.fileName, workDate)");

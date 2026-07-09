@@ -27,6 +27,18 @@ export type LocalXerpDailyAttendanceDownloadResponse = {
   profileDir?: string;
 };
 
+export type LocalXerpDailyAttendanceExtraWorkUploadResponse = {
+  ok: true;
+  site: XerpDailyAttendanceSite;
+  siteName?: string;
+  date: string;
+  startedAtMs?: number;
+  finishedAtMs?: number;
+  mode: "uploaded" | "login-required" | string;
+  message?: string;
+  profileDir?: string;
+};
+
 export type LocalXerpDailyAttendanceLatestResponse = {
   ok: true;
   site: XerpDailyAttendanceSite;
@@ -42,6 +54,11 @@ export type LocalXerpDailyAttendanceLatestResponse = {
     size: number;
     base64: string;
   };
+};
+
+export type XerpDailyAttendanceExtraWorkUploadPayload = {
+  fileBase64: string;
+  fileName?: string;
 };
 
 export { decodeBase64Workbook };
@@ -79,6 +96,22 @@ export async function requestXerpDailyAttendanceDownload(
   return readJsonOrThrow<LocalXerpDailyAttendanceDownloadResponse>(
     response,
     "XERP 일일출역집계 다운로드 요청",
+  );
+}
+
+export async function requestXerpDailyAttendanceExtraWorkUpload(
+  site: XerpDailyAttendanceSite,
+  date: string,
+  payload: XerpDailyAttendanceExtraWorkUploadPayload,
+) {
+  const response = await fetch(buildXerpDailyAttendanceUrl("/xerp-daily-attendance/upload-extra-work"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ site, date, ...payload }),
+  });
+  return readJsonOrThrow<LocalXerpDailyAttendanceExtraWorkUploadResponse>(
+    response,
+    "XERP 가산공수 업로드 요청",
   );
 }
 

@@ -24,6 +24,7 @@ import {
   selectLatestDailyAttendanceSummaryFile,
   selectLatestWorkerRegistrationFile,
   startXerpWorkerRegistrationServer,
+  uploadDailyAttendanceExtraWorkWorkbook,
 } from "./xerp-worker-registration-sync.mjs";
 
 const servers = [];
@@ -358,6 +359,42 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(result.profileDir).toContain("xerp-worker-registration-profile-p5ph1");
   });
 
+  it("uses the P5 profile for extra-work uploads that need login", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-extra-work-login-"));
+    let closed = false;
+    const launchContext = vi.fn(async ({ profileDir }) => ({
+      context: {
+        close: async () => {
+          closed = true;
+        },
+        on: vi.fn(),
+      },
+      page: { isClosed: () => false },
+      profileDir,
+    }));
+
+    try {
+      const result = await uploadDailyAttendanceExtraWorkWorkbook({
+        site: "P5PH1",
+        date: "2026-07-02",
+        fileBase64: "ZmFrZQ==",
+        fileName: "extra.xlsx",
+        downloadsDir: dir,
+        launchContext,
+        openPage: async () => ({ status: "login-required" }),
+      });
+
+      expect(launchContext).toHaveBeenCalledWith(expect.objectContaining({
+        profileDir: expect.stringContaining("xerp-worker-registration-profile-p5ph1"),
+      }));
+      expect(result.mode).toBe("login-required");
+      expect(result.profileDir).toContain("xerp-worker-registration-profile-p5ph1");
+      expect(closed).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the daily-attendance browser open when the XERP menu cannot be found", async () => {
     let closed = false;
     const result = await downloadDailyAttendanceSummaryWorkbook({
@@ -629,6 +666,43 @@ describe("xerp-worker-registration-sync server", () => {
       expect(latestJson.found).toBe(true);
       expect(latestJson.file.fileName).toBe("일일출역집계_20260630.xlsx");
       expect(Buffer.from(latestJson.file.base64, "base64").toString("utf8")).toBe("downloaded");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("uploads adjusted daily attendance extra-work files through the local helper", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-extra-work-upload-"));
+    const uploadDailyAttendanceExtraWorkWorkbook = vi.fn(async () => ({
+      ok: true,
+      mode: "uploaded",
+      site: "PH4",
+      date: "2026-06-30",
+    }));
+
+    try {
+      const baseUrl = await startTestServer({ downloadsDir: dir, uploadDailyAttendanceExtraWorkWorkbook });
+      const response = await fetch(`${baseUrl}/xerp-daily-attendance/upload-extra-work`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site: "PH4",
+          date: "2026-06-30",
+          fileBase64: "ZmFrZQ==",
+          fileName: "extra.xlsx",
+        }),
+      });
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.mode).toBe("uploaded");
+      expect(uploadDailyAttendanceExtraWorkWorkbook).toHaveBeenCalledWith({
+        site: "PH4",
+        date: "2026-06-30",
+        fileBase64: "ZmFrZQ==",
+        fileName: "extra.xlsx",
+        downloadsDir: dir,
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

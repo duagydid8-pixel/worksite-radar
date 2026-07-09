@@ -410,6 +410,7 @@ export function createXerpWorkerRegistrationRequestHandler({
   getXerpLoginStatus: runXerpLoginStatus = getXerpLoginStatus,
   downloadWorkerRegistrationWorkbook: runWorkerRegistrationDownload = downloadWorkerRegistrationWorkbook,
   downloadDailyAttendanceSummaryWorkbook: runDailyAttendanceDownload = downloadDailyAttendanceSummaryWorkbook,
+  uploadDailyAttendanceExtraWorkWorkbook: runDailyAttendanceExtraWorkUpload = uploadDailyAttendanceExtraWorkWorkbook,
   uploadPmisAttendanceWorkbook: runPmisAttendanceUpload = uploadPmisAttendanceWorkbook,
 } = {}) {
   return async function handleXerpWorkerRegistrationRequest(req, res) {
@@ -520,6 +521,31 @@ export function createXerpWorkerRegistrationRequestHandler({
         return;
       }
 
+      if (req.method === "POST" && url.pathname === "/xerp-daily-attendance/upload-extra-work") {
+        const body = await readJsonBody(req);
+        const site = normalizeXerpDailyAttendanceSite(body.site);
+        const date = normalizeXerpDailyAttendanceDate(body.date);
+        if (!site || !date) {
+          sendJson(res, 400, { error: "지원하지 않는 현장 또는 날짜입니다. PH4, PH2 또는 P5PH1과 YYYY-MM-DD 날짜만 사용할 수 있습니다." });
+          return;
+        }
+        if (!body.filePath && !body.fileBase64) {
+          sendJson(res, 400, { error: "filePath 또는 fileBase64를 제공해야 합니다." });
+          return;
+        }
+
+        const result = await runDailyAttendanceExtraWorkUpload({
+          site,
+          date,
+          filePath: body.filePath,
+          fileBase64: body.fileBase64,
+          fileName: body.fileName,
+          downloadsDir,
+        });
+        sendJson(res, 200, result);
+        return;
+      }
+
       if (req.method === "POST" && url.pathname === "/xerp-pmis-attendance/upload") {
         const body = await readJsonBody(req);
         const site = normalizeXerpDailyAttendanceSite(body.site);
@@ -617,11 +643,15 @@ function isTransientFrameClickError(error) {
 
 export async function clickTextInAnyFrame(page, text, { attempts = 4 } = {}) {
   let lastError = null;
+  const label = text instanceof RegExp ? text.toString() : text;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     for (const frame of page.frames()) {
       if (typeof frame.isDetached === "function" && frame.isDetached()) continue;
       try {
-        await frame.getByText(text, { exact: true }).first().click({ timeout: 3000 });
+        const locator = text instanceof RegExp
+          ? frame.getByText(text).first()
+          : frame.getByText(text, { exact: true }).first();
+        await locator.click({ timeout: 3000 });
         return true;
       } catch (error) {
         lastError = error;
@@ -632,7 +662,7 @@ export async function clickTextInAnyFrame(page, text, { attempts = 4 } = {}) {
       await page.waitForTimeout?.(300);
     }
   }
-  throw new Error(`XERP 화면에서 '${text}' 항목을 찾지 못했습니다: ${lastError?.message || "unknown error"}`);
+  throw new Error(`XERP 화면에서 '${label}' 항목을 찾지 못했습니다: ${lastError?.message || "unknown error"}`);
 }
 
 export async function openWorkerRegistrationPage(page) {
@@ -959,6 +989,124 @@ export async function downloadDailyAttendanceSummaryWorkbook({
   }
 }
 
+export async function uploadDailyAttendanceExtraWorkWorkbook({
+  site,
+  date,
+  filePath,
+  fileBase64,
+  fileName,
+  downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  launchContext = launchXerpContext,
+  openPage = openDailyAttendanceSummaryPage,
+} = {}) {
+  const normalizedSite = normalizeXerpDailyAttendanceSite(site);
+  const normalizedDate = normalizeXerpDailyAttendanceDate(date);
+  if (!normalizedSite || !normalizedDate) {
+    throw new Error("지원하지 않는 현장 또는 날짜입니다.");
+  }
+
+  const siteDefinition = XERP_WORKER_REGISTRATION_SITES[normalizedSite];
+  const profileDir = getXerpProfileDirForSite(normalizedSite);
+  const startedAtMs = Date.now();
+  let context;
+  let keepContextOpen = false;
+  let tempFilePath = null;
+
+  try {
+    let uploadFilePath = filePath;
+    if (!uploadFilePath && fileBase64) {
+      await mkdir(downloadsDir, { recursive: true });
+      const baseName = path.basename(fileName || `extra_work_${normalizedSite}_${normalizedDate}.xlsx`);
+      tempFilePath = path.join(downloadsDir, `~tmp_extra_work_${Date.now()}_${baseName}`);
+      await import("node:fs/promises").then(({ writeFile: wf }) =>
+        wf(tempFilePath, Buffer.from(fileBase64, "base64"))
+      );
+      uploadFilePath = tempFilePath;
+    }
+
+    if (!uploadFilePath) throw new Error("업로드할 파일을 찾을 수 없습니다.");
+
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext, profileDir });
+    context = launched.context;
+    const page = launched.page;
+
+    const openResult = await openPage(page);
+    if (openResult.status === "login-required") {
+      keepContextOpen = true;
+      return {
+        ok: true,
+        site: normalizedSite,
+        siteName: siteDefinition.xerpSiteName,
+        date: normalizedDate,
+        startedAtMs,
+        mode: "login-required",
+        profileDir,
+        message: "XERP 로그인 후 다시 시도하세요.",
+      };
+    }
+
+    await selectXerpSiteInAnyFrame(page, siteDefinition);
+    await fillDailyAttendanceDateInAnyFrame(page, normalizedDate);
+    await clickTextInAnyFrame(page, "조회");
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent("filechooser", { timeout: 15000 }),
+      clickTextInAnyFrame(page, /가산\s*공수\s*업로드|가산공수업로드/i),
+    ]);
+    await fileChooser.setFiles(uploadFilePath);
+
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+    await page.waitForTimeout(1500);
+    await clickTextInAnyFrame(page, "저장").catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+    await page.waitForTimeout(1000);
+
+    keepContextOpen = true;
+    return {
+      ok: true,
+      site: normalizedSite,
+      siteName: siteDefinition.xerpSiteName,
+      date: normalizedDate,
+      startedAtMs,
+      finishedAtMs: Date.now(),
+      mode: "uploaded",
+    };
+  } catch (error) {
+    if (isXerpBrowserProfileInUse(error)) {
+      keepContextOpen = true;
+      return {
+        ok: true,
+        site: normalizedSite,
+        siteName: siteDefinition?.xerpSiteName,
+        date: normalizedDate,
+        startedAtMs,
+        mode: "login-required",
+        profileDir,
+        message: "이미 열린 XERP 창이 있습니다. 그 창을 닫은 뒤 다시 시도하세요.",
+      };
+    }
+    if (isXerpManualInterventionRequired(error)) {
+      keepContextOpen = true;
+      return {
+        ok: true,
+        site: normalizedSite,
+        siteName: siteDefinition?.xerpSiteName,
+        date: normalizedDate,
+        startedAtMs,
+        mode: "login-required",
+        profileDir,
+        message: "열린 XERP 창에서 로그인 또는 메뉴 상태를 확인한 뒤 다시 시도하세요.",
+      };
+    }
+    throw normalizePlaywrightError(error);
+  } finally {
+    if (!keepContextOpen) await closeXerpContextIfNotReusable(context);
+    if (tempFilePath) await import("node:fs/promises").then(({ unlink }) => unlink(tempFilePath).catch(() => {}));
+  }
+}
+
 export async function openPmisAttendanceUploadPage(page) {
   await page.goto(XERP_MAIN_URL, { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
@@ -1112,6 +1260,7 @@ export async function startXerpWorkerRegistrationServer({
   getXerpLoginStatus,
   downloadWorkerRegistrationWorkbook,
   downloadDailyAttendanceSummaryWorkbook,
+  uploadDailyAttendanceExtraWorkWorkbook,
 } = {}) {
   let server;
   const handler = createXerpWorkerRegistrationRequestHandler({
@@ -1120,6 +1269,7 @@ export async function startXerpWorkerRegistrationServer({
     getXerpLoginStatus,
     downloadWorkerRegistrationWorkbook,
     downloadDailyAttendanceSummaryWorkbook,
+    uploadDailyAttendanceExtraWorkWorkbook,
     getPort: () => {
       const address = server?.address();
       return typeof address === "object" && address ? address.port : port;

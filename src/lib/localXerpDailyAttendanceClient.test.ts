@@ -3,6 +3,7 @@ import {
   decodeBase64Workbook,
   fetchLatestXerpDailyAttendanceFile,
   fetchXerpDailyAttendanceStatus,
+  requestXerpDailyAttendanceExtraWorkUpload,
   requestXerpDailyAttendanceDownload,
 } from "./localXerpDailyAttendanceClient";
 
@@ -97,5 +98,35 @@ describe("localXerpDailyAttendanceClient", () => {
     const decoded = new TextDecoder().decode(decodeBase64Workbook("7YWM7Iqk7Yq4"));
 
     expect(decoded).toBe("테스트");
+  });
+
+  it("posts the adjusted extra-work workbook to the local XERP helper", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        site: "PH4",
+        date: "2026-06-30",
+        mode: "uploaded",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      requestXerpDailyAttendanceExtraWorkUpload("PH4", "2026-06-30", {
+        fileBase64: "ZmFrZQ==",
+        fileName: "extra.xlsx",
+      }),
+    ).resolves.toMatchObject({ mode: "uploaded" });
+
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8793/xerp-daily-attendance/upload-extra-work", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        site: "PH4",
+        date: "2026-06-30",
+        fileBase64: "ZmFrZQ==",
+        fileName: "extra.xlsx",
+      }),
+    });
   });
 });
