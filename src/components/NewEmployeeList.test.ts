@@ -27,7 +27,7 @@ describe("NewEmployeeList XERP import controls", () => {
     expect(await screen.findByText("XERP 가져오기")).toBeTruthy();
   });
 
-  it("wires XERP import for PH4 and PH2 but not P5-PH1", () => {
+  it("wires XERP import for PH4, PH2, and P5-PH1", () => {
     const source = readFileSync("src/components/NewEmployeeList.tsx", "utf8");
     const p5Start = source.indexOf('<TabsContent value="p5ph1">');
     const p5End = source.indexOf("</TabsContent>", p5Start);
@@ -35,7 +35,7 @@ describe("NewEmployeeList XERP import controls", () => {
 
     expect(source).toContain('xerpSite="PH4"');
     expect(source).toContain('xerpSite="PH2"');
-    expect(p5Block).not.toContain("xerpSite=");
+    expect(p5Block).toContain('xerpSite="P5PH1"');
   });
 
   it("checks already-downloaded XERP files before stopping on login-required sessions", () => {

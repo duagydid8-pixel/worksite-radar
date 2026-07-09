@@ -1201,6 +1201,7 @@ export default function NewEmployeeList() {
           <EmployeeTabContent
             loadFn={loadEmployeesP5PH1FS}
             saveFn={saveEmployeesP5PH1FS}
+            xerpSite="P5PH1"
           />
         </TabsContent>
       </Tabs>

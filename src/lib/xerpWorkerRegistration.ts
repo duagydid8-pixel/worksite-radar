@@ -1,6 +1,6 @@
 import { getDuplicateNameCounts, getEmployeeStatusCounts } from "@/components/NewEmployeeList";
 
-export type XerpWorkerRegistrationSite = "PH4" | "PH2";
+export type XerpWorkerRegistrationSite = "PH4" | "PH2" | "P5PH1";
 
 export type XerpWorkerRegistrationSiteDefinition = {
   key: XerpWorkerRegistrationSite;
@@ -14,6 +14,7 @@ export const XERP_WORKER_REGISTRATION_SITES: Record<
 > = {
   PH4: { key: "PH4", label: "P4-PH4", xerpSiteName: "평택 P4-PH4 초순수" },
   PH2: { key: "PH2", label: "P4-PH2", xerpSiteName: "평택 P4-PH2 초순수" },
+  P5PH1: { key: "P5PH1", label: "P5-PH1", xerpSiteName: "평택 P5-PH1 초순수" },
 };
 
 type EmployeeStatusInput = {

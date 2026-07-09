@@ -353,6 +353,7 @@ describe("xerp-worker-registration-sync server", () => {
       expect(json.port).toBeGreaterThan(0);
       expect(json.sites.PH4.xerpSiteName).toBe("평택 P4-PH4 초순수");
       expect(json.sites.PH2.xerpSiteName).toBe("평택 P4-PH2 초순수");
+      expect(json.sites.P5PH1.xerpSiteName).toBe("평택 P5-PH1 초순수");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -363,7 +364,7 @@ describe("xerp-worker-registration-sync server", () => {
     const response = await fetch(`${baseUrl}/xerp-worker-registration/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ site: "P5PH1" }),
+      body: JSON.stringify({ site: "BAD" }),
     });
     const json = await response.json();
 

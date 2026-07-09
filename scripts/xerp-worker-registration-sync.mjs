@@ -19,6 +19,7 @@ const DAILY_ATTENDANCE_KEYWORDS = ["일일출역집계", "일일출역", "일일
 export const XERP_WORKER_REGISTRATION_SITES = {
   PH4: { key: "PH4", label: "P4-PH4", xerpSiteName: "평택 P4-PH4 초순수" },
   PH2: { key: "PH2", label: "P4-PH2", xerpSiteName: "평택 P4-PH2 초순수" },
+  P5PH1: { key: "P5PH1", label: "P5-PH1", xerpSiteName: "평택 P5-PH1 초순수" },
 };
 
 export function getXerpProfileDir({
@@ -258,11 +259,11 @@ export async function scanDailyAttendanceSummaryDownloads({
 }
 
 export function normalizeXerpWorkerRegistrationSite(value) {
-  return value === "PH4" || value === "PH2" ? value : null;
+  return value === "PH4" || value === "PH2" || value === "P5PH1" ? value : null;
 }
 
 export function normalizeXerpDailyAttendanceSite(value) {
-  return normalizeXerpWorkerRegistrationSite(value);
+  return value === "PH4" || value === "PH2" ? value : null;
 }
 
 async function readJsonBody(req) {
@@ -327,7 +328,7 @@ export function createXerpWorkerRegistrationRequestHandler({
         const body = await readJsonBody(req);
         const site = normalizeXerpWorkerRegistrationSite(body.site);
         if (!site) {
-          sendJson(res, 400, { error: "지원하지 않는 현장입니다. PH4 또는 PH2만 사용할 수 있습니다." });
+          sendJson(res, 400, { error: "지원하지 않는 현장입니다. PH4, PH2 또는 P5PH1만 사용할 수 있습니다." });
           return;
         }
 
@@ -338,7 +339,7 @@ export function createXerpWorkerRegistrationRequestHandler({
       if (req.method === "GET" && url.pathname === "/xerp-worker-registration/latest") {
         const site = normalizeXerpWorkerRegistrationSite(url.searchParams.get("site"));
         if (!site) {
-          sendJson(res, 400, { error: "지원하지 않는 현장입니다. PH4 또는 PH2만 사용할 수 있습니다." });
+          sendJson(res, 400, { error: "지원하지 않는 현장입니다. PH4, PH2 또는 P5PH1만 사용할 수 있습니다." });
           return;
         }
 
@@ -357,9 +358,9 @@ export function createXerpWorkerRegistrationRequestHandler({
           ok: true,
           downloadsDir,
           port: getPort(),
-          sites: Object.values(XERP_WORKER_REGISTRATION_SITES).map((siteDefinition) => ({
-            key: siteDefinition.key,
-            label: siteDefinition.xerpSiteName,
+          sites: ["PH4", "PH2"].map((site) => ({
+            key: XERP_WORKER_REGISTRATION_SITES[site].key,
+            label: XERP_WORKER_REGISTRATION_SITES[site].xerpSiteName,
           })),
         });
         return;
