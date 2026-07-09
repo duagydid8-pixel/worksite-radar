@@ -119,6 +119,38 @@ describe("localXerpWorkerRegistrationClient", () => {
     });
   });
 
+  it("falls back to the worker-registration download endpoint when the local helper is older", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ error: "Not found" }, { status: 404 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          site: "PH4",
+          siteName: "평택 P4-PH4 초순수",
+          startedAtMs: 1782800000000,
+          mode: "login-required",
+          profileDir: "C:\\LocalAppData\\worksite-radar\\xerp-worker-registration-profile",
+          message: "XERP 로그인 후 다시 시도하세요.",
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestXerpLoginWindowOpen()).resolves.toMatchObject({
+      ok: true,
+      mode: "login-window",
+      startedAtMs: 1782800000000,
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://127.0.0.1:8793/xerp-login/open", {
+      method: "POST",
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://127.0.0.1:8793/xerp-worker-registration/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site: "PH4" }),
+    });
+  });
+
   it("fetches the latest workbook for a site and session", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

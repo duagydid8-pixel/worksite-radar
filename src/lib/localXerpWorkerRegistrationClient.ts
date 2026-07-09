@@ -123,12 +123,28 @@ export async function requestXerpWorkerRegistrationDownload(site: XerpWorkerRegi
 }
 
 export async function requestXerpLoginWindowOpen() {
-  const response = await fetchXerpWorkerRegistrationOrThrow(
-    "/xerp-login/open",
-    "XERP 로그인 창 열기",
-    { method: "POST" },
-  );
-  return readJsonOrThrow<LocalXerpLoginWindowOpenResponse>(response, "XERP 로그인 창 열기");
+  try {
+    const response = await fetchXerpWorkerRegistrationOrThrow(
+      "/xerp-login/open",
+      "XERP 로그인 창 열기",
+      { method: "POST" },
+    );
+    return await readJsonOrThrow<LocalXerpLoginWindowOpenResponse>(response, "XERP 로그인 창 열기");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/Not found|응답 404/.test(message)) throw error;
+
+    const fallback = await requestXerpWorkerRegistrationDownload("PH4");
+    return {
+      ok: true,
+      mode: "login-window",
+      startedAtMs: fallback.startedAtMs,
+      profileDir: fallback.profileDir ?? "",
+      message:
+        fallback.message ||
+        "로컬 XERP 서버가 이전 버전이라 기존 XERP 가져오기 방식으로 로그인 창을 열었습니다. 로그인 후 다시 이용하세요.",
+    };
+  }
 }
 
 export async function fetchLatestXerpWorkerRegistrationFile(
