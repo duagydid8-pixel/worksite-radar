@@ -484,6 +484,45 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
 });
 
 describe("xerp-worker-registration-sync server", () => {
+  it("proxies the deployed app through the local helper origin before static fallback", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-proxied-app-"));
+    const fetchAppAsset = vi.fn(async (url) => {
+      const requested = String(url);
+      if (requested.endsWith("/assets/app.js")) {
+        return new Response('console.log("remote firebase app");', {
+          status: 200,
+          headers: { "Content-Type": "text/javascript; charset=utf-8" },
+        });
+      }
+      return new Response('<script type="module" src="/assets/app.js"></script><div>remote app</div>', {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    });
+
+    try {
+      await writeFile(path.join(dir, "index.html"), "<div>local no firebase app</div>");
+
+      const baseUrl = await startTestServer({
+        downloadsDir: dir,
+        staticAppDir: dir,
+        appProxyOrigin: "https://worksite-radar.vercel.app",
+        fetchAppAsset,
+      });
+      const indexResponse = await fetch(`${baseUrl}/`);
+      const assetResponse = await fetch(`${baseUrl}/assets/app.js`);
+
+      expect(indexResponse.status).toBe(200);
+      expect(await indexResponse.text()).toContain("remote app");
+      expect(assetResponse.status).toBe(200);
+      expect(await assetResponse.text()).toContain("remote firebase app");
+      expect(fetchAppAsset).toHaveBeenCalledWith("https://worksite-radar.vercel.app/");
+      expect(fetchAppAsset).toHaveBeenCalledWith("https://worksite-radar.vercel.app/assets/app.js");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("serves the built app from the local helper origin", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-static-app-"));
     try {
@@ -491,7 +530,7 @@ describe("xerp-worker-registration-sync server", () => {
       await writeFile(path.join(dir, "index.html"), '<script type="module" src="/assets/app.js"></script>');
       await writeFile(path.join(dir, "assets", "app.js"), 'console.log("local app");');
 
-      const baseUrl = await startTestServer({ downloadsDir: dir, staticAppDir: dir });
+      const baseUrl = await startTestServer({ downloadsDir: dir, staticAppDir: dir, appProxyOrigin: "" });
       const indexResponse = await fetch(`${baseUrl}/`);
       const assetResponse = await fetch(`${baseUrl}/assets/app.js`);
       const routeResponse = await fetch(`${baseUrl}/xerp-work-reflection`);

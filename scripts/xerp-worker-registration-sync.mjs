@@ -12,6 +12,7 @@ export const DEFAULT_DOWNLOADS_DIR = process.env.USERPROFILE
   ? path.join(process.env.USERPROFILE, "Downloads")
   : path.join(os.homedir(), "Downloads");
 export const DEFAULT_STATIC_APP_DIR = path.resolve(process.cwd(), "dist");
+export const DEFAULT_APP_PROXY_ORIGIN = process.env.WORKSITE_APP_PROXY_ORIGIN || "https://worksite-radar.vercel.app";
 export const XERP_MAIN_URL = "https://hansung.xerp.co.kr/com/actionMain.do#";
 
 const WORKER_REGISTRATION_WORKBOOK_RE = /^근로자\s*등록_.*\.(xlsx|xls)$/i;
@@ -448,6 +449,44 @@ async function tryServeStaticApp(req, res, url, staticAppDir = DEFAULT_STATIC_AP
   return serveStaticFile(req, res, indexPath);
 }
 
+async function tryServeProxiedApp(
+  req,
+  res,
+  url,
+  {
+    appProxyOrigin = DEFAULT_APP_PROXY_ORIGIN,
+    fetchAppAsset = fetch,
+  } = {},
+) {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (!appProxyOrigin || !fetchAppAsset) return false;
+
+  let upstreamUrl;
+  try {
+    upstreamUrl = new URL(`${url.pathname}${url.search}`, appProxyOrigin).toString();
+  } catch {
+    return false;
+  }
+
+  const response = await fetchAppAsset(upstreamUrl).catch(() => null);
+  if (!response || !response.ok) return false;
+
+  res.statusCode = response.status;
+  const contentType = response.headers.get("content-type");
+  if (contentType) res.setHeader("Content-Type", contentType);
+  res.setHeader(
+    "Cache-Control",
+    contentType?.includes("text/html") ? "no-store" : "public, max-age=300",
+  );
+  if (req.method === "HEAD") {
+    res.end();
+    return true;
+  }
+
+  res.end(Buffer.from(await response.arrayBuffer()));
+  return true;
+}
+
 export function createDownloadSession({
   site,
   mode = "browser-automation",
@@ -466,6 +505,8 @@ export function createDownloadSession({
 export function createXerpWorkerRegistrationRequestHandler({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   staticAppDir = DEFAULT_STATIC_APP_DIR,
+  appProxyOrigin = DEFAULT_APP_PROXY_ORIGIN,
+  fetchAppAsset = fetch,
   getPort = () => DEFAULT_XERP_WORKER_REGISTRATION_PORT,
   openXerpLoginWindow: runXerpLoginOpen = openXerpLoginWindow,
   getXerpLoginStatus: runXerpLoginStatus = getXerpLoginStatus,
@@ -625,6 +666,7 @@ export function createXerpWorkerRegistrationRequestHandler({
         return;
       }
 
+      if (await tryServeProxiedApp(req, res, url, { appProxyOrigin, fetchAppAsset })) return;
       if (await tryServeStaticApp(req, res, url, staticAppDir)) return;
 
       sendJson(res, 404, { error: "Not found" });
@@ -1319,6 +1361,8 @@ export async function uploadPmisAttendanceWorkbook({
 export async function startXerpWorkerRegistrationServer({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   staticAppDir = DEFAULT_STATIC_APP_DIR,
+  appProxyOrigin = DEFAULT_APP_PROXY_ORIGIN,
+  fetchAppAsset,
   port = DEFAULT_XERP_WORKER_REGISTRATION_PORT,
   openXerpLoginWindow,
   getXerpLoginStatus,
@@ -1330,6 +1374,8 @@ export async function startXerpWorkerRegistrationServer({
   const handler = createXerpWorkerRegistrationRequestHandler({
     downloadsDir,
     staticAppDir,
+    appProxyOrigin,
+    fetchAppAsset,
     openXerpLoginWindow,
     getXerpLoginStatus,
     downloadWorkerRegistrationWorkbook,
