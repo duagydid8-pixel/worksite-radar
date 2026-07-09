@@ -22,6 +22,7 @@ import type { ParsedPmisData } from "@/components/PmisInOutLogTab";
 import { saveAttendanceFS, fetchAttendanceFS, saveRowOrderFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreService";
 import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
+import { requestXerpLoginWindowOpen } from "@/lib/localXerpWorkerRegistrationClient";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
 import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power, FilePenLine } from "lucide-react";
@@ -426,6 +427,7 @@ const Index = () => {
   const [manualAttendanceNote, setManualAttendanceNote] = useState("");
   const [localWatchEnabled, setLocalWatchEnabled] = useState(() => localStorage.getItem(LOCAL_ATTENDANCE_WATCH_ENABLED_KEY) === "true");
   const [localWatchStatus, setLocalWatchStatus] = useState("자동감시가 꺼져 있습니다.");
+  const [xerpLoginOpening, setXerpLoginOpening] = useState(false);
   const [hideAdminTodoToday, setHideAdminTodoToday] = useState(false);
   const [adminTodoDate, setAdminTodoDate] = useState(() => getLocalDateKey());
   const [adminTodoDraft, setAdminTodoDraft] = useState("");
@@ -456,6 +458,18 @@ const Index = () => {
       localStorage.setItem(adminTodoHideStorageKey, "true");
     }
     setAdminTodoDialogOpen(open);
+  };
+
+  const handleXerpLoginOpen = async () => {
+    setXerpLoginOpening(true);
+    try {
+      const result = await requestXerpLoginWindowOpen();
+      toast.success(result.message || "XERP 로그인 창을 열었습니다. 로그인 후 XERP 가져오기를 눌러주세요.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "XERP 로그인 창을 열지 못했습니다.");
+    } finally {
+      setXerpLoginOpening(false);
+    }
   };
 
   const saveAdminDailyTasks = useCallback((nextTasks: AdminDailyTask[]) => {
@@ -1491,6 +1505,20 @@ const Index = () => {
             >
               <Power className="h-3.5 w-3.5" />
               로컬서비스
+            </button>
+            <button
+              type="button"
+              onClick={handleXerpLoginOpen}
+              disabled={xerpLoginOpening}
+              className="ops-todo-button"
+              title="XERP 로그인 창 열기"
+            >
+              {xerpLoginOpening ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <LogIn className="h-3.5 w-3.5" />
+              )}
+              {xerpLoginOpening ? "여는 중" : "XERP 로그인"}
             </button>
             {isAdmin && (
               <button

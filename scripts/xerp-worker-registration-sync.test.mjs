@@ -16,6 +16,7 @@ import {
   isDailyAttendanceSummaryWorkbookName,
   isWorkerRegistrationWorkbookName,
   isLoginLikelyRequired,
+  openXerpLoginWindow,
   scanDailyAttendanceSummaryDownloads,
   scanWorkerRegistrationDownloads,
   selectLatestDailyAttendanceSummaryFile,
@@ -222,6 +223,34 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(isLoginLikelyRequired("노무관리 근로자관리 근로자 등록")).toBe(false);
   });
 
+  it("opens a reusable XERP login window with the shared profile", async () => {
+    const goto = vi.fn().mockResolvedValue(undefined);
+    const bringToFront = vi.fn().mockResolvedValue(undefined);
+    const launchContext = vi.fn(async ({ downloadsDir }) => {
+      expect(downloadsDir).toBe("C:\\Downloads");
+      return {
+        context: { close: vi.fn() },
+        page: { goto, bringToFront, isClosed: () => false },
+      };
+    });
+
+    const result = await openXerpLoginWindow({
+      downloadsDir: "C:\\Downloads",
+      launchContext,
+    });
+
+    expect(launchContext).toHaveBeenCalledTimes(1);
+    expect(goto).toHaveBeenCalledWith("https://hansung.xerp.co.kr/com/actionMain.do#", {
+      waitUntil: "domcontentloaded",
+    });
+    expect(bringToFront).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: true,
+      mode: "login-window",
+      profileDir: expect.any(String),
+    });
+  });
+
   it("keeps the worker-registration browser open when login is required", async () => {
     let closed = false;
     const result = await downloadWorkerRegistrationWorkbook({
@@ -412,6 +441,27 @@ describe("xerp-worker-registration-sync server", () => {
       expect(response.status).toBe(200);
       expect(json.mode).toBe("browser-automation");
       expect(downloadWorkerRegistrationWorkbook).toHaveBeenCalledWith({ site: "PH4", downloadsDir: dir });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("opens the XERP login window through the local helper", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-login-"));
+    const runXerpLoginOpen = vi.fn().mockResolvedValue({
+      ok: true,
+      mode: "login-window",
+      startedAtMs: 1782800000000,
+      profileDir: "C:\\LocalAppData\\worksite-radar\\xerp-worker-registration-profile",
+    });
+    try {
+      const baseUrl = await startTestServer({ downloadsDir: dir, openXerpLoginWindow: runXerpLoginOpen });
+      const response = await fetch(`${baseUrl}/xerp-login/open`, { method: "POST" });
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.mode).toBe("login-window");
+      expect(runXerpLoginOpen).toHaveBeenCalledWith({ downloadsDir: dir });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

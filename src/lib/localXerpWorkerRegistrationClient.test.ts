@@ -6,6 +6,7 @@ import {
   fetchLatestXerpWorkerRegistrationFile,
   fetchXerpWorkerRegistrationStatus,
   getXerpWorkerRegistrationServerUrl,
+  requestXerpLoginWindowOpen,
   requestXerpWorkerRegistrationDownload,
 } from "./localXerpWorkerRegistrationClient";
 
@@ -96,6 +97,26 @@ describe("localXerpWorkerRegistrationClient", () => {
         body: JSON.stringify({ site: "PH4" }),
       },
     );
+  });
+
+  it("requests the shared XERP login window", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        mode: "login-window",
+        startedAtMs: 1782800000000,
+        profileDir: "C:\\LocalAppData\\worksite-radar\\xerp-worker-registration-profile",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestXerpLoginWindowOpen()).resolves.toMatchObject({
+      ok: true,
+      mode: "login-window",
+    });
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8793/xerp-login/open", {
+      method: "POST",
+    });
   });
 
   it("fetches the latest workbook for a site and session", async () => {

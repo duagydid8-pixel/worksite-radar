@@ -33,6 +33,14 @@ export type LocalXerpWorkerRegistrationLatestResponse = {
   };
 };
 
+export type LocalXerpLoginWindowOpenResponse = {
+  ok: true;
+  mode: "login-window" | string;
+  startedAtMs: number;
+  profileDir: string;
+  message?: string;
+};
+
 export function getXerpWorkerRegistrationServerUrl() {
   if (typeof window === "undefined") return DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL;
   const configured =
@@ -112,6 +120,15 @@ export async function requestXerpWorkerRegistrationDownload(site: XerpWorkerRegi
     },
   );
   return readJsonOrThrow<LocalXerpWorkerRegistrationDownloadResponse>(response, "XERP 다운로드 요청");
+}
+
+export async function requestXerpLoginWindowOpen() {
+  const response = await fetchXerpWorkerRegistrationOrThrow(
+    "/xerp-login/open",
+    "XERP 로그인 창 열기",
+    { method: "POST" },
+  );
+  return readJsonOrThrow<LocalXerpLoginWindowOpenResponse>(response, "XERP 로그인 창 열기");
 }
 
 export async function fetchLatestXerpWorkerRegistrationFile(

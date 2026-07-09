@@ -361,6 +361,7 @@ export function createDownloadSession({
 export function createXerpWorkerRegistrationRequestHandler({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   getPort = () => DEFAULT_XERP_WORKER_REGISTRATION_PORT,
+  openXerpLoginWindow: runXerpLoginOpen = openXerpLoginWindow,
   downloadWorkerRegistrationWorkbook: runWorkerRegistrationDownload = downloadWorkerRegistrationWorkbook,
   downloadDailyAttendanceSummaryWorkbook: runDailyAttendanceDownload = downloadDailyAttendanceSummaryWorkbook,
   uploadPmisAttendanceWorkbook: runPmisAttendanceUpload = uploadPmisAttendanceWorkbook,
@@ -378,6 +379,11 @@ export function createXerpWorkerRegistrationRequestHandler({
     const url = new URL(req.url || "/", "http://127.0.0.1");
 
     try {
+      if (req.method === "POST" && url.pathname === "/xerp-login/open") {
+        sendJson(res, 200, await runXerpLoginOpen({ downloadsDir }));
+        return;
+      }
+
       if (req.method === "GET" && url.pathname === "/xerp-worker-registration/status") {
         sendJson(res, 200, {
           ok: true,
@@ -502,6 +508,29 @@ export async function launchXerpContext({
   });
   const page = context.pages()[0] || (await context.newPage());
   return { context, page };
+}
+
+export async function openXerpLoginWindow({
+  downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  launchContext = launchXerpContext,
+} = {}) {
+  const startedAtMs = Date.now();
+  try {
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext });
+    const page = launched.page;
+    await page.goto(XERP_MAIN_URL, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState?.("networkidle", { timeout: 15000 }).catch(() => undefined);
+    await page.bringToFront?.().catch(() => undefined);
+    return {
+      ok: true,
+      mode: "login-window",
+      startedAtMs,
+      profileDir: DEFAULT_XERP_PROFILE_DIR,
+      message: "XERP 로그인 창을 열었습니다. 로그인 후 XERP 가져오기를 눌러주세요.",
+    };
+  } catch (error) {
+    throw normalizePlaywrightError(error);
+  }
 }
 
 function isTransientFrameClickError(error) {
@@ -999,12 +1028,14 @@ export async function uploadPmisAttendanceWorkbook({
 export async function startXerpWorkerRegistrationServer({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   port = DEFAULT_XERP_WORKER_REGISTRATION_PORT,
+  openXerpLoginWindow,
   downloadWorkerRegistrationWorkbook,
   downloadDailyAttendanceSummaryWorkbook,
 } = {}) {
   let server;
   const handler = createXerpWorkerRegistrationRequestHandler({
     downloadsDir,
+    openXerpLoginWindow,
     downloadWorkerRegistrationWorkbook,
     downloadDailyAttendanceSummaryWorkbook,
     getPort: () => {
