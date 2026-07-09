@@ -18,6 +18,18 @@ function makeRosterWorkbook() {
   return XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
 
+function makeLegacySummaryWorkbook() {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["연차 현황 요약", "", "", "", "", "", "", ""],
+    ["기준일", 46212, "", "", "", "", "", ""],
+    ["번호", "성명", "직종", "부서", "입사일", "발생연차", "사용연차", "잔여연차"],
+    [1, "엄태원", "현채", "공사팀", 45962, 8, 3, 5],
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws, "연차_요약");
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+}
+
 describe("annual leave management", () => {
   it("parses the minimal roster workbook", () => {
     const result = parseAnnualLeaveRosterWorkbook(makeRosterWorkbook());
@@ -29,6 +41,26 @@ describe("annual leave management", () => {
     expect(result.errors).toEqual([]);
   });
 
+  it("parses the previous annual leave summary workbook as starting counts", () => {
+    const result = parseAnnualLeaveRosterWorkbook(makeLegacySummaryWorkbook());
+
+    expect(result.basisDate).toBe("2026-07-09");
+    expect(result.errors).toEqual([]);
+    expect(result.employees).toMatchObject([
+      {
+        project: "",
+        category: "현채",
+        name: "엄태원",
+        department: "공사팀",
+        hireDate: "2025-11-01",
+        startingBasisDate: "2026-07-09",
+        startingAccrued: 8,
+        startingUsed: 3,
+        startingRemaining: 5,
+      },
+    ]);
+  });
+
   it("reports missing roster headers", () => {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet([["이름"], ["홍길동"]]);
@@ -38,7 +70,7 @@ describe("annual leave management", () => {
       XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer
     );
 
-    expect(result.errors.join("\n")).toContain("소속프로젝트");
+    expect(result.errors.join("\n")).toContain("구분");
     expect(result.employees).toEqual([]);
   });
 
@@ -82,5 +114,26 @@ describe("annual leave management", () => {
     ], "2026-04-30");
 
     expect(rows[0]).toMatchObject({ accrued: 2, used: 1.5, remaining: 0.5 });
+  });
+
+  it("continues counting from imported starting counts", () => {
+    const employee = parseAnnualLeaveRosterWorkbook(makeLegacySummaryWorkbook()).employees[0];
+    const rows = deriveLeaveStatusRows([
+      employee,
+    ], [
+      {
+        id: "u1",
+        date: "2026-08-10",
+        employeeId: employee.id,
+        employeeName: "엄태원",
+        type: "오후반차",
+        days: 0.5,
+        memo: "",
+        createdAt: "2026-08-10T00:00:00.000Z",
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      },
+    ], "2026-08-31");
+
+    expect(rows[0]).toMatchObject({ accrued: 9, used: 3.5, remaining: 5.5 });
   });
 });

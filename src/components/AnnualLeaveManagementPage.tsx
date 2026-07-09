@@ -159,6 +159,10 @@ export default function AnnualLeaveManagementPage({
       setEmployees(parsed.employees);
       setSelectedEmployeeId(parsed.employees[0]?.id ?? "");
       setSelectedDetailId(parsed.employees[0]?.id ?? null);
+      if (parsed.basisDate) {
+        setBasisDate(parsed.basisDate);
+        setUsageDate(parsed.basisDate);
+      }
       setUploadedAt(new Date().toISOString());
       toast.success(`${parsed.employees.length}명의 명단을 불러왔습니다.`);
     } catch {

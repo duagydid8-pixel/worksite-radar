@@ -9,6 +9,10 @@ export interface LeaveManagedEmployee {
   name: string;
   department: string;
   hireDate: string;
+  startingBasisDate?: string;
+  startingAccrued?: number;
+  startingUsed?: number;
+  startingRemaining?: number;
   sourceRow: number;
   createdAt: string;
   updatedAt: string;
@@ -36,11 +40,25 @@ export interface LeaveStatusRow {
 export interface RosterParseResult {
   employees: LeaveManagedEmployee[];
   errors: string[];
+  basisDate?: string;
 }
 
 const REQUIRED_ROSTER_HEADERS = ["소속프로젝트", "구분", "이름", "부서", "입사일"] as const;
 
 type RosterHeader = typeof REQUIRED_ROSTER_HEADERS[number];
+type RosterColumn = RosterHeader | "발생연차" | "사용연차" | "잔여연차";
+
+const REQUIRED_IMPORT_HEADERS: RosterHeader[] = ["구분", "이름", "부서", "입사일"];
+const ROSTER_HEADER_ALIASES: Record<RosterColumn, string[]> = {
+  소속프로젝트: ["소속프로젝트", "프로젝트", "소속현장", "현장"],
+  구분: ["구분", "직종"],
+  이름: ["이름", "성명", "성함"],
+  부서: ["부서"],
+  입사일: ["입사일"],
+  발생연차: ["발생연차"],
+  사용연차: ["사용연차"],
+  잔여연차: ["잔여연차"],
+};
 
 function normalizeHeader(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, "").trim();
@@ -76,14 +94,29 @@ export function parseRosterDate(value: unknown): string {
   const text = normalizeText(value);
   if (!text) return "";
 
-  const match = text.match(/(\d{4})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})/);
+  const match = text.match(/(\d{2}|\d{4})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})/);
   if (!match) return "";
 
-  const year = Number(match[1]);
+  const yearValue = Number(match[1]);
+  const year = match[1].length === 2 ? 2000 + yearValue : yearValue;
   const month = Number(match[2]);
   const day = Number(match[3]);
   if (!isValidDateParts(year, month, day)) return "";
   return toDateKey(year, month, day);
+}
+
+function parseLeaveNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.round(value * 10) / 10;
+  const text = normalizeText(value).replace(/,/g, "");
+  if (!text || text === "-") return 0;
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : undefined;
+}
+
+function dateKeyFromTimestamp(value: string): string {
+  const match = value.match(/\d{4}-\d{2}-\d{2}/);
+  if (match) return match[0];
+  return new Date().toISOString().slice(0, 10);
 }
 
 function makeEmployeeId(input: {
@@ -101,15 +134,23 @@ function makeEmployeeId(input: {
   return `leave-employee-${hash.toString(36)}`;
 }
 
-function findHeaderRow(rows: unknown[][]): { rowIndex: number; columns: Record<RosterHeader, number> } | null {
+function findColumnIndex(normalizedRow: string[], column: RosterColumn): number {
+  for (const alias of ROSTER_HEADER_ALIASES[column]) {
+    const index = normalizedRow.indexOf(normalizeHeader(alias));
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
+function findHeaderRow(rows: unknown[][]): { rowIndex: number; columns: Partial<Record<RosterColumn, number>> } | null {
   for (let rowIndex = 0; rowIndex < Math.min(rows.length, 10); rowIndex++) {
     const row = rows[rowIndex];
     const normalized = row.map(normalizeHeader);
-    const columns = {} as Record<RosterHeader, number>;
+    const columns: Partial<Record<RosterColumn, number>> = {};
     let found = 0;
 
-    for (const header of REQUIRED_ROSTER_HEADERS) {
-      const index = normalized.indexOf(normalizeHeader(header));
+    for (const header of Object.keys(ROSTER_HEADER_ALIASES) as RosterColumn[]) {
+      const index = findColumnIndex(normalized, header);
       if (index >= 0) {
         columns[header] = index;
         found++;
@@ -121,42 +162,83 @@ function findHeaderRow(rows: unknown[][]): { rowIndex: number; columns: Record<R
   return null;
 }
 
+function extractBasisDate(rows: unknown[][]): string | undefined {
+  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 10); rowIndex++) {
+    const row = rows[rowIndex];
+    const basisIndex = row.findIndex((cell) => normalizeHeader(cell) === "기준일");
+    if (basisIndex < 0) continue;
+    for (let colIndex = basisIndex + 1; colIndex < row.length; colIndex++) {
+      const parsed = parseRosterDate(row[colIndex]);
+      if (parsed) return parsed;
+    }
+  }
+  return undefined;
+}
+
+function cellText(row: unknown[], columns: Partial<Record<RosterColumn, number>>, column: RosterColumn): string {
+  const index = columns[column];
+  return index == null ? "" : normalizeText(row[index]);
+}
+
+function cellDate(row: unknown[], columns: Partial<Record<RosterColumn, number>>, column: RosterColumn): string {
+  const index = columns[column];
+  return index == null ? "" : parseRosterDate(row[index]);
+}
+
+function cellLeaveNumber(
+  row: unknown[],
+  columns: Partial<Record<RosterColumn, number>>,
+  column: RosterColumn
+): number | undefined {
+  const index = columns[column];
+  return index == null ? undefined : parseLeaveNumber(row[index]);
+}
+
 export function parseAnnualLeaveRosterWorkbook(buffer: ArrayBuffer, now = new Date().toISOString()): RosterParseResult {
-  const wb = XLSX.read(buffer, { type: "array", cellDates: true });
+  const wb = XLSX.read(buffer, { type: "array", cellDates: false });
   const sheetName = wb.SheetNames[0];
   const sheet = sheetName ? wb.Sheets[sheetName] : null;
   if (!sheet) return { employees: [], errors: ["명단 시트를 찾을 수 없습니다."] };
 
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  const basisDate = extractBasisDate(rows);
   const headerInfo = findHeaderRow(rows);
   if (!headerInfo) {
     return {
       employees: [],
-      errors: REQUIRED_ROSTER_HEADERS.map((header) => `필수 헤더가 없습니다: ${header}`),
+      errors: REQUIRED_IMPORT_HEADERS.map((header) => `필수 헤더가 없습니다: ${header}`),
+      basisDate,
     };
   }
 
-  const missingHeaders = REQUIRED_ROSTER_HEADERS.filter((header) => headerInfo.columns[header] == null);
+  const missingHeaders = REQUIRED_IMPORT_HEADERS.filter((header) => headerInfo.columns[header] == null);
   if (missingHeaders.length > 0) {
     return {
       employees: [],
       errors: missingHeaders.map((header) => `필수 헤더가 없습니다: ${header}`),
+      basisDate,
     };
   }
 
   const employees: LeaveManagedEmployee[] = [];
   const errors: string[] = [];
+  const fallbackStartingBasisDate = basisDate ?? dateKeyFromTimestamp(now);
 
   for (let rowIndex = headerInfo.rowIndex + 1; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex];
     const hasAnyValue = row.some((cell) => normalizeText(cell) !== "");
     if (!hasAnyValue) continue;
 
-    const project = normalizeText(row[headerInfo.columns["소속프로젝트"]]);
-    const category = normalizeText(row[headerInfo.columns["구분"]]);
-    const name = normalizeText(row[headerInfo.columns["이름"]]);
-    const department = normalizeText(row[headerInfo.columns["부서"]]);
-    const hireDate = parseRosterDate(row[headerInfo.columns["입사일"]]);
+    const project = cellText(row, headerInfo.columns, "소속프로젝트");
+    const category = cellText(row, headerInfo.columns, "구분");
+    const name = cellText(row, headerInfo.columns, "이름");
+    const department = cellText(row, headerInfo.columns, "부서");
+    const hireDate = cellDate(row, headerInfo.columns, "입사일");
+    const startingAccrued = cellLeaveNumber(row, headerInfo.columns, "발생연차");
+    const startingUsed = cellLeaveNumber(row, headerInfo.columns, "사용연차");
+    const startingRemaining = cellLeaveNumber(row, headerInfo.columns, "잔여연차");
+    const hasStartingCounts =
+      startingAccrued !== undefined || startingUsed !== undefined || startingRemaining !== undefined;
     const displayRow = rowIndex + 1;
 
     if (!name) {
@@ -176,13 +258,21 @@ export function parseAnnualLeaveRosterWorkbook(buffer: ArrayBuffer, now = new Da
       name,
       department,
       hireDate,
+      ...(hasStartingCounts
+        ? {
+            startingBasisDate: fallbackStartingBasisDate,
+            startingAccrued: startingAccrued ?? 0,
+            startingUsed: startingUsed ?? 0,
+            startingRemaining: startingRemaining ?? Math.round(((startingAccrued ?? 0) - (startingUsed ?? 0)) * 10) / 10,
+          }
+        : {}),
       sourceRow: displayRow,
       createdAt: now,
       updatedAt: now,
     });
   }
 
-  return { employees, errors };
+  return { employees, errors, basisDate };
 }
 
 function parseYearMonth(date: string): { year: number; month: number } | null {
@@ -199,6 +289,14 @@ export function calculateAccruedLeave(hireDate: string, basisDate: string): numb
   const basis = parseYearMonth(basisDate);
   if (!hire || !basis) return 0;
   const months = (basis.year - hire.year) * 12 + (basis.month - hire.month) + 1;
+  return Math.max(0, months);
+}
+
+function calculateMonthsAfter(startDate: string, basisDate: string): number {
+  const start = parseYearMonth(startDate);
+  const basis = parseYearMonth(basisDate);
+  if (!start || !basis) return 0;
+  const months = (basis.year - start.year) * 12 + (basis.month - start.month);
   return Math.max(0, months);
 }
 
@@ -244,8 +342,28 @@ export function deriveLeaveStatusRows(
   }
 
   return employees.map((employee) => {
+    const newUsed = roundLeave(usedByEmployee.get(employee.id) ?? usedByEmployee.get(employee.name) ?? 0);
+    const hasStartingCounts =
+      employee.startingAccrued !== undefined ||
+      employee.startingUsed !== undefined ||
+      employee.startingRemaining !== undefined;
+
+    if (hasStartingCounts) {
+      const additionalAccrued = calculateMonthsAfter(employee.startingBasisDate ?? employee.hireDate, basisDate);
+      const accrued = roundLeave((employee.startingAccrued ?? 0) + additionalAccrued);
+      const used = roundLeave((employee.startingUsed ?? 0) + newUsed);
+      const startingRemaining =
+        employee.startingRemaining ?? roundLeave((employee.startingAccrued ?? 0) - (employee.startingUsed ?? 0));
+      return {
+        employee,
+        accrued,
+        used,
+        remaining: roundLeave(startingRemaining + additionalAccrued - newUsed),
+      };
+    }
+
     const accrued = calculateAccruedLeave(employee.hireDate, basisDate);
-    const used = roundLeave(usedByEmployee.get(employee.id) ?? usedByEmployee.get(employee.name) ?? 0);
+    const used = newUsed;
     return {
       employee,
       accrued,
