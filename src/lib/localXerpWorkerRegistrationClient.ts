@@ -57,7 +57,19 @@ export function decodeBase64Workbook(base64: string) {
 
 async function readJsonOrThrow<T>(response: Response, actionLabel: string): Promise<T> {
   if (!response.ok) {
-    throw new Error(`${actionLabel} 실패: 로컬 XERP 연동 서버 응답 ${response.status}`);
+    let detail = "";
+    try {
+      const body = await response.clone().json() as { error?: unknown; message?: unknown };
+      detail = typeof body.error === "string"
+        ? body.error
+        : typeof body.message === "string"
+          ? body.message
+          : "";
+    } catch {
+      detail = await response.clone().text().catch(() => "");
+    }
+    const message = detail.trim() || `로컬 XERP 연동 서버 응답 ${response.status}`;
+    throw new Error(`${actionLabel} 실패: ${message}`);
   }
   return response.json() as Promise<T>;
 }

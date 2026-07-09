@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
+import * as XLSX from "xlsx";
 import { rejectDisallowedOrigin, writeCorsHeaders } from "./local-service-cors.mjs";
 
 export const DEFAULT_XERP_WORKER_REGISTRATION_PORT = Number(process.env.XERP_WORKER_REGISTRATION_PORT || 8793);
@@ -42,6 +43,28 @@ export function isLoginLikelyRequired(textSnapshot = "") {
 
 export function isWorkerRegistrationWorkbookName(fileName) {
   return !fileName.startsWith("~$") && WORKER_REGISTRATION_WORKBOOK_RE.test(fileName);
+}
+
+function normalizeWorkbookSiteText(value) {
+  return String(value ?? "").toUpperCase().replace(/[\s_-]+/g, "");
+}
+
+export function workerRegistrationWorkbookMatchesSite(buffer, site) {
+  const siteDefinition = XERP_WORKER_REGISTRATION_SITES[site];
+  if (!siteDefinition) return true;
+
+  const expectedSiteText = normalizeWorkbookSiteText(siteDefinition.xerpSiteName);
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+    for (const row of rows) {
+      for (const cell of row) {
+        if (normalizeWorkbookSiteText(cell).includes(expectedSiteText)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 function toIsoDateFromParts(year, month, day) {
@@ -99,6 +122,7 @@ export function isDailyAttendanceSummaryWorkbookName(fileName) {
 
 export async function collectWorkerRegistrationCandidates({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  site,
   startedAtMs = 0,
 } = {}) {
   const entries = await readdir(downloadsDir, { withFileTypes: true });
@@ -109,6 +133,10 @@ export async function collectWorkerRegistrationCandidates({
     const filePath = path.join(downloadsDir, entry.name);
     const fileStat = await stat(filePath);
     if (fileStat.mtimeMs < startedAtMs) continue;
+    if (site) {
+      const buffer = await readFile(filePath);
+      if (!workerRegistrationWorkbookMatchesSite(buffer, site)) continue;
+    }
     candidates.push({
       fileName: entry.name,
       filePath,
@@ -127,9 +155,10 @@ export function selectLatestWorkerRegistrationFile(candidates) {
 
 export async function scanWorkerRegistrationDownloads({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  site,
   startedAtMs = 0,
 } = {}) {
-  const candidates = await collectWorkerRegistrationCandidates({ downloadsDir, startedAtMs });
+  const candidates = await collectWorkerRegistrationCandidates({ downloadsDir, site, startedAtMs });
   const latest = selectLatestWorkerRegistrationFile(candidates);
   if (!latest) return null;
 
@@ -316,6 +345,7 @@ export function createXerpWorkerRegistrationRequestHandler({
         const startedAtMs = Number(url.searchParams.get("startedAtMs") || 0);
         const file = await scanWorkerRegistrationDownloads({
           downloadsDir,
+          site,
           startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : 0,
         });
         sendJson(res, 200, { ok: true, site, file });
@@ -565,6 +595,9 @@ function isXerpBrowserProfileInUse(error) {
     /xerp-worker-registration-profile/i.test(message) &&
     /Target page, context or browser has been closed|launchPersistentContext|user-data-dir/i.test(message)
   ) {
+    return true;
+  }
+  if (/Target page, context or browser has been closed/i.test(message)) {
     return true;
   }
   return false;

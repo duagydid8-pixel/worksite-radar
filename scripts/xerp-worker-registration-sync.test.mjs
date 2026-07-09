@@ -2,6 +2,7 @@ import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as XLSX from "xlsx";
 import {
   buildXerpWorkerRegistrationUrl,
   clickTextInAnyFrame,
@@ -42,6 +43,16 @@ async function startTestServer(options = {}) {
   return `http://127.0.0.1:${address.port}`;
 }
 
+function createWorkerRegistrationWorkbookBuffer(siteName) {
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["사번", "성명", "근무현장"],
+    ["10001", "홍길동", siteName],
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "근로자 등록");
+  return XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+}
+
 describe("xerp-worker-registration-sync server defaults", () => {
   it("uses a dedicated default port that does not conflict with the RCM image server", () => {
     expect(DEFAULT_XERP_WORKER_REGISTRATION_PORT).toBe(8793);
@@ -77,6 +88,29 @@ describe("xerp-worker-registration-sync file scanner", () => {
       expect(result.fileName).toBe("근로자 등록_new.xlsx");
       expect(result.size).toBe(3);
       expect(Buffer.from(result.base64, "base64").toString("utf8")).toBe("new");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not return a PH4 worker-registration workbook for PH2 scans", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-worker-site-"));
+    try {
+      const ph2Path = path.join(dir, "근로자 등록_ph2.xlsx");
+      const ph4Path = path.join(dir, "근로자 등록_ph4.xlsx");
+      await writeFile(ph2Path, createWorkerRegistrationWorkbookBuffer("평택 P4-PH2 초순수"));
+      await writeFile(ph4Path, createWorkerRegistrationWorkbookBuffer("평택 P4-PH4 초순수"));
+      const base = new Date("2026-06-30T01:00:00.000Z");
+      await utimes(ph2Path, base, base);
+      await utimes(ph4Path, new Date(base.getTime() + 60_000), new Date(base.getTime() + 60_000));
+
+      const result = await scanWorkerRegistrationDownloads({
+        downloadsDir: dir,
+        site: "PH2",
+        startedAtMs: 0,
+      });
+
+      expect(result.fileName).toBe("근로자 등록_ph2.xlsx");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -367,7 +401,8 @@ describe("xerp-worker-registration-sync server", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-worker-"));
     try {
       const workbookPath = path.join(dir, "근로자 등록_10037_20260630132922.xlsx");
-      await writeFile(workbookPath, "xlsx-bytes");
+      const workbookBuffer = createWorkerRegistrationWorkbookBuffer("평택 P4-PH4 초순수");
+      await writeFile(workbookPath, workbookBuffer);
 
       const baseUrl = await startTestServer({ downloadsDir: dir });
       const response = await fetch(
@@ -379,7 +414,7 @@ describe("xerp-worker-registration-sync server", () => {
       expect(json.ok).toBe(true);
       expect(json.site).toBe("PH4");
       expect(json.file.fileName).toBe("근로자 등록_10037_20260630132922.xlsx");
-      expect(Buffer.from(json.file.base64, "base64").toString("utf8")).toBe("xlsx-bytes");
+      expect(Buffer.compare(Buffer.from(json.file.base64, "base64"), Buffer.from(workbookBuffer))).toBe(0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

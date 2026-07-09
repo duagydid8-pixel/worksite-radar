@@ -123,10 +123,26 @@ describe("localXerpWorkerRegistrationClient", () => {
   });
 
   it("throws a Korean error for non-2xx responses", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: "boom" }, { status: 500 })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({}, { status: 500 })));
 
     await expect(fetchXerpWorkerRegistrationStatus()).rejects.toThrow(
       "XERP 연동 상태 확인 실패: 로컬 XERP 연동 서버 응답 500",
+    );
+  });
+
+  it("includes the local helper error body when a download request fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          { error: "XERP 화면에서 '조회' 항목을 찾지 못했습니다." },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    await expect(requestXerpWorkerRegistrationDownload("PH2")).rejects.toThrow(
+      "XERP 다운로드 요청 실패: XERP 화면에서 '조회' 항목을 찾지 못했습니다.",
     );
   });
 
