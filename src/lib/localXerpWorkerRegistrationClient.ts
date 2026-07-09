@@ -66,17 +66,39 @@ function buildXerpWorkerRegistrationUrl(path: string) {
   return `${getXerpWorkerRegistrationServerUrl()}${path}`;
 }
 
+async function fetchXerpWorkerRegistrationOrThrow(
+  path: string,
+  actionLabel: string,
+  init?: RequestInit,
+) {
+  try {
+    const url = buildXerpWorkerRegistrationUrl(path);
+    return init ? await fetch(url, init) : await fetch(url);
+  } catch {
+    throw new Error(
+      `${actionLabel} 실패: 로컬 XERP 연동 서버에 연결할 수 없습니다. 서버창에서 npm run xerp:worker가 실행 중인지 확인한 뒤 다시 시도하세요.`,
+    );
+  }
+}
+
 export async function fetchXerpWorkerRegistrationStatus() {
-  const response = await fetch(buildXerpWorkerRegistrationUrl("/xerp-worker-registration/status"));
+  const response = await fetchXerpWorkerRegistrationOrThrow(
+    "/xerp-worker-registration/status",
+    "XERP 연동 상태 확인",
+  );
   return readJsonOrThrow<LocalXerpWorkerRegistrationStatus>(response, "XERP 연동 상태 확인");
 }
 
 export async function requestXerpWorkerRegistrationDownload(site: XerpWorkerRegistrationSite) {
-  const response = await fetch(buildXerpWorkerRegistrationUrl("/xerp-worker-registration/download"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ site }),
-  });
+  const response = await fetchXerpWorkerRegistrationOrThrow(
+    "/xerp-worker-registration/download",
+    "XERP 다운로드 요청",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site }),
+    },
+  );
   return readJsonOrThrow<LocalXerpWorkerRegistrationDownloadResponse>(response, "XERP 다운로드 요청");
 }
 
@@ -88,8 +110,9 @@ export async function fetchLatestXerpWorkerRegistrationFile(
     site,
     startedAtMs: String(startedAtMs),
   });
-  const response = await fetch(
-    buildXerpWorkerRegistrationUrl(`/xerp-worker-registration/latest?${query.toString()}`),
+  const response = await fetchXerpWorkerRegistrationOrThrow(
+    `/xerp-worker-registration/latest?${query.toString()}`,
+    "XERP 엑셀 조회",
   );
   return readJsonOrThrow<LocalXerpWorkerRegistrationLatestResponse>(response, "XERP 엑셀 조회");
 }

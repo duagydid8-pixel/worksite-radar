@@ -113,7 +113,7 @@ describe("NewEmployeeList import cleanup", () => {
       { 이름: "재직자", 입사일: "2026-01-01", 퇴사일: "" },
       { 이름: "퇴사자", 입사일: "2026-01-01", 퇴사일: "2026-05-01" },
       { 이름: "날짜누락", 입사일: "", 퇴사일: "" },
-    ])).toEqual({ total: 3, active: 1, resigned: 1, unknown: 1 });
+    ])).toEqual({ total: 3, active: 1, resigned: 1, transferred: 0, unknown: 1 });
   });
 });
 

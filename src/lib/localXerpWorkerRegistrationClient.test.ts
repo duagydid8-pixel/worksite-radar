@@ -130,6 +130,14 @@ describe("localXerpWorkerRegistrationClient", () => {
     );
   });
 
+  it("explains how to start the local helper when fetch cannot connect", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(requestXerpWorkerRegistrationDownload("PH4")).rejects.toThrow(
+      "XERP 다운로드 요청 실패: 로컬 XERP 연동 서버에 연결할 수 없습니다. 서버창에서 npm run xerp:worker가 실행 중인지 확인한 뒤 다시 시도하세요.",
+    );
+  });
+
   it("decodes base64 workbook payloads", () => {
     const decoded = new TextDecoder().decode(decodeBase64Workbook("7YWM7Iqk7Yq4"));
 
