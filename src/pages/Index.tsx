@@ -33,6 +33,7 @@ import OrgChart from "@/components/OrgChart";
 const LazyHomePage = lazy(() => import("@/components/HomePage"));
 const LazyNewEmployeeList = lazy(() => import("@/components/NewEmployeeList"));
 const LazyAnnualLeavePanel = lazy(() => import("@/components/AnnualLeavePanel"));
+const LazyAnnualLeaveManagementPage = lazy(() => import("@/components/AnnualLeaveManagementPage"));
 const LazyXerpPmisTable = lazy(() => import("@/components/XerpPmisTable"));
 const LazyXerpWorkReflection = lazy(() => import("@/components/XerpWorkReflection"));
 const LazyPmisInOutLogTab = lazy(() => import("@/components/PmisInOutLogTab"));
@@ -185,7 +186,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
 }
 
 type TeamFilter = "전체" | "한성" | "태화" | "현채";
-type ActiveTab = "홈" | "신규자명단" | "근태관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
+type ActiveTab = "홈" | "신규자명단" | "연차관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔" | "직종변경";
 
@@ -207,7 +208,7 @@ interface NavItem {
 
 const NAV_PUBLIC: NavItem[] = [
   { key: "홈", label: "홈", icon: <Home className="h-4 w-4" />, adminOnly: false },
-  { key: "근태관리", label: "근태관리", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
+  { key: "연차관리", label: "연차관리", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
   { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
   { key: "본사송부용", label: "본사 송부용", icon: <Mail className="h-4 w-4" />, adminOnly: false },
 ];
@@ -850,7 +851,7 @@ const Index = () => {
     setAdminTodoDialogOpen(false);
   };
 
-  const handlePublicGuideMove = (key: "근태관리" | "조직도" | "XERP&PMIS") => {
+  const handlePublicGuideMove = (key: "연차관리" | "조직도" | "XERP&PMIS") => {
     handleNavClick(key, false);
     setPublicGuideDialogOpen(false);
   };
@@ -962,12 +963,12 @@ const Index = () => {
 
   const adminTodoItems = useMemo(() => [
     {
-      title: "근태 파일 확인",
-      description: lastUploadedAt ? `최근 저장: ${formatUploadTime(lastUploadedAt)}` : "오늘 근태 파일 업로드 상태를 먼저 확인하세요.",
+      title: "연차 현황 확인",
+      description: lastUploadedAt ? `최근 저장: ${formatUploadTime(lastUploadedAt)}` : "연차 명단과 사용내역 저장 상태를 확인하세요.",
       badge: lastUploadedAt ? "확인" : "필요",
       tone: lastUploadedAt ? "ok" : "warn",
       icon: <ClipboardList className="h-4 w-4" />,
-      target: "근태관리" as ActiveTab,
+      target: "연차관리" as ActiveTab,
     },
     {
       title: "월간 작업일정 점검",
@@ -1036,7 +1037,7 @@ const Index = () => {
   const isHeadOfficeSection = activeTab === "본사송부용" || HEAD_OFFICE_NAV.some((item) => item.key === activeTab);
   const activeAdminItem = NAV_ADMIN.find((item) => item.key === activeTab);
   const isAdminSection = Boolean(activeAdminItem);
-  const activePrimarySubnavKey = activeTab === "근태관리" ? activeTab : null;
+  const activePrimarySubnavKey = null;
   const activeNestedSubnavKey = activeTab === "본사메일송부" || activeTab === "급여대장" ? activeTab : null;
 
   const updateSubnavOffsets = useCallback(() => {
@@ -1266,21 +1267,21 @@ const Index = () => {
 
           <div className="admin-todo-greeting">
             <strong>필요한 현장 정보를 바로 확인하세요</strong>
-            <p>근태관리, 조직도, XERP & PMIS는 관리자 로그인 없이 열람할 수 있습니다.</p>
+            <p>연차관리, 조직도, XERP & PMIS는 관리자 로그인 없이 열람할 수 있습니다.</p>
           </div>
 
           <div className="admin-todo-list">
             <button
               type="button"
-              onClick={() => handlePublicGuideMove("근태관리")}
+              onClick={() => handlePublicGuideMove("연차관리")}
               className="admin-todo-item"
             >
               <span className="admin-todo-item-icon"><ClipboardList className="h-4 w-4" /></span>
               <span className="admin-todo-item-copy">
-                <strong>근태관리 확인하기</strong>
-                <small>출근·퇴근, 지각, 연차 현황을 확인합니다.</small>
+                <strong>연차관리 확인하기</strong>
+                <small>직원별 발생·사용·잔여 연차를 확인합니다.</small>
               </span>
-              <span className="admin-todo-badge is-base">근태</span>
+              <span className="admin-todo-badge is-base">연차</span>
               <ArrowRight className="admin-todo-arrow h-4 w-4" />
             </button>
             <button
@@ -1544,21 +1545,6 @@ const Index = () => {
           </div>
         )}
 
-        {activeTab === "근태관리" && (
-          <div className="ops-subbar">
-            {ATTENDANCE_SUB_TABS.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setAttendanceSubTab(tab)}
-                className={attendanceSubTab === tab ? "is-active" : ""}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        )}
-
         {isHeadOfficeSection && (
           <div className="ops-subbar ops-subbar-nested">
             {HEAD_OFFICE_NAV.map(({ key, label, icon, adminOnly }) => (
@@ -1639,23 +1625,6 @@ const Index = () => {
                     <span className="shrink-0">{icon}</span>
                     <span>{label}</span>
                   </button>
-                  {key === "근태관리" && isActive && (
-                    <div className="ml-9 mt-1 space-y-1 border-l border-slate-200 pl-3">
-                      {ATTENDANCE_SUB_TABS.map((tab) => (
-                        <button
-                          key={tab}
-                          onClick={() => setAttendanceSubTab(tab)}
-                          className={`block w-full rounded-md px-2 py-1.5 text-left text-xs font-extrabold transition-colors ${
-                            attendanceSubTab === tab
-                              ? "bg-slate-100 text-slate-950"
-                              : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                          }`}
-                        >
-                          {tab}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -1767,8 +1736,15 @@ const Index = () => {
           </div>
         )}
 
-        {/* 근태관리 */}
-        {activeTab === "근태관리" && (
+        {/* 연차관리 */}
+        {activeTab === "연차관리" && (
+          <LazyPanel>
+            <LazyAnnualLeaveManagementPage isAdmin={isAdmin} />
+          </LazyPanel>
+        )}
+
+        {/* Legacy attendance management UI is intentionally hidden from navigation. */}
+        {false && (
           <div className="mx-auto max-w-[1440px] space-y-4 p-5 md:p-7">
             <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm md:hidden">
               <div className="grid grid-cols-2 gap-1 sm:w-[320px]">
