@@ -842,6 +842,8 @@ export async function openDailyAttendanceSummaryPage(page) {
   }
 
   if (!allFrameText.includes("일일출역집계")) {
+    await clickTextInAnyFrame(page, "노무관리");
+    await page.waitForTimeout(500);
     await clickTextInAnyFrame(page, "출역관리");
     await page.waitForTimeout(500);
   }

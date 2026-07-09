@@ -18,6 +18,7 @@ import {
   isWorkerRegistrationWorkbookName,
   isLoginLikelyRequired,
   getXerpLoginStatus,
+  openDailyAttendanceSummaryPage,
   openXerpLoginWindow,
   scanDailyAttendanceSummaryDownloads,
   scanWorkerRegistrationDownloads,
@@ -558,6 +559,31 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(page.frames).toHaveBeenCalledTimes(2);
     expect(waitForTimeout).toHaveBeenCalled();
     expect(click).toHaveBeenCalled();
+  });
+
+  it("opens daily attendance through labor management before attendance management", async () => {
+    const clickedLabels = [];
+    const frame = {
+      locator: () => ({
+        innerText: vi.fn().mockResolvedValue("공지사항 현장관리 메인메뉴 즐겨찾기"),
+      }),
+      getByText: vi.fn((label) => ({
+        first: () => ({
+          click: vi.fn(async () => {
+            clickedLabels.push(label instanceof RegExp ? label.toString() : label);
+          }),
+        }),
+      })),
+    };
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+      frames: vi.fn(() => [frame]),
+    };
+
+    await expect(openDailyAttendanceSummaryPage(page)).resolves.toEqual({ status: "ready" });
+    expect(clickedLabels).toEqual(["노무관리", "출역관리", "일일출역집계"]);
   });
 });
 
