@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename, upsertXerpPmisDateList } from "@/lib/xerpPmisDates";
+import { decodeBase64Workbook, fetchLatestXerpDailyAttendanceFile, requestXerpDailyAttendanceDownload } from "@/lib/localXerpDailyAttendanceClient";
 import {
   calcDiff,
   calcGongsuForWorkDate,
@@ -142,6 +143,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [teamFilter, setTeamFilter] = useState<string>("전체");
   const [isSaving, setIsSaving] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isXerpImporting, setIsXerpImporting] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editingVal, setEditingVal] = useState("");
   const [editingReason, setEditingReason] = useState("");
@@ -471,6 +473,146 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setEditingIdx(null);
   };
 
+  const processWorkbookBuffer = async (
+    buffer: ArrayBuffer,
+    sourceFileName: string,
+    forcedWorkDate?: string,
+  ) => {
+    setOriginalBuffer(buffer);
+    const wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellStyles: true, cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+    const rawFmt: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+
+    let dataStart = 0;
+    for (let i = 0; i < Math.min(raw.length, 6); i++) {
+      if ((raw[i] as unknown[]).some((c) =>
+        ["팀명", "팀", "성명", "이름", "순번"].includes(String(c).trim())
+      )) dataStart = i + 1;
+    }
+
+    const detectedSite = detectSite(sourceFileName);
+    const resolvedSite = forcedWorkDate ? syncSite : detectedSite;
+    const detectedDate = extractDateFromFilename(sourceFileName);
+    const calcWorkDate = forcedWorkDate ?? detectedDate ?? workDate;
+    saveOriginalWorkbookBuffer(calcWorkDate, buffer).catch((err) => {
+      console.warn("[saveOriginalWorkbookBuffer]", err);
+    });
+
+    const processed: ProcessedRow[] = [];
+    for (let i = dataStart; i < raw.length; i++) {
+      const row    = raw[i]    as unknown[];
+      const rowFmt = rawFmt[i] as unknown[];
+      if (row.every((c) => String(c).trim() === "")) continue;
+      const 팀명 = String(row[0] ?? "").trim();
+      const 성명 = String(row[3] ?? "").trim();
+      if (!성명) continue;
+
+      const xerpInRaw  = row[5] ?? "";
+      const xerpOutRaw = row[6] ?? "";
+      const pmisInRaw  = row[7] ?? "";
+      const pmisOutRaw = row[8] ?? "";
+
+      const xerpInStr  = String(rowFmt[5] ?? "").trim();
+      const xerpOutStr = String(rowFmt[6] ?? "").trim();
+      const pmisInStr  = String(rowFmt[7] ?? "").trim();
+      const pmisOutStr = String(rowFmt[8] ?? "").trim();
+      const xerpGongsuA = String(row[16] ?? "").trim();
+
+      const xerpInMin = parseMin(xerpInRaw);
+      const pmisInMin = parseMin(pmisInRaw);
+      const rawInMin  = xerpInMin !== null && pmisInMin !== null
+        ? Math.min(xerpInMin, pmisInMin)
+        : xerpInMin ?? pmisInMin;
+      const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw);
+      const effOut    = rawOutMin !== null ? minToStr(rawOutMin) : "";
+
+      const isJochul      = false;
+      const cfg           = getTeamConfig(팀명);
+      const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg);
+      const effIn         = effInMin !== null ? minToStr(effInMin) : "";
+      const isWaeju       = isWaejuTeam(팀명);
+      const isNewEmployee = !isWaeju && newEmpData.has(성명);
+      const hasClockValue = hasClockCellValue(xerpInRaw, xerpOutRaw, pmisInRaw, pmisOutRaw, xerpInStr, xerpOutStr, pmisInStr, pmisOutStr);
+      const isNoRecord    = !hasClockValue && rawInMin === null && rawOutMin === null;
+      const isLate        = !isWaeju && !isNoRecord && effInMin !== null && effInMin > cfg.standardStart;
+
+      let calcGongsuVal: number | null;
+      let diff: number | null;
+      let needsUpdate: boolean;
+
+      if (isWaeju) {
+        calcGongsuVal = 0;
+        diff = null;
+        needsUpdate = false;
+      } else if (isNewEmployee) {
+        calcGongsuVal = 1.0;
+        const gongsuA = parseFloat(xerpGongsuA) || 0;
+        const d = 1.0 - gongsuA;
+        diff = d > 0 ? d : null;
+        needsUpdate = d > 0;
+      } else {
+        calcGongsuVal = calcGongsuForWorkDate(calcWorkDate, effInMin, rawOutMin, isJochul, cfg);
+        ({ diff, needsUpdate } = calcDiff(calcGongsuVal, xerpGongsuA));
+      }
+
+      const storedReason = cleanGasanReason(row[25]);
+      const inferredReason = inferGasanReason({
+        xerpIn: xerpInStr,
+        xerpOut: xerpOutStr,
+        pmisIn: pmisInStr,
+        pmisOut: pmisOutStr,
+        rawInMin,
+        rawOutMin,
+        isLate,
+        standardStart: cfg.standardStart,
+        xerpGongsuA,
+        calcGongsuVal,
+        diff,
+      });
+
+      processed.push({
+        rowIndex: i, 팀명, 성명,
+        xerpIn: xerpInStr, xerpOut: xerpOutStr,
+        pmisIn: pmisInStr, pmisOut: pmisOutStr,
+        rawInMin, rawOutMin, isJochul,
+        effIn, effOut, xerpGongsuA,
+        calcGongsuVal, diff,
+        가산사유: normalizeGasanReasonParentheses(
+          storedReason || (needsUpdate ? inferredReason : ""),
+          inferGasanReasonTags({ rawOutMin }),
+        ),
+        needsUpdate, isNoRecord, isLate,
+        standardStart: cfg.standardStart,
+        isNewEmployee, isWaeju,
+      });
+    }
+
+    const allRawExcel: RawExcelRow[] = [];
+    for (let i = dataStart; i < rawFmt.length; i++) {
+      const rowFmt2 = rawFmt[i] as unknown[];
+      if (rowFmt2.every((c) => String(c).trim() === "")) continue;
+      if (!String(rowFmt2[3] ?? "").trim()) continue;
+      allRawExcel.push({
+        rowIndex: i,
+        cols: Array.from({ length: 26 }, (_, ci) => String(rowFmt2[ci] ?? "").trim()),
+      });
+    }
+    setRawExcelRows(allRawExcel);
+
+    setRows(processed);
+    setWorkbook(wb);
+    setFileName(sourceFileName);
+    setSyncSite(resolvedSite);
+    setSyncDate(calcWorkDate);
+    setWorkDate(calcWorkDate);
+
+    const noRec = processed.filter((r) => r.isNoRecord).length;
+    const late  = processed.filter((r) => r.isLate).length;
+    const needs = processed.filter((r) => r.needsUpdate).length;
+    toast.success(`${processed.length}명 불러옴 — 기록없음 ${noRec}명 · 지각 ${late}명 · 가산필요 ${needs}명`);
+  };
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -613,6 +755,35 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       toast.success(`${processed.length}명 불러옴 — 기록없음 ${noRec}명 · 지각 ${late}명 · 가산필요 ${needs}명`);
     } catch {
       toast.error("파일을 읽는 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleXerpWorkImport = async () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+      toast.error("XERP 조회 날짜를 먼저 선택하세요.");
+      return;
+    }
+
+    setIsXerpImporting(true);
+    try {
+      const session = await requestXerpDailyAttendanceDownload(syncSite, workDate);
+      if (session.mode === "login-required") {
+        toast.info(session.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP에서 가져오기를 눌러주세요.");
+        return;
+      }
+
+      const latest = await fetchLatestXerpDailyAttendanceFile(syncSite, workDate, session.startedAtMs);
+      if (!latest.found || !latest.file) {
+        toast.error("다운로드된 일일출역집계 엑셀을 찾지 못했습니다.");
+        return;
+      }
+
+      const buffer = decodeBase64Workbook(latest.file.base64);
+      await processWorkbookBuffer(buffer, latest.file.fileName, workDate);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "XERP에서 가져오기에 실패했습니다.");
+    } finally {
+      setIsXerpImporting(false);
     }
   };
 
@@ -1148,6 +1319,27 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         >
           <Upload className="h-4 w-4" />
           엑셀 업로드 [v2]
+        </button>
+
+        <select
+          value={syncSite}
+          onChange={(e) => setSyncSite(e.target.value as XerpSyncSite)}
+          aria-label="XERP 현장 선택"
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-emerald-300"
+        >
+          <option value="PH4">P4-PH4</option>
+          <option value="PH2">P4-PH2</option>
+          <option value="P5PH1">P5-PH1</option>
+        </select>
+
+        <button
+          onClick={handleXerpWorkImport}
+          disabled={isXerpImporting}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-50"
+          title="XERP 노무관리 > 출역관리 > 일일출역집계에서 현재 공수반영 날짜 엑셀을 가져옵니다."
+        >
+          <RefreshCw className={`h-4 w-4 ${isXerpImporting ? "animate-spin" : ""}`} />
+          {isXerpImporting ? "가져오는 중" : "XERP에서 가져오기"}
         </button>
 
         {fileName && (

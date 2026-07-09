@@ -201,6 +201,9 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(getXerpProfileDir({ localAppData: "C:\\LocalAppData" })).toBe(
       path.join("C:\\LocalAppData", "worksite-radar", "xerp-worker-registration-profile"),
     );
+    expect(getXerpProfileDir({ localAppData: "C:\\LocalAppData", site: "P5PH1" })).toBe(
+      path.join("C:\\LocalAppData", "worksite-radar", "xerp-worker-registration-profile-p5ph1"),
+    );
   });
 
   it("creates a download session payload", () => {
@@ -332,6 +335,27 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
 
     expect(result.mode).toBe("login-required");
     expect(closed).toBe(false);
+  });
+
+  it("uses a separate XERP browser profile for P5 daily attendance login", async () => {
+    const launchContext = vi.fn(async ({ profileDir }) => ({
+      context: { close: vi.fn(), on: vi.fn() },
+      page: { isClosed: () => false },
+      profileDir,
+    }));
+
+    const result = await downloadDailyAttendanceSummaryWorkbook({
+      site: "P5PH1",
+      date: "2026-07-02",
+      launchContext,
+      openPage: async () => ({ status: "login-required" }),
+    });
+
+    expect(launchContext).toHaveBeenCalledWith(expect.objectContaining({
+      profileDir: expect.stringContaining("xerp-worker-registration-profile-p5ph1"),
+    }));
+    expect(result.mode).toBe("login-required");
+    expect(result.profileDir).toContain("xerp-worker-registration-profile-p5ph1");
   });
 
   it("keeps the daily-attendance browser open when the XERP menu cannot be found", async () => {
@@ -573,31 +597,32 @@ describe("xerp-worker-registration-sync server", () => {
       expect(statusJson.sites).toEqual([
         { key: "PH4", label: "평택 P4-PH4 초순수" },
         { key: "PH2", label: "평택 P4-PH2 초순수" },
+        { key: "P5PH1", label: "평택 P5-PH1 초순수" },
       ]);
 
       const invalidResponse = await fetch(`${baseUrl}/xerp-daily-attendance/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: "P5PH1", date: "2026-06-30" }),
+        body: JSON.stringify({ site: "UNKNOWN", date: "2026-06-30" }),
       });
       expect(invalidResponse.status).toBe(400);
 
       const downloadResponse = await fetch(`${baseUrl}/xerp-daily-attendance/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: "PH4", date: "2026-06-30" }),
+        body: JSON.stringify({ site: "P5PH1", date: "2026-06-30" }),
       });
       const downloadJson = await downloadResponse.json();
       expect(downloadResponse.status).toBe(200);
       expect(downloadJson.mode).toBe("downloaded");
       expect(downloadDailyAttendanceSummaryWorkbook).toHaveBeenCalledWith({
-        site: "PH4",
+        site: "P5PH1",
         date: "2026-06-30",
         downloadsDir: dir,
       });
 
       const latestResponse = await fetch(
-        `${baseUrl}/xerp-daily-attendance/latest?site=PH4&date=2026-06-30&startedAtMs=0`,
+        `${baseUrl}/xerp-daily-attendance/latest?site=P5PH1&date=2026-06-30&startedAtMs=0`,
       );
       const latestJson = await latestResponse.json();
       expect(latestResponse.status).toBe(200);

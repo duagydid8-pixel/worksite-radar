@@ -25,67 +25,78 @@ export const XERP_WORKER_REGISTRATION_SITES = {
 export function getXerpProfileDir({
   localAppData = process.env.LOCALAPPDATA,
   homeDir = os.homedir(),
+  site = "default",
 } = {}) {
   const baseDir = localAppData || path.join(homeDir, "AppData", "Local");
-  return path.join(baseDir, "worksite-radar", "xerp-worker-registration-profile");
+  const profileName =
+    site === "P5PH1"
+      ? "xerp-worker-registration-profile-p5ph1"
+      : "xerp-worker-registration-profile";
+  return path.join(baseDir, "worksite-radar", profileName);
 }
 
 export const DEFAULT_XERP_PROFILE_DIR = getXerpProfileDir();
 
-let reusableXerpContext = null;
-let reusableXerpPage = null;
+const reusableXerpContexts = new Map();
+
+function getXerpProfileDirForSite(site) {
+  return getXerpProfileDir({ site });
+}
 
 function isReusablePage(page) {
   return Boolean(page && (typeof page.isClosed !== "function" || !page.isClosed()));
 }
 
-async function getReusableXerpContext() {
-  if (!reusableXerpContext) return null;
+function getReusableXerpKey(profileDir = DEFAULT_XERP_PROFILE_DIR) {
+  return String(profileDir || DEFAULT_XERP_PROFILE_DIR);
+}
+
+async function getReusableXerpContext(profileDir = DEFAULT_XERP_PROFILE_DIR) {
+  const key = getReusableXerpKey(profileDir);
+  const reusable = reusableXerpContexts.get(key);
+  if (!reusable?.context) return null;
 
   try {
-    let page = isReusablePage(reusableXerpPage) ? reusableXerpPage : null;
-    if (!page && typeof reusableXerpContext.pages === "function") {
-      page = reusableXerpContext.pages().find((candidate) => isReusablePage(candidate)) || null;
+    let page = isReusablePage(reusable.page) ? reusable.page : null;
+    if (!page && typeof reusable.context.pages === "function") {
+      page = reusable.context.pages().find((candidate) => isReusablePage(candidate)) || null;
     }
-    if (!page && typeof reusableXerpContext.newPage === "function") {
-      page = await reusableXerpContext.newPage();
+    if (!page && typeof reusable.context.newPage === "function") {
+      page = await reusable.context.newPage();
     }
     if (!page) throw new Error("No reusable XERP page");
-    reusableXerpPage = page;
-    return { context: reusableXerpContext, page, reused: true };
+    reusableXerpContexts.set(key, { context: reusable.context, page });
+    return { context: reusable.context, page, reused: true };
   } catch {
-    reusableXerpContext = null;
-    reusableXerpPage = null;
+    reusableXerpContexts.delete(key);
     return null;
   }
 }
 
-function rememberReusableXerpContext(context, page) {
-  reusableXerpContext = context;
-  reusableXerpPage = page;
+function rememberReusableXerpContext(context, page, profileDir = DEFAULT_XERP_PROFILE_DIR) {
+  const key = getReusableXerpKey(profileDir);
+  reusableXerpContexts.set(key, { context, page });
   if (typeof context?.on === "function") {
     context.on("close", () => {
-      if (reusableXerpContext === context) {
-        reusableXerpContext = null;
-        reusableXerpPage = null;
+      if (reusableXerpContexts.get(key)?.context === context) {
+        reusableXerpContexts.delete(key);
       }
     });
   }
 }
 
-async function getOrLaunchReusableXerpContext({ downloadsDir, launchContext }) {
-  const reusable = await getReusableXerpContext();
+async function getOrLaunchReusableXerpContext({ downloadsDir, launchContext, profileDir = DEFAULT_XERP_PROFILE_DIR }) {
+  const reusable = await getReusableXerpContext(profileDir);
   if (reusable) return reusable;
-  const launched = await launchContext({ downloadsDir });
-  rememberReusableXerpContext(launched.context, launched.page);
+  const launched = await launchContext({ downloadsDir, profileDir });
+  rememberReusableXerpContext(launched.context, launched.page, profileDir);
   return { ...launched, reused: false };
 }
 
 export async function closeReusableXerpContext() {
-  const context = reusableXerpContext;
-  reusableXerpContext = null;
-  reusableXerpPage = null;
-  await Promise.resolve(context?.close?.()).catch(() => undefined);
+  const contexts = [...reusableXerpContexts.values()].map((entry) => entry.context);
+  reusableXerpContexts.clear();
+  await Promise.all(contexts.map((context) => Promise.resolve(context?.close?.()).catch(() => undefined)));
 }
 
 async function closeXerpContextIfNotReusable(context) {
@@ -361,7 +372,7 @@ export function normalizeXerpWorkerRegistrationSite(value) {
 }
 
 export function normalizeXerpDailyAttendanceSite(value) {
-  return value === "PH4" || value === "PH2" ? value : null;
+  return value === "PH4" || value === "PH2" || value === "P5PH1" ? value : null;
 }
 
 async function readJsonBody(req) {
@@ -468,7 +479,7 @@ export function createXerpWorkerRegistrationRequestHandler({
           ok: true,
           downloadsDir,
           port: getPort(),
-          sites: ["PH4", "PH2"].map((site) => ({
+          sites: ["PH4", "PH2", "P5PH1"].map((site) => ({
             key: XERP_WORKER_REGISTRATION_SITES[site].key,
             label: XERP_WORKER_REGISTRATION_SITES[site].xerpSiteName,
           })),
@@ -553,10 +564,12 @@ export async function launchXerpContext({
 export async function openXerpLoginWindow({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   launchContext = launchXerpContext,
+  site = "default",
 } = {}) {
   const startedAtMs = Date.now();
+  const profileDir = getXerpProfileDirForSite(site);
   try {
-    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext });
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext, profileDir });
     const page = launched.page;
     await page.goto(XERP_MAIN_URL, { waitUntil: "domcontentloaded" });
     await page.waitForLoadState?.("networkidle", { timeout: 15000 }).catch(() => undefined);
@@ -565,7 +578,7 @@ export async function openXerpLoginWindow({
       ok: true,
       mode: "login-window",
       startedAtMs,
-      profileDir: DEFAULT_XERP_PROFILE_DIR,
+      profileDir,
       message: "XERP 로그인 창을 열었습니다. 로그인 후 XERP 가져오기를 눌러주세요.",
     };
   } catch (error) {
@@ -773,19 +786,20 @@ export async function downloadWorkerRegistrationWorkbook({
   openPage = openWorkerRegistrationPage,
 } = {}) {
   const siteDefinition = XERP_WORKER_REGISTRATION_SITES[site];
+  const profileDir = getXerpProfileDirForSite(site);
   const startedAtMs = Date.now();
   let context;
   let keepContextOpen = false;
 
   try {
-    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext });
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext, profileDir });
     context = launched.context;
     const page = launched.page;
 
     const openResult = await openPage(page);
     if (openResult.status === "login-required") {
       keepContextOpen = true;
-      return createDownloadSession({ site, mode: "login-required", startedAtMs });
+      return { ...createDownloadSession({ site, mode: "login-required", startedAtMs }), profileDir };
     }
 
     await selectXerpSiteInAnyFrame(page, siteDefinition);
@@ -806,13 +820,13 @@ export async function downloadWorkerRegistrationWorkbook({
       keepContextOpen = true;
       return {
         ...createDownloadSession({ site, mode: "login-required", startedAtMs }),
-        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        profileDir,
         message: "이미 열린 XERP 창이 있습니다. 그 창에서 로그인 또는 메뉴 상태를 확인하고, 창을 닫은 뒤 다시 XERP 가져오기를 눌러주세요.",
       };
     }
     if (isXerpManualInterventionRequired(error)) {
       keepContextOpen = true;
-      return createDownloadSession({ site, mode: "login-required", startedAtMs });
+      return { ...createDownloadSession({ site, mode: "login-required", startedAtMs }), profileDir };
     }
     throw normalizePlaywrightError(error);
   } finally {
@@ -834,13 +848,14 @@ export async function downloadDailyAttendanceSummaryWorkbook({
   }
 
   const siteDefinition = XERP_WORKER_REGISTRATION_SITES[normalizedSite];
+  const profileDir = getXerpProfileDirForSite(normalizedSite);
   const startedAtMs = Date.now();
   let context;
   let keepContextOpen = false;
 
   try {
     await mkdir(downloadsDir, { recursive: true });
-    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext });
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext, profileDir });
     context = launched.context;
     const page = launched.page;
 
@@ -854,7 +869,7 @@ export async function downloadDailyAttendanceSummaryWorkbook({
         date: normalizedDate,
         startedAtMs,
         mode: "login-required",
-        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        profileDir,
         message: "XERP 로그인 후 다시 시도하세요.",
       };
     }
@@ -921,7 +936,7 @@ export async function downloadDailyAttendanceSummaryWorkbook({
         date: normalizedDate,
         startedAtMs,
         mode: "login-required",
-        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        profileDir,
         message: "이미 열린 XERP 창이 있습니다. 그 창에서 로그인 또는 메뉴 상태를 확인하고, 창을 닫은 뒤 다시 XERP 가져오기를 눌러주세요.",
       };
     }
@@ -934,7 +949,7 @@ export async function downloadDailyAttendanceSummaryWorkbook({
         date: normalizedDate,
         startedAtMs,
         mode: "login-required",
-        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        profileDir,
         message: "열린 XERP 창에서 로그인 또는 메뉴 상태를 확인한 뒤 다시 시도하세요.",
       };
     }
@@ -990,6 +1005,7 @@ export async function uploadPmisAttendanceWorkbook({
   }
 
   const siteDefinition = XERP_WORKER_REGISTRATION_SITES[normalizedSite];
+  const profileDir = getXerpProfileDirForSite(normalizedSite);
   const startedAtMs = Date.now();
   let context;
   let keepContextOpen = false;
@@ -1010,7 +1026,7 @@ export async function uploadPmisAttendanceWorkbook({
 
     if (!uploadFilePath) throw new Error("업로드할 파일을 찾을 수 없습니다.");
 
-    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext });
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext, profileDir });
     context = launched.context;
     const page = launched.page;
 
@@ -1024,7 +1040,7 @@ export async function uploadPmisAttendanceWorkbook({
         date: normalizedDate,
         startedAtMs,
         mode: "login-required",
-        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        profileDir,
         message: "XERP 로그인 후 다시 시도하세요.",
       };
     }
@@ -1065,7 +1081,7 @@ export async function uploadPmisAttendanceWorkbook({
         date: normalizedDate,
         startedAtMs,
         mode: "login-required",
-        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        profileDir,
         message: "이미 열린 XERP 창이 있습니다. 그 창을 닫은 뒤 다시 시도하세요.",
       };
     }
@@ -1078,7 +1094,7 @@ export async function uploadPmisAttendanceWorkbook({
         date: normalizedDate,
         startedAtMs,
         mode: "login-required",
-        profileDir: DEFAULT_XERP_PROFILE_DIR,
+        profileDir,
         message: "열린 XERP 창에서 로그인 또는 메뉴 상태를 확인한 뒤 다시 시도하세요.",
       };
     }
