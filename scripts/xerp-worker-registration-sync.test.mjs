@@ -25,6 +25,7 @@ import {
   selectLatestWorkerRegistrationFile,
   startXerpWorkerRegistrationServer,
   uploadDailyAttendanceExtraWorkWorkbook,
+  waitForXerpPageReadyAfterLogin,
 } from "./xerp-worker-registration-sync.mjs";
 
 const servers = [];
@@ -238,10 +239,45 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
       status: "logged-in",
       loggedIn: true,
     });
+    expect(classifyXerpLoginText("공지사항 현장관리 메인메뉴 즐겨찾기")).toMatchObject({
+      status: "logged-in",
+      loggedIn: true,
+    });
     expect(classifyXerpLoginText("")).toMatchObject({
       status: "unknown",
       loggedIn: false,
     });
+  });
+
+  it("waits for the XERP login window and retries the requested page", async () => {
+    const page = {
+      bringToFront: vi.fn(),
+      waitForTimeout: vi.fn(),
+    };
+    const openPage = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "login-required" })
+      .mockResolvedValueOnce({ status: "ready" });
+    const getLoginStatus = vi.fn().mockResolvedValue({
+      status: "logged-in",
+      loggedIn: true,
+    });
+
+    const openResult = await openPage(page);
+    const result = await waitForXerpPageReadyAfterLogin({
+      page,
+      openPage,
+      openResult,
+      getLoginStatus,
+      waitMs: 5,
+      pollMs: 1,
+    });
+
+    expect(result).toEqual({ status: "ready" });
+    expect(openPage).toHaveBeenCalledTimes(2);
+    expect(getLoginStatus).toHaveBeenCalledWith({ page });
+    expect(page.bringToFront).toHaveBeenCalled();
+    expect(page.waitForTimeout).toHaveBeenCalledWith(1);
   });
 
   it("reads login status from the current XERP page frames", async () => {
@@ -299,6 +335,7 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
         page: {},
       }),
       openPage: async () => ({ status: "login-required" }),
+      loginWaitMs: 0,
     });
 
     expect(result.mode).toBe("login-required");
@@ -314,8 +351,8 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     const launchContext = vi.fn(async () => ({ context, page }));
     const openPage = vi.fn(async () => ({ status: "login-required" }));
 
-    await downloadWorkerRegistrationWorkbook({ site: "PH4", launchContext, openPage });
-    await downloadWorkerRegistrationWorkbook({ site: "PH4", launchContext, openPage });
+    await downloadWorkerRegistrationWorkbook({ site: "PH4", launchContext, openPage, loginWaitMs: 0 });
+    await downloadWorkerRegistrationWorkbook({ site: "PH4", launchContext, openPage, loginWaitMs: 0 });
 
     expect(launchContext).toHaveBeenCalledTimes(1);
     expect(openPage).toHaveBeenCalledTimes(2);
@@ -332,6 +369,7 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
         page: {},
       }),
       openPage: async () => ({ status: "login-required" }),
+      loginWaitMs: 0,
     });
 
     expect(result.mode).toBe("login-required");
@@ -350,6 +388,7 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
       date: "2026-07-02",
       launchContext,
       openPage: async () => ({ status: "login-required" }),
+      loginWaitMs: 0,
     });
 
     expect(launchContext).toHaveBeenCalledWith(expect.objectContaining({
@@ -382,6 +421,7 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
         downloadsDir: dir,
         launchContext,
         openPage: async () => ({ status: "login-required" }),
+        loginWaitMs: 0,
       });
 
       expect(launchContext).toHaveBeenCalledWith(expect.objectContaining({
@@ -409,7 +449,8 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
       },
     });
 
-    expect(result.mode).toBe("login-required");
+    expect(result.mode).toBe("manual-required");
+    expect(result.message).toContain("메뉴");
     expect(closed).toBe(false);
   });
 

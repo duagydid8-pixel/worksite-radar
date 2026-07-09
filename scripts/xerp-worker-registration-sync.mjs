@@ -14,6 +14,8 @@ export const DEFAULT_DOWNLOADS_DIR = process.env.USERPROFILE
 export const DEFAULT_STATIC_APP_DIR = path.resolve(process.cwd(), "dist");
 export const DEFAULT_APP_PROXY_ORIGIN = process.env.WORKSITE_APP_PROXY_ORIGIN || "https://worksite-radar.vercel.app";
 export const XERP_MAIN_URL = "https://hansung.xerp.co.kr/com/actionMain.do#";
+export const DEFAULT_XERP_LOGIN_WAIT_MS = Number(process.env.XERP_LOGIN_WAIT_MS || 120000);
+export const DEFAULT_XERP_LOGIN_POLL_MS = Number(process.env.XERP_LOGIN_POLL_MS || 1000);
 
 const WORKER_REGISTRATION_WORKBOOK_RE = /^근로자\s*등록_.*\.(xlsx|xls)$/i;
 const DAILY_ATTENDANCE_KEYWORDS = ["일일출역집계", "일일출역", "일일출력"];
@@ -102,9 +104,10 @@ export async function closeReusableXerpContext() {
 }
 
 async function closeXerpContextIfNotReusable(context) {
-  if (reusableXerpContext === context) {
-    reusableXerpContext = null;
-    reusableXerpPage = null;
+  for (const [key, reusable] of reusableXerpContexts.entries()) {
+    if (reusable.context === context) {
+      reusableXerpContexts.delete(key);
+    }
   }
   await Promise.resolve(context?.close?.()).catch(() => undefined);
 }
@@ -129,7 +132,7 @@ export function classifyXerpLoginText(textSnapshot = "") {
       message: "XERP 화면 상태를 아직 확인하지 못했습니다.",
     };
   }
-  if (/노무관리|근로자관리|근로자\s*등록|출역관리|일일출역집계|PMIS|로그아웃|업무관리/i.test(text)) {
+  if (/노무관리|근로자관리|근로자\s*등록|출역관리|일일출역집계|PMIS|로그아웃|업무관리|공지사항|현장관리|메인메뉴|즐겨찾기/i.test(text)) {
     return {
       ok: true,
       status: "logged-in",
@@ -151,6 +154,42 @@ export function classifyXerpLoginText(textSnapshot = "") {
     loggedIn: false,
     message: "XERP 화면 상태를 아직 확인하지 못했습니다.",
   };
+}
+
+export async function waitForXerpPageReadyAfterLogin({
+  page,
+  openPage,
+  openResult,
+  waitMs = DEFAULT_XERP_LOGIN_WAIT_MS,
+  pollMs = DEFAULT_XERP_LOGIN_POLL_MS,
+  getLoginStatus = getXerpLoginStatus,
+} = {}) {
+  let result = openResult;
+  if (result?.status !== "login-required") return result;
+
+  const maxWaitMs = Math.max(0, Number(waitMs) || 0);
+  if (!maxWaitMs || typeof openPage !== "function") return result;
+
+  const intervalMs = Math.max(1, Number(pollMs) || DEFAULT_XERP_LOGIN_POLL_MS);
+  const deadline = Date.now() + maxWaitMs;
+
+  while (Date.now() < deadline) {
+    await Promise.resolve(page?.bringToFront?.()).catch(() => undefined);
+    const remainingMs = Math.max(1, Math.min(intervalMs, deadline - Date.now()));
+    if (typeof page?.waitForTimeout === "function") {
+      await Promise.resolve(page.waitForTimeout(remainingMs)).catch(() => undefined);
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, remainingMs));
+    }
+
+    const loginStatus = await getLoginStatus({ page }).catch(() => null);
+    if (loginStatus?.loggedIn || loginStatus?.status === "logged-in") {
+      result = await openPage(page);
+      if (result?.status !== "login-required") return result;
+    }
+  }
+
+  return result;
 }
 
 export function isWorkerRegistrationWorkbookName(fileName) {
@@ -919,6 +958,8 @@ export async function downloadWorkerRegistrationWorkbook({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   launchContext = launchXerpContext,
   openPage = openWorkerRegistrationPage,
+  loginWaitMs = DEFAULT_XERP_LOGIN_WAIT_MS,
+  loginPollMs = DEFAULT_XERP_LOGIN_POLL_MS,
 } = {}) {
   const siteDefinition = XERP_WORKER_REGISTRATION_SITES[site];
   const profileDir = getXerpProfileDirForSite(site);
@@ -931,7 +972,14 @@ export async function downloadWorkerRegistrationWorkbook({
     context = launched.context;
     const page = launched.page;
 
-    const openResult = await openPage(page);
+    let openResult = await openPage(page);
+    openResult = await waitForXerpPageReadyAfterLogin({
+      page,
+      openPage,
+      openResult,
+      waitMs: loginWaitMs,
+      pollMs: loginPollMs,
+    });
     if (openResult.status === "login-required") {
       keepContextOpen = true;
       return { ...createDownloadSession({ site, mode: "login-required", startedAtMs }), profileDir };
@@ -975,6 +1023,8 @@ export async function downloadDailyAttendanceSummaryWorkbook({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   launchContext = launchXerpContext,
   openPage = openDailyAttendanceSummaryPage,
+  loginWaitMs = DEFAULT_XERP_LOGIN_WAIT_MS,
+  loginPollMs = DEFAULT_XERP_LOGIN_POLL_MS,
 } = {}) {
   const normalizedSite = normalizeXerpDailyAttendanceSite(site);
   const normalizedDate = normalizeXerpDailyAttendanceDate(date);
@@ -994,7 +1044,14 @@ export async function downloadDailyAttendanceSummaryWorkbook({
     context = launched.context;
     const page = launched.page;
 
-    const openResult = await openPage(page);
+    let openResult = await openPage(page);
+    openResult = await waitForXerpPageReadyAfterLogin({
+      page,
+      openPage,
+      openResult,
+      waitMs: loginWaitMs,
+      pollMs: loginPollMs,
+    });
     if (openResult.status === "login-required") {
       keepContextOpen = true;
       return {
@@ -1083,9 +1140,9 @@ export async function downloadDailyAttendanceSummaryWorkbook({
         siteName: siteDefinition.xerpSiteName,
         date: normalizedDate,
         startedAtMs,
-        mode: "login-required",
+        mode: "manual-required",
         profileDir,
-        message: "열린 XERP 창에서 로그인 또는 메뉴 상태를 확인한 뒤 다시 시도하세요.",
+        message: `XERP 로그인은 열려 있지만 일일출역집계 메뉴를 자동으로 찾지 못했습니다. 열린 XERP 창에서 노무관리 > 출역관리 > 일일출역집계 화면을 열어둔 뒤 다시 시도하세요. (${error.message})`,
       };
     }
     throw normalizePlaywrightError(error);
@@ -1103,6 +1160,8 @@ export async function uploadDailyAttendanceExtraWorkWorkbook({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   launchContext = launchXerpContext,
   openPage = openDailyAttendanceSummaryPage,
+  loginWaitMs = DEFAULT_XERP_LOGIN_WAIT_MS,
+  loginPollMs = DEFAULT_XERP_LOGIN_POLL_MS,
 } = {}) {
   const normalizedSite = normalizeXerpDailyAttendanceSite(site);
   const normalizedDate = normalizeXerpDailyAttendanceDate(date);
@@ -1135,7 +1194,14 @@ export async function uploadDailyAttendanceExtraWorkWorkbook({
     context = launched.context;
     const page = launched.page;
 
-    const openResult = await openPage(page);
+    let openResult = await openPage(page);
+    openResult = await waitForXerpPageReadyAfterLogin({
+      page,
+      openPage,
+      openResult,
+      waitMs: loginWaitMs,
+      pollMs: loginPollMs,
+    });
     if (openResult.status === "login-required") {
       keepContextOpen = true;
       return {
@@ -1250,6 +1316,8 @@ export async function uploadPmisAttendanceWorkbook({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   launchContext = launchXerpContext,
   openPage = openPmisAttendanceUploadPage,
+  loginWaitMs = DEFAULT_XERP_LOGIN_WAIT_MS,
+  loginPollMs = DEFAULT_XERP_LOGIN_POLL_MS,
 } = {}) {
   const normalizedSite = normalizeXerpDailyAttendanceSite(site);
   const normalizedDate = normalizeXerpDailyAttendanceDate(date);
@@ -1283,7 +1351,14 @@ export async function uploadPmisAttendanceWorkbook({
     context = launched.context;
     const page = launched.page;
 
-    const openResult = await openPage(page);
+    let openResult = await openPage(page);
+    openResult = await waitForXerpPageReadyAfterLogin({
+      page,
+      openPage,
+      openResult,
+      waitMs: loginWaitMs,
+      pollMs: loginPollMs,
+    });
     if (openResult.status === "login-required") {
       keepContextOpen = true;
       return {

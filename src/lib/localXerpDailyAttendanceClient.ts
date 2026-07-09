@@ -20,7 +20,7 @@ export type LocalXerpDailyAttendanceDownloadResponse = {
   date: string;
   startedAtMs: number;
   finishedAtMs?: number;
-  mode: "downloaded" | "login-required" | string;
+  mode: "downloaded" | "login-required" | "manual-required" | string;
   fileName?: string;
   filePath?: string;
   message?: string;

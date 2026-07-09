@@ -787,6 +787,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         toast.info(session.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP에서 가져오기를 눌러주세요.");
         return;
       }
+      if (session.mode === "manual-required") {
+        toast.error(session.message || "XERP 로그인은 확인됐지만 일일출역집계 메뉴를 자동으로 찾지 못했습니다.");
+        return;
+      }
+      if (session.mode !== "downloaded") {
+        toast.info(session.message || `XERP 처리 상태: ${session.mode}`);
+        return;
+      }
 
       const latest = await fetchLatestXerpDailyAttendanceFile(syncSite, workDate, session.startedAtMs);
       if (!latest.found || !latest.file) {

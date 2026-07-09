@@ -28,4 +28,9 @@ describe("XerpWorkReflection XERP daily attendance import wiring", () => {
     expect(source).toContain("processWorkbookBuffer(buffer, latest.file.fileName, workDate)");
     expect(source).toContain("const resolvedSite = forcedWorkDate ? syncSite : detectedSite");
   });
+
+  it("does not fetch the latest workbook when XERP needs manual menu navigation", () => {
+    expect(source).toContain('session.mode === "manual-required"');
+    expect(source).toContain('session.mode !== "downloaded"');
+  });
 });
