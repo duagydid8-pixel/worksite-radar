@@ -22,6 +22,11 @@ describe("XerpPmisTable XERP daily attendance import wiring", () => {
     expect(source).toContain("setSelectedDate(uploadDate)");
   });
 
+  it("uses only the selected site's technical roster for absence filters", () => {
+    expect(source).toContain('const loadEmployees = site === "P5PH1" ? loadEmployeesP5PH1FS : site === "PH2" ? loadEmployeesPH2FS : loadEmployeesPH4FS;');
+    expect(source).not.toContain("Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS(), loadEmployeesP5PH1FS()])");
+  });
+
   it("shows the local helper message when XERP login is required", () => {
     expect(source).toContain("session.message");
   });

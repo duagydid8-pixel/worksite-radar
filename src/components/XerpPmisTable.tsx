@@ -891,6 +891,7 @@ interface Props { isAdmin: boolean; site?: XerpPmisSite }
 export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const loadXerp = site === "P5PH1" ? loadXerpP5PH1FS : site === "PH2" ? loadXerpPH2FS : loadXerpFS;
   const saveXerp = site === "P5PH1" ? saveXerpP5PH1FS : site === "PH2" ? saveXerpPH2FS : saveXerpFS;
+  const loadEmployees = site === "P5PH1" ? loadEmployeesP5PH1FS : site === "PH2" ? loadEmployeesPH2FS : loadEmployeesPH4FS;
   const [dateMap, setDateMap] = useState<DateMap>({});
   const [selectedDate, setSelectedDate] = useState<string>(TODAY);
   const [resignedNames, setResignedNames] = useState<Set<string>>(new Set());
@@ -1025,18 +1026,20 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
-    // 퇴사자 명단 로드 (PH4 + PH2 + P5-PH1)
-    Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS(), loadEmployeesP5PH1FS()]).then(([ph4, ph2, p5]) => {
+    // 퇴사자 명단 로드 (현재 선택한 현장만)
+    loadEmployees().then((rows) => {
       const resigned = new Set<string>();
       const active = new Set<string>();
-      for (const rows of [ph4, ph2, p5]) {
-        if (!Array.isArray(rows)) continue;
-        for (const emp of rows as { 이름?: string; 퇴사일?: string; 이관처?: string }[]) {
-          const name = emp.이름?.trim();
-          if (!name) continue;
-          if (emp.퇴사일 || emp.이관처) resigned.add(name);
-          else active.add(name);
-        }
+      if (!Array.isArray(rows)) {
+        setResignedNames(resigned);
+        setActiveNames(active);
+        return;
+      }
+      for (const emp of rows as { 이름?: string; 퇴사일?: string; 이관처?: string }[]) {
+        const name = emp.이름?.trim();
+        if (!name) continue;
+        if (emp.퇴사일 || emp.이관처) resigned.add(name);
+        else active.add(name);
       }
       setResignedNames(resigned);
       setActiveNames(active);
