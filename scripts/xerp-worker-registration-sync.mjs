@@ -11,6 +11,7 @@ export const DEFAULT_XERP_WORKER_REGISTRATION_PORT = Number(process.env.XERP_WOR
 export const DEFAULT_DOWNLOADS_DIR = process.env.USERPROFILE
   ? path.join(process.env.USERPROFILE, "Downloads")
   : path.join(os.homedir(), "Downloads");
+export const DEFAULT_STATIC_APP_DIR = path.resolve(process.cwd(), "dist");
 export const XERP_MAIN_URL = "https://hansung.xerp.co.kr/com/actionMain.do#";
 
 const WORKER_REGISTRATION_WORKBOOK_RE = /^근로자\s*등록_.*\.(xlsx|xls)$/i;
@@ -388,6 +389,65 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function getStaticContentType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".html") return "text/html; charset=utf-8";
+  if (ext === ".js" || ext === ".mjs") return "text/javascript; charset=utf-8";
+  if (ext === ".css") return "text/css; charset=utf-8";
+  if (ext === ".json") return "application/json; charset=utf-8";
+  if (ext === ".svg") return "image/svg+xml";
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".ico") return "image/x-icon";
+  return "application/octet-stream";
+}
+
+function isPathInside(parentDir, candidatePath) {
+  const relative = path.relative(parentDir, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function serveStaticFile(req, res, filePath) {
+  const fileStat = await stat(filePath).catch(() => null);
+  if (!fileStat?.isFile()) return false;
+
+  res.statusCode = 200;
+  res.setHeader("Content-Type", getStaticContentType(filePath));
+  res.setHeader("Cache-Control", path.basename(filePath) === "index.html" ? "no-store" : "public, max-age=31536000, immutable");
+  if (req.method === "HEAD") {
+    res.end();
+    return true;
+  }
+  res.end(await readFile(filePath));
+  return true;
+}
+
+async function tryServeStaticApp(req, res, url, staticAppDir = DEFAULT_STATIC_APP_DIR) {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  if (!staticAppDir) return false;
+
+  const rootDir = path.resolve(staticAppDir);
+  const indexPath = path.join(rootDir, "index.html");
+  const indexStat = await stat(indexPath).catch(() => null);
+  if (!indexStat?.isFile()) return false;
+
+  let pathname;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    return false;
+  }
+
+  const hasFileExtension = Boolean(path.extname(pathname));
+  const requestedPath = path.resolve(rootDir, `.${pathname}`);
+  if (hasFileExtension && isPathInside(rootDir, requestedPath)) {
+    return serveStaticFile(req, res, requestedPath);
+  }
+
+  return serveStaticFile(req, res, indexPath);
+}
+
 export function createDownloadSession({
   site,
   mode = "browser-automation",
@@ -405,6 +465,7 @@ export function createDownloadSession({
 
 export function createXerpWorkerRegistrationRequestHandler({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  staticAppDir = DEFAULT_STATIC_APP_DIR,
   getPort = () => DEFAULT_XERP_WORKER_REGISTRATION_PORT,
   openXerpLoginWindow: runXerpLoginOpen = openXerpLoginWindow,
   getXerpLoginStatus: runXerpLoginStatus = getXerpLoginStatus,
@@ -563,6 +624,8 @@ export function createXerpWorkerRegistrationRequestHandler({
         sendJson(res, 200, result);
         return;
       }
+
+      if (await tryServeStaticApp(req, res, url, staticAppDir)) return;
 
       sendJson(res, 404, { error: "Not found" });
     } catch (error) {
@@ -1255,6 +1318,7 @@ export async function uploadPmisAttendanceWorkbook({
 
 export async function startXerpWorkerRegistrationServer({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
+  staticAppDir = DEFAULT_STATIC_APP_DIR,
   port = DEFAULT_XERP_WORKER_REGISTRATION_PORT,
   openXerpLoginWindow,
   getXerpLoginStatus,
@@ -1265,6 +1329,7 @@ export async function startXerpWorkerRegistrationServer({
   let server;
   const handler = createXerpWorkerRegistrationRequestHandler({
     downloadsDir,
+    staticAppDir,
     openXerpLoginWindow,
     getXerpLoginStatus,
     downloadWorkerRegistrationWorkbook,

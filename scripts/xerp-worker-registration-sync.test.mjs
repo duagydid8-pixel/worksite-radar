@@ -1,4 +1,4 @@
-import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -484,6 +484,31 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
 });
 
 describe("xerp-worker-registration-sync server", () => {
+  it("serves the built app from the local helper origin", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-static-app-"));
+    try {
+      await mkdir(path.join(dir, "assets"), { recursive: true });
+      await writeFile(path.join(dir, "index.html"), '<script type="module" src="/assets/app.js"></script>');
+      await writeFile(path.join(dir, "assets", "app.js"), 'console.log("local app");');
+
+      const baseUrl = await startTestServer({ downloadsDir: dir, staticAppDir: dir });
+      const indexResponse = await fetch(`${baseUrl}/`);
+      const assetResponse = await fetch(`${baseUrl}/assets/app.js`);
+      const routeResponse = await fetch(`${baseUrl}/xerp-work-reflection`);
+
+      expect(indexResponse.status).toBe(200);
+      expect(indexResponse.headers.get("content-type")).toContain("text/html");
+      expect(await indexResponse.text()).toContain("/assets/app.js");
+      expect(assetResponse.status).toBe(200);
+      expect(assetResponse.headers.get("content-type")).toContain("text/javascript");
+      expect(await assetResponse.text()).toContain("local app");
+      expect(routeResponse.status).toBe(200);
+      expect(await routeResponse.text()).toContain("/assets/app.js");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("serves local helper status", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-worker-"));
     try {
