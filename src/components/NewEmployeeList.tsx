@@ -442,14 +442,17 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
     try {
       const site = getXerpWorkerRegistrationSite(xerpSite);
       const downloadSession = await requestXerpWorkerRegistrationDownload(xerpSite);
+      let latest = await fetchLatestXerpWorkerRegistrationFile(
+        xerpSite,
+        downloadSession.mode === "login-required" ? 0 : downloadSession.startedAtMs,
+      );
+
       if (downloadSession.mode === "login-required") {
-        toast.info(downloadSession.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP 가져오기를 눌러주세요.");
-        return;
-      }
-
-      let latest = await fetchLatestXerpWorkerRegistrationFile(xerpSite, downloadSession.startedAtMs);
-
-      if (!latest.file && downloadSession.mode === "download-folder-watch") {
+        if (!latest.file) {
+          toast.info(downloadSession.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP 가져오기를 눌러주세요.");
+          return;
+        }
+      } else if (!latest.file) {
         latest = await fetchLatestXerpWorkerRegistrationFile(xerpSite, 0);
       }
 

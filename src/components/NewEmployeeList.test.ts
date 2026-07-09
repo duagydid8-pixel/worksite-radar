@@ -37,6 +37,17 @@ describe("NewEmployeeList XERP import controls", () => {
     expect(source).toContain('xerpSite="PH2"');
     expect(p5Block).not.toContain("xerpSite=");
   });
+
+  it("checks already-downloaded XERP files before stopping on login-required sessions", () => {
+    const source = readFileSync("src/components/NewEmployeeList.tsx", "utf8");
+    const latestStart = source.indexOf("let latest = await fetchLatestXerpWorkerRegistrationFile");
+    const loginStart = source.indexOf('if (downloadSession.mode === "login-required")');
+    const preLoginBlock = source.slice(latestStart, loginStart);
+
+    expect(latestStart).toBeGreaterThan(-1);
+    expect(loginStart).toBeGreaterThan(latestStart);
+    expect(preLoginBlock).toContain('downloadSession.mode === "login-required" ? 0 : downloadSession.startedAtMs');
+  });
 });
 
 describe("NewEmployeeList memo field", () => {
