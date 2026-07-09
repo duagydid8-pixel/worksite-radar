@@ -792,17 +792,27 @@ function isTransientFrameClickError(error) {
   return /Frame was detached|Execution context was destroyed|Target closed|Page closed/i.test(message);
 }
 
-export async function clickTextInAnyFrame(page, text, { attempts = 4 } = {}) {
+function textToFlexibleRegex(text) {
+  const escaped = String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(escaped.replace(/\s+/g, "\\s*"), "i");
+}
+
+async function actOnTextInAnyFrame(page, text, { attempts = 4, exact = true, action = "click" } = {}) {
   let lastError = null;
   const label = text instanceof RegExp ? text.toString() : text;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     for (const frame of page.frames()) {
       if (typeof frame.isDetached === "function" && frame.isDetached()) continue;
       try {
-        const locator = text instanceof RegExp
-          ? frame.getByText(text).first()
-          : frame.getByText(text, { exact: true }).first();
-        await locator.click({ timeout: 3000 });
+        const lookupText = !exact && !(text instanceof RegExp) ? textToFlexibleRegex(text) : text;
+        const locator = lookupText instanceof RegExp
+          ? frame.getByText(lookupText).first()
+          : frame.getByText(lookupText, { exact: true }).first();
+        if (action === "hover") {
+          await locator.hover({ timeout: 3000 });
+        } else {
+          await locator.click({ timeout: 3000 });
+        }
         return true;
       } catch (error) {
         lastError = error;
@@ -814,6 +824,14 @@ export async function clickTextInAnyFrame(page, text, { attempts = 4 } = {}) {
     }
   }
   throw new Error(`XERP 화면에서 '${label}' 항목을 찾지 못했습니다: ${lastError?.message || "unknown error"}`);
+}
+
+export async function clickTextInAnyFrame(page, text, options = {}) {
+  return actOnTextInAnyFrame(page, text, { ...options, action: "click" });
+}
+
+async function hoverTextInAnyFrame(page, text, options = {}) {
+  return actOnTextInAnyFrame(page, text, { ...options, action: "hover" });
 }
 
 export async function openWorkerRegistrationPage(page) {
@@ -842,13 +860,19 @@ export async function openDailyAttendanceSummaryPage(page) {
   }
 
   if (!allFrameText.includes("일일출역집계")) {
-    await clickTextInAnyFrame(page, "노무관리");
+    await hoverTextInAnyFrame(page, "노무관리");
     await page.waitForTimeout(500);
-    await clickTextInAnyFrame(page, "출역관리");
+    await clickTextInAnyFrame(page, /출역\s*관리/i).catch(async (error) => {
+      await clickTextInAnyFrame(page, "노무관리");
+      await page.waitForTimeout(500);
+      await clickTextInAnyFrame(page, /출역\s*관리/i).catch(() => {
+        throw error;
+      });
+    });
     await page.waitForTimeout(500);
   }
 
-  await clickTextInAnyFrame(page, "일일출역집계");
+  await clickTextInAnyFrame(page, /일일\s*출역\s*집계/i);
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
   return { status: "ready" };
 }

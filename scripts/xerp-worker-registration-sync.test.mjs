@@ -562,7 +562,7 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
   });
 
   it("opens daily attendance through labor management before attendance management", async () => {
-    const clickedLabels = [];
+    const actions = [];
     const frame = {
       locator: () => ({
         innerText: vi.fn().mockResolvedValue("공지사항 현장관리 메인메뉴 즐겨찾기"),
@@ -570,7 +570,10 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
       getByText: vi.fn((label) => ({
         first: () => ({
           click: vi.fn(async () => {
-            clickedLabels.push(label instanceof RegExp ? label.toString() : label);
+            actions.push(`click:${label instanceof RegExp ? label.toString() : label}`);
+          }),
+          hover: vi.fn(async () => {
+            actions.push(`hover:${label instanceof RegExp ? label.toString() : label}`);
           }),
         }),
       })),
@@ -583,7 +586,11 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     };
 
     await expect(openDailyAttendanceSummaryPage(page)).resolves.toEqual({ status: "ready" });
-    expect(clickedLabels).toEqual(["노무관리", "출역관리", "일일출역집계"]);
+    expect(actions).toEqual([
+      "hover:노무관리",
+      "click:/출역\\s*관리/i",
+      "click:/일일\\s*출역\\s*집계/i",
+    ]);
   });
 });
 
