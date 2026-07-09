@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import {
   buildXerpWorkerRegistrationUrl,
   clickTextInAnyFrame,
+  closeReusableXerpContext,
   createDownloadSession,
   DEFAULT_XERP_WORKER_REGISTRATION_PORT,
   downloadDailyAttendanceSummaryWorkbook,
@@ -25,6 +26,7 @@ import {
 const servers = [];
 
 afterEach(async () => {
+  await closeReusableXerpContext();
   await Promise.all(
     servers.map(
       (server) =>
@@ -233,6 +235,23 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
 
     expect(result.mode).toBe("login-required");
     expect(closed).toBe(false);
+  });
+
+  it("reuses the open worker-registration browser after login is required", async () => {
+    const page = { isClosed: () => false };
+    const context = {
+      pages: () => [page],
+      close: vi.fn(),
+    };
+    const launchContext = vi.fn(async () => ({ context, page }));
+    const openPage = vi.fn(async () => ({ status: "login-required" }));
+
+    await downloadWorkerRegistrationWorkbook({ site: "PH4", launchContext, openPage });
+    await downloadWorkerRegistrationWorkbook({ site: "PH4", launchContext, openPage });
+
+    expect(launchContext).toHaveBeenCalledTimes(1);
+    expect(openPage).toHaveBeenCalledTimes(2);
+    expect(openPage).toHaveBeenNthCalledWith(2, page);
   });
 
   it("keeps the daily-attendance browser open when login is required", async () => {

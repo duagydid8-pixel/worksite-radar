@@ -32,6 +32,70 @@ export function getXerpProfileDir({
 
 export const DEFAULT_XERP_PROFILE_DIR = getXerpProfileDir();
 
+let reusableXerpContext = null;
+let reusableXerpPage = null;
+
+function isReusablePage(page) {
+  return Boolean(page && (typeof page.isClosed !== "function" || !page.isClosed()));
+}
+
+async function getReusableXerpContext() {
+  if (!reusableXerpContext) return null;
+
+  try {
+    let page = isReusablePage(reusableXerpPage) ? reusableXerpPage : null;
+    if (!page && typeof reusableXerpContext.pages === "function") {
+      page = reusableXerpContext.pages().find((candidate) => isReusablePage(candidate)) || null;
+    }
+    if (!page && typeof reusableXerpContext.newPage === "function") {
+      page = await reusableXerpContext.newPage();
+    }
+    if (!page) throw new Error("No reusable XERP page");
+    reusableXerpPage = page;
+    return { context: reusableXerpContext, page, reused: true };
+  } catch {
+    reusableXerpContext = null;
+    reusableXerpPage = null;
+    return null;
+  }
+}
+
+function rememberReusableXerpContext(context, page) {
+  reusableXerpContext = context;
+  reusableXerpPage = page;
+  if (typeof context?.on === "function") {
+    context.on("close", () => {
+      if (reusableXerpContext === context) {
+        reusableXerpContext = null;
+        reusableXerpPage = null;
+      }
+    });
+  }
+}
+
+async function getOrLaunchReusableXerpContext({ downloadsDir, launchContext }) {
+  const reusable = await getReusableXerpContext();
+  if (reusable) return reusable;
+  const launched = await launchContext({ downloadsDir });
+  rememberReusableXerpContext(launched.context, launched.page);
+  return { ...launched, reused: false };
+}
+
+export async function closeReusableXerpContext() {
+  const context = reusableXerpContext;
+  reusableXerpContext = null;
+  reusableXerpPage = null;
+  await Promise.resolve(context?.close?.()).catch(() => undefined);
+}
+
+async function closeXerpContextIfNotReusable(context) {
+  if (reusableXerpContext === context) {
+    reusableXerpContext = null;
+    reusableXerpPage = null;
+  }
+  await Promise.resolve(context?.close?.()).catch(() => undefined);
+}
+
 export function buildXerpWorkerRegistrationUrl() {
   return XERP_MAIN_URL;
 }
@@ -621,7 +685,7 @@ export async function downloadWorkerRegistrationWorkbook({
   let keepContextOpen = false;
 
   try {
-    const launched = await launchContext({ downloadsDir });
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext });
     context = launched.context;
     const page = launched.page;
 
@@ -642,6 +706,7 @@ export async function downloadWorkerRegistrationWorkbook({
       await download.saveAs(path.join(downloadsDir, download.suggestedFilename()));
     }
 
+    keepContextOpen = true;
     return createDownloadSession({ site, mode: "browser-automation", startedAtMs });
   } catch (error) {
     if (isXerpBrowserProfileInUse(error)) {
@@ -658,7 +723,7 @@ export async function downloadWorkerRegistrationWorkbook({
     }
     throw normalizePlaywrightError(error);
   } finally {
-    if (!keepContextOpen) await context?.close().catch(() => undefined);
+    if (!keepContextOpen) await closeXerpContextIfNotReusable(context);
   }
 }
 
@@ -682,7 +747,7 @@ export async function downloadDailyAttendanceSummaryWorkbook({
 
   try {
     await mkdir(downloadsDir, { recursive: true });
-    const launched = await launchContext({ downloadsDir });
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext });
     context = launched.context;
     const page = launched.page;
 
@@ -717,6 +782,7 @@ export async function downloadDailyAttendanceSummaryWorkbook({
         : `일일출역집계_${normalizedSite}_${normalizedDate.replaceAll("-", "")}.xlsx`;
       const filePath = path.join(downloadsDir, fileName);
       await download.saveAs(filePath);
+      keepContextOpen = true;
       return {
         ok: true,
         site: normalizedSite,
@@ -737,6 +803,7 @@ export async function downloadDailyAttendanceSummaryWorkbook({
       startedAtMs,
     });
     if (scanned) {
+      keepContextOpen = true;
       return {
         ok: true,
         site: normalizedSite,
@@ -780,7 +847,7 @@ export async function downloadDailyAttendanceSummaryWorkbook({
     }
     throw normalizePlaywrightError(error);
   } finally {
-    if (!keepContextOpen) await context?.close().catch(() => undefined);
+    if (!keepContextOpen) await closeXerpContextIfNotReusable(context);
   }
 }
 
@@ -850,7 +917,7 @@ export async function uploadPmisAttendanceWorkbook({
 
     if (!uploadFilePath) throw new Error("업로드할 파일을 찾을 수 없습니다.");
 
-    const launched = await launchContext({ downloadsDir });
+    const launched = await getOrLaunchReusableXerpContext({ downloadsDir, launchContext });
     context = launched.context;
     const page = launched.page;
 
@@ -885,6 +952,7 @@ export async function uploadPmisAttendanceWorkbook({
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
     await page.waitForTimeout(1000);
 
+    keepContextOpen = true;
     return {
       ok: true,
       site: normalizedSite,
@@ -923,7 +991,7 @@ export async function uploadPmisAttendanceWorkbook({
     }
     throw normalizePlaywrightError(error);
   } finally {
-    if (!keepContextOpen) await context?.close().catch(() => undefined);
+    if (!keepContextOpen) await closeXerpContextIfNotReusable(context);
     if (tempFilePath) await import("node:fs/promises").then(({ unlink }) => unlink(tempFilePath).catch(() => {}));
   }
 }
