@@ -51,6 +51,12 @@ function isReusablePage(page) {
   return Boolean(page && (typeof page.isClosed !== "function" || !page.isClosed()));
 }
 
+function resolveCurrentXerpPage(page) {
+  const context = typeof page?.context === "function" ? page.context() : null;
+  const pages = typeof context?.pages === "function" ? context.pages().filter(isReusablePage) : [];
+  return pages.at(-1) || (isReusablePage(page) ? page : null) || page;
+}
+
 function getReusableXerpKey(profileDir = DEFAULT_XERP_PROFILE_DIR) {
   return String(profileDir || DEFAULT_XERP_PROFILE_DIR);
 }
@@ -174,17 +180,18 @@ export async function waitForXerpPageReadyAfterLogin({
   const deadline = Date.now() + maxWaitMs;
 
   while (Date.now() < deadline) {
-    await Promise.resolve(page?.bringToFront?.()).catch(() => undefined);
+    const currentPage = resolveCurrentXerpPage(page);
+    await Promise.resolve(currentPage?.bringToFront?.()).catch(() => undefined);
     const remainingMs = Math.max(1, Math.min(intervalMs, deadline - Date.now()));
-    if (typeof page?.waitForTimeout === "function") {
-      await Promise.resolve(page.waitForTimeout(remainingMs)).catch(() => undefined);
+    if (typeof currentPage?.waitForTimeout === "function") {
+      await Promise.resolve(currentPage.waitForTimeout(remainingMs)).catch(() => undefined);
     } else {
       await new Promise((resolve) => setTimeout(resolve, remainingMs));
     }
 
-    const loginStatus = await getLoginStatus({ page }).catch(() => null);
+    const loginStatus = await getLoginStatus({ page: currentPage }).catch(() => null);
     if (loginStatus?.loggedIn || loginStatus?.status === "logged-in") {
-      result = await openPage(page);
+      result = await openPage(currentPage);
       if (result?.status !== "login-required") return result;
     }
   }

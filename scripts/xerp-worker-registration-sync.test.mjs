@@ -280,6 +280,43 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(page.waitForTimeout).toHaveBeenCalledWith(1);
   });
 
+  it("continues from the current XERP page when login opens a new page", async () => {
+    const currentPage = {
+      isClosed: () => false,
+      bringToFront: vi.fn(),
+      waitForTimeout: vi.fn(),
+    };
+    const originalLoginPage = {
+      isClosed: () => true,
+      context: () => ({ pages: () => [originalLoginPage, currentPage] }),
+    };
+    currentPage.context = () => ({ pages: () => [originalLoginPage, currentPage] });
+
+    const openPage = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "login-required" })
+      .mockResolvedValueOnce({ status: "ready" });
+    const getLoginStatus = vi.fn().mockResolvedValue({
+      status: "logged-in",
+      loggedIn: true,
+    });
+
+    const openResult = await openPage(originalLoginPage);
+    const result = await waitForXerpPageReadyAfterLogin({
+      page: originalLoginPage,
+      openPage,
+      openResult,
+      getLoginStatus,
+      waitMs: 5,
+      pollMs: 1,
+    });
+
+    expect(result).toEqual({ status: "ready" });
+    expect(getLoginStatus).toHaveBeenCalledWith({ page: currentPage });
+    expect(openPage).toHaveBeenLastCalledWith(currentPage);
+    expect(currentPage.bringToFront).toHaveBeenCalled();
+  });
+
   it("reads login status from the current XERP page frames", async () => {
     const page = {
       frames: () => [
