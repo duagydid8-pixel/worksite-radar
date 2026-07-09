@@ -21,6 +21,7 @@ import { db, storage } from "./firebase";
 import { getOrgPhotoContentType, getOrgPhotoExtension, getOrgPhotoStoragePath, isInlineOrgPhoto } from "./orgPhotoStorage";
 import type { ScheduleData } from "./scheduleTypes";
 import type { ManualAbsence } from "./manualAbsences";
+import type { LeaveManagedEmployee, LeaveUsage } from "./annualLeaveManagement";
 import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
 import {
   buildFinalWorkUnitsReviewMemoryEntries,
@@ -50,6 +51,66 @@ async function fsSet(docId: string, data: object): Promise<boolean> {
     console.error(`[Firestore] fsSet(${docId}) 실패:`, e);
     return false;
   }
+}
+
+function removeUndefinedFields(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => removeUndefinedFields(item))
+      .filter((item) => item !== undefined);
+  }
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([key, entry]) => [key, removeUndefinedFields(entry)] as const)
+        .filter(([, entry]) => entry !== undefined)
+    );
+  }
+  return value;
+}
+
+export interface AnnualLeaveManagementSnapshot {
+  employees: LeaveManagedEmployee[];
+  usages: LeaveUsage[];
+  uploadedAt: string;
+}
+
+export function prepareAnnualLeavePayload(snapshot: AnnualLeaveManagementSnapshot): {
+  roster: { employees: LeaveManagedEmployee[]; uploadedAt: string };
+  usages: { items: LeaveUsage[]; updatedAt: string };
+} {
+  return removeUndefinedFields({
+    roster: {
+      employees: snapshot.employees,
+      uploadedAt: snapshot.uploadedAt,
+    },
+    usages: {
+      items: snapshot.usages,
+      updatedAt: snapshot.uploadedAt,
+    },
+  }) as {
+    roster: { employees: LeaveManagedEmployee[]; uploadedAt: string };
+    usages: { items: LeaveUsage[]; updatedAt: string };
+  };
+}
+
+export async function saveAnnualLeaveManagementFS(snapshot: AnnualLeaveManagementSnapshot): Promise<boolean> {
+  const payload = prepareAnnualLeavePayload(snapshot);
+  const rosterOk = await fsSet("annual_leave_roster", payload.roster);
+  if (!rosterOk) return false;
+  return fsSet("annual_leave_usages", payload.usages);
+}
+
+export async function loadAnnualLeaveManagementFS(): Promise<AnnualLeaveManagementSnapshot> {
+  const roster = await fsGet<{ employees?: LeaveManagedEmployee[]; uploadedAt?: string }>("annual_leave_roster");
+  const usages = await fsGet<{ items?: LeaveUsage[]; updatedAt?: string }>("annual_leave_usages");
+  return {
+    employees: roster?.employees ?? [],
+    usages: usages?.items ?? [],
+    uploadedAt: usages?.updatedAt ?? roster?.uploadedAt ?? "",
+  };
 }
 
 // ── 조직도 ──────────────────────────────────────────
