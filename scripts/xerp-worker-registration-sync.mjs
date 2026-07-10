@@ -1044,7 +1044,10 @@ function isXerpBrowserProfileInUse(error) {
 
 function isXerpManualInterventionRequired(error) {
   const message = error instanceof Error ? error.message : String(error);
-  return /XERP .*항목을 찾지 못했습니다/.test(message);
+  return (
+    /XERP .*항목을 찾지 못했습니다/.test(message) ||
+    /일일출역집계.*(날짜|입력칸|메뉴).*찾지 못했습니다/.test(message)
+  );
 }
 
 export async function downloadWorkerRegistrationWorkbook({

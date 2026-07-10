@@ -493,6 +493,25 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(closed).toBe(false);
   });
 
+  it("keeps the daily-attendance browser open when the date input cannot be found", async () => {
+    let closed = false;
+    const result = await downloadDailyAttendanceSummaryWorkbook({
+      site: "PH4",
+      date: "2026-07-02",
+      launchContext: async () => ({
+        context: { close: async () => { closed = true; } },
+        page: {},
+      }),
+      openPage: async () => {
+        throw new Error("일일출역집계 날짜 입력칸을 찾지 못했습니다.");
+      },
+    });
+
+    expect(result.mode).toBe("manual-required");
+    expect(result.message).toContain("일일출역집계");
+    expect(closed).toBe(false);
+  });
+
   it("treats an already-open XERP browser profile as a login-required session", async () => {
     const result = await downloadDailyAttendanceSummaryWorkbook({
       site: "PH4",
