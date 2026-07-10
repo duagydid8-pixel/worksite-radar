@@ -631,6 +631,33 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     }
   });
 
+  it("keeps the extra-work upload browser open when daily attendance needs manual navigation", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-extra-work-manual-"));
+    let closed = false;
+    try {
+      const result = await uploadDailyAttendanceExtraWorkWorkbook({
+        site: "PH4",
+        date: "2026-07-02",
+        fileBase64: "ZmFrZQ==",
+        fileName: "extra.xlsx",
+        downloadsDir: dir,
+        launchContext: async () => ({
+          context: { close: async () => { closed = true; }, on: vi.fn() },
+          page: { isClosed: () => false },
+        }),
+        openPage: async () => {
+          throw new Error("XERP 화면에서 '/일일\\s*출역\\s*집계/i' 항목을 찾지 못했습니다");
+        },
+      });
+
+      expect(result.mode).toBe("manual-required");
+      expect(result.message).toContain("일일출역집계");
+      expect(closed).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the daily-attendance browser open when the XERP menu cannot be found", async () => {
     let closed = false;
     const result = await downloadDailyAttendanceSummaryWorkbook({
@@ -766,8 +793,92 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
     expect(actions).toEqual([
       "hover:노무관리",
       "click:/출역\\s*관리/i",
-      "click:/일일\\s*출역\\s*집계/i",
+      "click:/일일\\s*출[역력]\\s*집계/i",
     ]);
+  });
+
+  it("opens daily attendance when the logged-in XERP page keeps the login title", async () => {
+    const actions = [];
+    const frame = {
+      locator: () => ({
+        innerText: vi.fn().mockResolvedValue("공지사항 현장관리 메인메뉴 즐겨찾기"),
+      }),
+      getByText: vi.fn((label) => ({
+        first: () => ({
+          click: vi.fn(async () => {
+            actions.push(`click:${label instanceof RegExp ? label.toString() : label}`);
+          }),
+          hover: vi.fn(async () => {
+            actions.push(`hover:${label instanceof RegExp ? label.toString() : label}`);
+          }),
+        }),
+      })),
+    };
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+      title: vi.fn().mockResolvedValue("로그인"),
+      frames: vi.fn(() => [frame]),
+    };
+
+    await expect(openDailyAttendanceSummaryPage(page)).resolves.toEqual({ status: "ready" });
+    expect(actions).toContain("click:/일일\\s*출[역력]\\s*집계/i");
+  });
+
+  it("waits for logged-in XERP frame text before treating a login-titled page as logged out", async () => {
+    const actions = [];
+    const emptyFrame = {
+      locator: () => ({
+        innerText: vi.fn().mockResolvedValue(""),
+      }),
+    };
+    const readyFrame = {
+      locator: () => ({
+        innerText: vi.fn().mockResolvedValue("공지사항 현장관리 메인메뉴 즐겨찾기"),
+      }),
+      getByText: vi.fn((label) => ({
+        first: () => ({
+          click: vi.fn(async () => {
+            actions.push(`click:${label instanceof RegExp ? label.toString() : label}`);
+          }),
+          hover: vi.fn(async () => {
+            actions.push(`hover:${label instanceof RegExp ? label.toString() : label}`);
+          }),
+        }),
+      })),
+    };
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+      title: vi.fn().mockResolvedValue("로그인"),
+      frames: vi
+        .fn()
+        .mockReturnValueOnce([emptyFrame])
+        .mockReturnValue([readyFrame]),
+    };
+
+    await expect(openDailyAttendanceSummaryPage(page)).resolves.toEqual({ status: "ready" });
+    expect(page.waitForTimeout).toHaveBeenCalled();
+    expect(actions).toContain("click:/일일\\s*출[역력]\\s*집계/i");
+  });
+
+  it("uses an already-open daily attendance page without navigating back to the XERP main page", async () => {
+    const frame = {
+      locator: () => ({
+        innerText: vi.fn().mockResolvedValue("일일출역집계 조회 가산공수업로드"),
+      }),
+    };
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      title: vi.fn().mockResolvedValue("(X-ERP)설비업종 표준ERP"),
+      frames: vi.fn(() => [frame]),
+    };
+
+    await expect(openDailyAttendanceSummaryPage(page)).resolves.toEqual({ status: "ready" });
+    expect(page.goto).not.toHaveBeenCalled();
   });
 
   it("selects an XERP site from a native select with flexible spacing", async () => {

@@ -1016,8 +1016,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         fileName: adjusted.fileName,
       });
 
-      if (result.mode === "login-required") {
-        toast.info(result.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP로 내보내기를 눌러주세요.");
+      if (result.mode === "login-required" || result.mode === "manual-required") {
+        toast.info(result.message || "XERP 전용 창에서 노무관리 > 출역관리 > 일일출역집계 화면을 열어둔 뒤 다시 XERP로 내보내기를 눌러주세요.");
+        return;
+      }
+
+      if (result.mode !== "uploaded") {
+        toast.info(result.message || `XERP 처리 상태: ${result.mode}`);
         return;
       }
 

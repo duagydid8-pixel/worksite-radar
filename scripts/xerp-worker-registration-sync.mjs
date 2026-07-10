@@ -19,6 +19,7 @@ export const DEFAULT_XERP_LOGIN_POLL_MS = Number(process.env.XERP_LOGIN_POLL_MS 
 
 const WORKER_REGISTRATION_WORKBOOK_RE = /^근로자\s*등록_.*\.(xlsx|xls)$/i;
 const DAILY_ATTENDANCE_KEYWORDS = ["일일출역집계", "일일출역", "일일출력"];
+const DAILY_ATTENDANCE_MENU_RE = /일일\s*출[역력]\s*집계/i;
 const EXTENSIONLESS_WORKBOOK_DOWNLOAD_GRACE_MS = 30 * 60 * 1000;
 
 export const XERP_WORKER_REGISTRATION_SITES = {
@@ -860,6 +861,32 @@ export async function getXerpLoginStatus({ page } = {}) {
   return classifyXerpLoginText(textSnapshot);
 }
 
+async function readXerpPageSnapshot(page, { attempts = 1, intervalMs = 500, bodyTimeoutMs = 2000 } = {}) {
+  let lastSnapshot = { title: "", bodyText: "", status: classifyXerpLoginText("") };
+  const maxAttempts = Math.max(1, Number(attempts) || 1);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const title = await Promise.resolve(page.title?.()).catch(() => "");
+    let bodyText = "";
+    const frames = typeof page.frames === "function" ? page.frames() : [];
+    for (const frame of frames) {
+      const text = await frame.locator("body").innerText({ timeout: bodyTimeoutMs }).catch(() => "");
+      if (text) bodyText += text;
+    }
+
+    const status = classifyXerpLoginText(`${title}\n${bodyText}`);
+    lastSnapshot = { title, bodyText, status };
+    if (bodyText.trim() || status.status !== "login-required" || !isLoginLikelyRequired(title)) {
+      return lastSnapshot;
+    }
+    if (attempt < maxAttempts - 1) {
+      await page.waitForTimeout?.(intervalMs);
+    }
+  }
+
+  return lastSnapshot;
+}
+
 function isTransientFrameClickError(error) {
   const message = error instanceof Error ? error.message : String(error);
   return /Frame was detached|Execution context was destroyed|Target closed|Page closed/i.test(message);
@@ -907,13 +934,17 @@ async function hoverTextInAnyFrame(page, text, options = {}) {
   return actOnTextInAnyFrame(page, text, { ...options, action: "hover" });
 }
 
+function isDailyAttendanceSummaryReadyText(text = "") {
+  return DAILY_ATTENDANCE_MENU_RE.test(text) && /가산\s*공수\s*업로드|가산공수업로드|엑셀|조회/.test(text);
+}
+
 export async function openWorkerRegistrationPage(page) {
   await page.goto(buildXerpWorkerRegistrationUrl(), { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
 
   const title = await Promise.resolve(page.title?.()).catch(() => "");
   const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
-  if (isLoginLikelyRequired(`${title}\n${bodyText}`)) return { status: "login-required" };
+  if (classifyXerpLoginText(`${title}\n${bodyText}`).status === "login-required") return { status: "login-required" };
   if (/근로자\s*등록/.test(bodyText)) return { status: "ready" };
 
   await clickTextInAnyFrame(page, "노무관리");
@@ -923,20 +954,25 @@ export async function openWorkerRegistrationPage(page) {
 }
 
 export async function openDailyAttendanceSummaryPage(page) {
+  const currentSnapshot = await readXerpPageSnapshot(page, {
+    attempts: 1,
+    bodyTimeoutMs: 500,
+  });
+  if (isDailyAttendanceSummaryReadyText(currentSnapshot.bodyText)) return { status: "ready" };
+
   await page.goto(buildXerpWorkerRegistrationUrl(), { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
 
-  const title = await Promise.resolve(page.title?.()).catch(() => "");
-  if (isLoginLikelyRequired(title)) return { status: "login-required" };
-
-  let allFrameText = "";
-  for (const frame of page.frames()) {
-    const text = await frame.locator("body").innerText({ timeout: 2000 }).catch(() => "");
-    if (isLoginLikelyRequired(text)) return { status: "login-required" };
-    allFrameText += text;
+  const { bodyText: allFrameText, status } = await readXerpPageSnapshot(page, {
+    attempts: 8,
+    intervalMs: 500,
+  });
+  if (status.status === "login-required") {
+    return { status: "login-required" };
   }
+  if (isDailyAttendanceSummaryReadyText(allFrameText)) return { status: "ready" };
 
-  if (!allFrameText.includes("일일출역집계")) {
+  if (!DAILY_ATTENDANCE_MENU_RE.test(allFrameText)) {
     await hoverTextInAnyFrame(page, "노무관리");
     await page.waitForTimeout(500);
     await clickTextInAnyFrame(page, /출역\s*관리/i).catch(async (error) => {
@@ -949,7 +985,7 @@ export async function openDailyAttendanceSummaryPage(page) {
     await page.waitForTimeout(500);
   }
 
-  await clickTextInAnyFrame(page, /일일\s*출역\s*집계/i);
+  await clickTextInAnyFrame(page, DAILY_ATTENDANCE_MENU_RE);
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
   return { status: "ready" };
 }
@@ -1440,9 +1476,9 @@ export async function uploadDailyAttendanceExtraWorkWorkbook({
         siteName: siteDefinition?.xerpSiteName,
         date: normalizedDate,
         startedAtMs,
-        mode: "login-required",
+        mode: "manual-required",
         profileDir,
-        message: "열린 XERP 창에서 로그인 또는 메뉴 상태를 확인한 뒤 다시 시도하세요.",
+        message: `XERP 로그인은 열려 있지만 일일출역집계 메뉴를 자동으로 찾지 못했습니다. 열린 XERP 창에서 노무관리 > 출역관리 > 일일출역집계 화면을 열어둔 뒤 다시 XERP로 내보내기를 눌러주세요. (${error.message})`,
       };
     }
     throw normalizePlaywrightError(error);

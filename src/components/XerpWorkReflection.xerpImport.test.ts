@@ -21,6 +21,7 @@ describe("XerpWorkReflection XERP daily attendance import wiring", () => {
     expect(source).toContain("handleXerpWorkExport");
     expect(source).toContain("XERP로 내보내기");
     expect(source).toContain("buildAdjustedWorkbookBuffer");
+    expect(source).toContain('result.mode === "login-required" || result.mode === "manual-required"');
   });
 
   it("uses the selected work date for the XERP query and loaded work date", () => {
