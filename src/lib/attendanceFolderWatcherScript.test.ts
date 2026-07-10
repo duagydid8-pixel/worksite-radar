@@ -6,7 +6,7 @@ import { DEFAULT_WATCH_DIR, classifyAttendanceFile, scanWatchDir, selectSourceFi
 
 describe("attendance folder watcher file selection", () => {
   it("defaults to the P4-PH4 attendance folder under Desktop 모음", () => {
-    expect(DEFAULT_WATCH_DIR).toBe("C:\\Users\\bongryong\\Desktop\\모음\\염효양\\P4-PH4\\8. 상용,현채,서드 근태관리");
+    expect(DEFAULT_WATCH_DIR).toBe("C:\\Users\\bongryong\\Desktop\\모음\\염효양\\8. 상용,현채,서드 근태관리");
   });
 
   it("classifies fingerprint and XERP Excel files", () => {
