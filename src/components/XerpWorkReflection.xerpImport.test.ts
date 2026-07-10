@@ -32,6 +32,7 @@ describe("XerpWorkReflection XERP daily attendance import wiring", () => {
   it("waits for a manually downloaded workbook when XERP needs manual menu navigation", () => {
     expect(source).toContain('session.mode === "manual-required"');
     expect(source).toContain('session.mode === "login-required" || session.mode === "manual-required"');
+    expect(source).toContain("XERP 전용 창");
     expect(source).toContain("waitForLatestXerpDailyAttendanceFile(");
     expect(source).toContain("syncSite,");
     expect(source).toContain("workDate,");

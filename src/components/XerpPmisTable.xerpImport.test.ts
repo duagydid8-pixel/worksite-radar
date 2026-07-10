@@ -30,6 +30,7 @@ describe("XerpPmisTable XERP daily attendance import wiring", () => {
   it("shows the local helper message when XERP login is required", () => {
     expect(source).toContain("session.message");
     expect(source).toContain('session.mode === "login-required" || session.mode === "manual-required"');
+    expect(source).toContain("XERP 전용 창");
   });
 
   it("adds a visible XERP import command near the PMIS upload controls", () => {

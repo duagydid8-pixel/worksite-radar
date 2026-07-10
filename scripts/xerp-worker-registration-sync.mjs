@@ -289,6 +289,51 @@ async function isExtensionlessWorkbookDownload(filePath, fileName, startedAtMs) 
   return Boolean(buffer && buffer[0] === 0x50 && buffer[1] === 0x4b);
 }
 
+function extractXerpPhaseSiteKeys(text) {
+  const siteKeys = [];
+  const value = String(text ?? "");
+  const matches = value.matchAll(/P([45])[\s._-]*PH?[\s._-]*(\d)/gi);
+  for (const match of matches) {
+    siteKeys.push(`P${match[1]}PH${match[2]}`.toUpperCase());
+  }
+  return siteKeys;
+}
+
+function getExpectedDailyAttendanceSiteKey(site) {
+  const siteDefinition = XERP_WORKER_REGISTRATION_SITES[site];
+  if (!siteDefinition) return null;
+  return extractXerpPhaseSiteKeys(`${siteDefinition.label} ${siteDefinition.xerpSiteName}`)[0] || null;
+}
+
+function dailyAttendanceWorkbookMatchesDominantSite(buffer, site) {
+  const expectedSiteKey = getExpectedDailyAttendanceSiteKey(site);
+  if (!expectedSiteKey) return true;
+
+  let workbook;
+  try {
+    workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
+  } catch {
+    return false;
+  }
+
+  const counts = new Map();
+  for (const sheetName of workbook.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, raw: false, defval: "" });
+    for (const row of rows) {
+      for (const cell of row) {
+        for (const siteKey of extractXerpPhaseSiteKeys(cell)) {
+          counts.set(siteKey, (counts.get(siteKey) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  if (counts.size === 0) return true;
+  const expectedCount = counts.get(expectedSiteKey) || 0;
+  const dominantCount = Math.max(...counts.values());
+  return expectedCount > 0 && expectedCount >= dominantCount;
+}
+
 export async function collectWorkerRegistrationCandidates({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   site,
@@ -358,16 +403,23 @@ async function collectDailyAttendanceSummaryCandidates({
     if (!fileStat) continue;
 
     const hasDailyAttendanceName = isDailyAttendanceSummaryWorkbookName(entry.name);
+    let isExtensionlessDownload = false;
     if (hasDailyAttendanceName) {
       if (fileStat.mtimeMs < startedAtMs) continue;
     } else {
       if (fileStat.mtimeMs < startedAtMs - EXTENSIONLESS_WORKBOOK_DOWNLOAD_GRACE_MS) continue;
       if (!await isExtensionlessWorkbookDownload(filePath, entry.name, startedAtMs)) continue;
+      isExtensionlessDownload = true;
     }
 
     const upperName = entry.name.toUpperCase();
     const extractedDate = extractDailyAttendanceDateFromFileName(entry.name);
     if (requestedDate && extractedDate && extractedDate !== requestedDate) continue;
+    if (isExtensionlessDownload && site) {
+      const buffer = await readFile(filePath).catch(() => null);
+      if (!buffer || !dailyAttendanceWorkbookMatchesDominantSite(buffer, site)) continue;
+    }
+
     const nameContainsSite = Boolean(
       siteDefinition &&
         (entry.name.includes(siteDefinition.xerpSiteName) ||
@@ -775,7 +827,7 @@ export async function openXerpLoginWindow({
       mode: "login-window",
       startedAtMs,
       profileDir,
-      message: "XERP 로그인 창을 열었습니다. 로그인 후 XERP 가져오기를 눌러주세요.",
+      message: "XERP 전용 창(Chrome for Testing)을 열었습니다. 일반 Chrome이 아니라 이 창에서 로그인한 뒤 XERP 가져오기를 눌러주세요.",
     };
   } catch (error) {
     throw normalizePlaywrightError(error);
@@ -794,6 +846,8 @@ export async function getXerpLoginStatus({ page } = {}) {
   }
 
   let textSnapshot = "";
+  const title = await Promise.resolve(activePage.title?.()).catch(() => "");
+  if (title) textSnapshot += `\n${title}`;
   const frames = typeof activePage.frames === "function" ? activePage.frames() : [];
   for (const frame of frames) {
     const frameText = await Promise.resolve(frame.locator?.("body")?.innerText?.({ timeout: 1500 })).catch(() => "");
@@ -857,8 +911,9 @@ export async function openWorkerRegistrationPage(page) {
   await page.goto(buildXerpWorkerRegistrationUrl(), { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
 
+  const title = await Promise.resolve(page.title?.()).catch(() => "");
   const bodyText = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "");
-  if (isLoginLikelyRequired(bodyText)) return { status: "login-required" };
+  if (isLoginLikelyRequired(`${title}\n${bodyText}`)) return { status: "login-required" };
   if (/근로자\s*등록/.test(bodyText)) return { status: "ready" };
 
   await clickTextInAnyFrame(page, "노무관리");
@@ -870,6 +925,9 @@ export async function openWorkerRegistrationPage(page) {
 export async function openDailyAttendanceSummaryPage(page) {
   await page.goto(buildXerpWorkerRegistrationUrl(), { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+
+  const title = await Promise.resolve(page.title?.()).catch(() => "");
+  if (isLoginLikelyRequired(title)) return { status: "login-required" };
 
   let allFrameText = "";
   for (const frame of page.frames()) {

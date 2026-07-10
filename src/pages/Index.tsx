@@ -486,7 +486,7 @@ const Index = () => {
     setXerpLoginStatus("checking");
     try {
       const result = await requestXerpLoginWindowOpen();
-      toast.success(result.message || "XERP 로그인 창을 열었습니다. 로그인 후 XERP 가져오기를 눌러주세요.");
+      toast.success(result.message || "XERP 전용 창(Chrome for Testing)을 열었습니다. 일반 Chrome이 아니라 이 창에서 로그인한 뒤 XERP 가져오기를 눌러주세요.");
       void checkXerpLoginStatus();
     } catch (error) {
       setXerpLoginStatus("unavailable");

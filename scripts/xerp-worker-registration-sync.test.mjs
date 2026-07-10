@@ -62,6 +62,16 @@ function createWorkerRegistrationWorkbookBuffer(siteName) {
   return XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
 }
 
+function createDailyAttendanceWorkbookBuffer(siteNames) {
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["팀명", "현장명", "퇴근 현장명"],
+    ...siteNames.map((siteName, index) => [`팀${index + 1}`, siteName, siteName]),
+  ]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "일일출역 집계");
+  return XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+}
+
 describe("xerp-worker-registration-sync server defaults", () => {
   it("uses a dedicated default port that does not conflict with the RCM image server", () => {
     expect(DEFAULT_XERP_WORKER_REGISTRATION_PORT).toBe(8793);
@@ -247,6 +257,36 @@ describe("xerp-worker-registration-sync file scanner", () => {
     }
   });
 
+  it("does not select extensionless daily attendance workbooks dominated by another site", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-wrong-site-"));
+    try {
+      const extensionless = path.join(dir, "7568b3c9-fb7b-4d81-91b6-d4d3b69867b6");
+      await writeFile(
+        extensionless,
+        createDailyAttendanceWorkbookBuffer([
+          "평택 P4-Ph3 초순수",
+          "평택 P4-Ph3 초순수",
+          "평택 P4-Ph3 초순수",
+          "평택 P4-PH4 초순수",
+        ]),
+      );
+
+      const base = new Date("2026-07-10T05:50:00.000Z");
+      await utimes(extensionless, new Date(base.getTime() + 60_000), new Date(base.getTime() + 60_000));
+
+      const scanned = await scanDailyAttendanceSummaryDownloads({
+        downloadsDir: dir,
+        site: "PH4",
+        date: "2026-07-10",
+        startedAtMs: base.getTime(),
+      });
+
+      expect(scanned.found).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("scans daily attendance downloads and returns base64 workbook content", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-scan-"));
     try {
@@ -407,6 +447,50 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
       ok: true,
       status: "logged-in",
       loggedIn: true,
+    });
+  });
+
+  it("detects a login page from the XERP page title when body text is empty", async () => {
+    const page = {
+      title: vi.fn().mockResolvedValue("로그인"),
+      frames: () => [
+        {
+          locator: () => ({
+            innerText: vi.fn().mockResolvedValue(""),
+          }),
+        },
+      ],
+      locator: () => ({
+        innerText: vi.fn().mockResolvedValue(""),
+      }),
+    };
+
+    await expect(getXerpLoginStatus({ page })).resolves.toMatchObject({
+      ok: true,
+      status: "login-required",
+      loggedIn: false,
+    });
+  });
+
+  it("does not try to open daily attendance menus from the XERP login page", async () => {
+    const page = {
+      goto: vi.fn().mockResolvedValue(undefined),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      title: vi.fn().mockResolvedValue("로그인"),
+      frames: () => [
+        {
+          locator: () => ({
+            innerText: vi.fn().mockResolvedValue(""),
+          }),
+        },
+      ],
+      locator: () => ({
+        innerText: vi.fn().mockResolvedValue(""),
+      }),
+    };
+
+    await expect(openDailyAttendanceSummaryPage(page)).resolves.toEqual({
+      status: "login-required",
     });
   });
 

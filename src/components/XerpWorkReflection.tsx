@@ -785,7 +785,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const session = await requestXerpDailyAttendanceDownload(syncSite, workDate);
       const waitsForManualDownload = session.mode === "login-required" || session.mode === "manual-required";
       if (waitsForManualDownload) {
-        toast.info("열린 XERP 창에서 직접 일일출역집계 엑셀을 다운로드하면 자동 반영합니다. 3분간 기다립니다.");
+        toast.info("XERP 전용 창(Chrome for Testing)에서 직접 일일출역집계 엑셀을 다운로드하면 자동 반영합니다. 3분간 기다립니다.");
       }
       if (!waitsForManualDownload && session.mode !== "downloaded") {
         toast.info(session.message || `XERP 처리 상태: ${session.mode}`);
@@ -800,7 +800,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       );
       if (!latest.found || !latest.file) {
         if (waitsForManualDownload) {
-          toast.error("XERP 창에서 직접 다운로드한 일일출역집계 엑셀을 찾지 못했습니다.");
+          toast.error("XERP 전용 창에서 직접 다운로드한 일일출역집계 엑셀을 찾지 못했습니다.");
           return;
         }
         toast.error("다운로드된 일일출역집계 엑셀을 찾지 못했습니다.");
