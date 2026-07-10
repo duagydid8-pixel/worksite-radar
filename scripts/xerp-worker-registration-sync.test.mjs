@@ -174,6 +174,79 @@ describe("xerp-worker-registration-sync file scanner", () => {
     }
   });
 
+  it("does not select daily attendance workbooks with a different filename date", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-wrong-date-"));
+    try {
+      const wrongDate = path.join(dir, "일일출력_20260709_평택 P4-PH4 초순수.xlsx");
+      await writeFile(wrongDate, "wrong-date");
+
+      const selected = await selectLatestDailyAttendanceSummaryFile({
+        downloadsDir: dir,
+        site: "PH4",
+        date: "2026-07-10",
+        startedAtMs: 0,
+      });
+
+      expect(selected).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scans extensionless Chrome daily attendance workbook downloads from the current session", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-extensionless-"));
+    try {
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["성명"], ["테스트"]]), "일일출역");
+      const buffer = Buffer.from(XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }));
+      const extensionless = path.join(dir, "7568b3c9-fb7b-4d81-91b6-d4d3b69867b6");
+      await writeFile(extensionless, buffer);
+
+      const base = new Date("2026-07-10T05:50:00.000Z");
+      await utimes(extensionless, new Date(base.getTime() + 60_000), new Date(base.getTime() + 60_000));
+
+      const scanned = await scanDailyAttendanceSummaryDownloads({
+        downloadsDir: dir,
+        site: "PH4",
+        date: "2026-07-10",
+        startedAtMs: base.getTime(),
+      });
+
+      expect(scanned.found).toBe(true);
+      expect(scanned.file.fileName).toBe("7568b3c9-fb7b-4d81-91b6-d4d3b69867b6");
+      expect(Buffer.from(scanned.file.base64, "base64").subarray(0, 2).toString("utf8")).toBe("PK");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scans recent extensionless daily attendance workbook downloads after a helper restart", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-extensionless-restart-"));
+    try {
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["성명"], ["테스트"]]), "일일출역");
+      const buffer = Buffer.from(XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }));
+      const extensionless = path.join(dir, "6095d73b-90a6-4367-acc6-7fcc1e1e6fca");
+      await writeFile(extensionless, buffer);
+
+      const downloadedAt = new Date("2026-07-10T05:58:00.000Z");
+      const restartedAt = new Date("2026-07-10T06:23:00.000Z");
+      await utimes(extensionless, downloadedAt, downloadedAt);
+
+      const scanned = await scanDailyAttendanceSummaryDownloads({
+        downloadsDir: dir,
+        site: "PH4",
+        date: "2026-07-10",
+        startedAtMs: restartedAt.getTime(),
+      });
+
+      expect(scanned.found).toBe(true);
+      expect(scanned.file.fileName).toBe("6095d73b-90a6-4367-acc6-7fcc1e1e6fca");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("scans daily attendance downloads and returns base64 workbook content", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-scan-"));
     try {

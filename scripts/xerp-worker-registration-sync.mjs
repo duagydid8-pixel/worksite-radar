@@ -19,6 +19,7 @@ export const DEFAULT_XERP_LOGIN_POLL_MS = Number(process.env.XERP_LOGIN_POLL_MS 
 
 const WORKER_REGISTRATION_WORKBOOK_RE = /^근로자\s*등록_.*\.(xlsx|xls)$/i;
 const DAILY_ATTENDANCE_KEYWORDS = ["일일출역집계", "일일출역", "일일출력"];
+const EXTENSIONLESS_WORKBOOK_DOWNLOAD_GRACE_MS = 30 * 60 * 1000;
 
 export const XERP_WORKER_REGISTRATION_SITES = {
   PH4: { key: "PH4", label: "P4-PH4", xerpSiteName: "평택 P4-PH4 초순수" },
@@ -278,6 +279,16 @@ export function isDailyAttendanceSummaryWorkbookName(fileName) {
   return DAILY_ATTENDANCE_KEYWORDS.some((keyword) => base.includes(keyword));
 }
 
+async function isExtensionlessWorkbookDownload(filePath, fileName, startedAtMs) {
+  const base = path.basename(String(fileName ?? ""));
+  if (!base || base.startsWith("~$")) return false;
+  if (startedAtMs <= 0) return false;
+  if (path.extname(base)) return false;
+
+  const buffer = await readFile(filePath).catch(() => null);
+  return Boolean(buffer && buffer[0] === 0x50 && buffer[1] === 0x4b);
+}
+
 export async function collectWorkerRegistrationCandidates({
   downloadsDir = DEFAULT_DOWNLOADS_DIR,
   site,
@@ -341,14 +352,22 @@ async function collectDailyAttendanceSummaryCandidates({
   const siteDefinition = XERP_WORKER_REGISTRATION_SITES[site];
 
   for (const entry of entries) {
-    if (!entry.isFile() || !isDailyAttendanceSummaryWorkbookName(entry.name)) continue;
-
+    if (!entry.isFile()) continue;
     const filePath = path.join(downloadsDir, entry.name);
     const fileStat = await stat(filePath).catch(() => null);
-    if (!fileStat || fileStat.mtimeMs < startedAtMs) continue;
+    if (!fileStat) continue;
+
+    const hasDailyAttendanceName = isDailyAttendanceSummaryWorkbookName(entry.name);
+    if (hasDailyAttendanceName) {
+      if (fileStat.mtimeMs < startedAtMs) continue;
+    } else {
+      if (fileStat.mtimeMs < startedAtMs - EXTENSIONLESS_WORKBOOK_DOWNLOAD_GRACE_MS) continue;
+      if (!await isExtensionlessWorkbookDownload(filePath, entry.name, startedAtMs)) continue;
+    }
 
     const upperName = entry.name.toUpperCase();
     const extractedDate = extractDailyAttendanceDateFromFileName(entry.name);
+    if (requestedDate && extractedDate && extractedDate !== requestedDate) continue;
     const nameContainsSite = Boolean(
       siteDefinition &&
         (entry.name.includes(siteDefinition.xerpSiteName) ||
