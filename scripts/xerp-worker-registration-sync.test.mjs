@@ -257,7 +257,38 @@ describe("xerp-worker-registration-sync file scanner", () => {
     }
   });
 
-  it("does not select extensionless daily attendance workbooks dominated by another site", async () => {
+  it("selects extensionless daily attendance workbooks that include the requested site", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-mixed-site-"));
+    try {
+      const extensionless = path.join(dir, "6703759b-e173-49ca-9dce-a59aff6a7813");
+      await writeFile(
+        extensionless,
+        createDailyAttendanceWorkbookBuffer([
+          "평택 P4-Ph3 초순수",
+          "평택 P4-Ph3 초순수",
+          "P4 Ph.3_초순수_Field 1F",
+          "평택 P4-PH4 초순수",
+        ]),
+      );
+
+      const base = new Date("2026-07-10T07:05:00.000Z");
+      await utimes(extensionless, new Date(base.getTime() + 60_000), new Date(base.getTime() + 60_000));
+
+      const scanned = await scanDailyAttendanceSummaryDownloads({
+        downloadsDir: dir,
+        site: "PH4",
+        date: "2026-07-10",
+        startedAtMs: base.getTime(),
+      });
+
+      expect(scanned.found).toBe(true);
+      expect(scanned.file.fileName).toBe("6703759b-e173-49ca-9dce-a59aff6a7813");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not select extensionless daily attendance workbooks without the requested site", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "xerp-daily-attendance-wrong-site-"));
     try {
       const extensionless = path.join(dir, "7568b3c9-fb7b-4d81-91b6-d4d3b69867b6");
@@ -267,7 +298,6 @@ describe("xerp-worker-registration-sync file scanner", () => {
           "평택 P4-Ph3 초순수",
           "평택 P4-Ph3 초순수",
           "평택 P4-Ph3 초순수",
-          "평택 P4-PH4 초순수",
         ]),
       );
 

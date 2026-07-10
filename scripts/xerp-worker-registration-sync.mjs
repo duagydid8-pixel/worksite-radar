@@ -306,7 +306,7 @@ function getExpectedDailyAttendanceSiteKey(site) {
   return extractXerpPhaseSiteKeys(`${siteDefinition.label} ${siteDefinition.xerpSiteName}`)[0] || null;
 }
 
-function dailyAttendanceWorkbookMatchesDominantSite(buffer, site) {
+function dailyAttendanceWorkbookIncludesSite(buffer, site) {
   const expectedSiteKey = getExpectedDailyAttendanceSiteKey(site);
   if (!expectedSiteKey) return true;
 
@@ -330,9 +330,7 @@ function dailyAttendanceWorkbookMatchesDominantSite(buffer, site) {
   }
 
   if (counts.size === 0) return true;
-  const expectedCount = counts.get(expectedSiteKey) || 0;
-  const dominantCount = Math.max(...counts.values());
-  return expectedCount > 0 && expectedCount >= dominantCount;
+  return (counts.get(expectedSiteKey) || 0) > 0;
 }
 
 export async function collectWorkerRegistrationCandidates({
@@ -418,7 +416,7 @@ async function collectDailyAttendanceSummaryCandidates({
     if (requestedDate && extractedDate && extractedDate !== requestedDate) continue;
     if (isExtensionlessDownload && site) {
       const buffer = await readFile(filePath).catch(() => null);
-      if (!buffer || !dailyAttendanceWorkbookMatchesDominantSite(buffer, site)) continue;
+      if (!buffer || !dailyAttendanceWorkbookIncludesSite(buffer, site)) continue;
     }
 
     const nameContainsSite = Boolean(
