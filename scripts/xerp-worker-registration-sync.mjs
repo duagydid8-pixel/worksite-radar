@@ -877,28 +877,89 @@ export async function openDailyAttendanceSummaryPage(page) {
   return { status: "ready" };
 }
 
+function normalizeXerpSiteOptionText(text = "") {
+  return String(text).replace(/[\s\-_/]+/g, "").trim().toLowerCase();
+}
+
+function isMatchingXerpSiteOption(text, siteDefinition) {
+  const actual = normalizeXerpSiteOptionText(text);
+  const expected = normalizeXerpSiteOptionText(siteDefinition?.xerpSiteName || "");
+  return !!actual && !!expected && (actual.includes(expected) || expected.includes(actual));
+}
+
+function xerpSiteTextRegex(siteName) {
+  const escaped = String(siteName || "")
+    .trim()
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/[\s\-_/]+/g, "[\\s\\-_/]*");
+  return new RegExp(escaped, "i");
+}
+
+async function clickMatchingXerpSiteTextInAnyFrame(page, siteDefinition, timeout = 700) {
+  const matcher = xerpSiteTextRegex(siteDefinition.xerpSiteName);
+  for (const frame of page.frames()) {
+    const siteText = frame.getByText(matcher, { exact: false }).first();
+    if (await siteText.isVisible({ timeout }).catch(() => false)) {
+      await siteText.click();
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function selectXerpSiteInAnyFrame(page, siteDefinition) {
   for (const frame of page.frames()) {
     const selects = frame.locator("select");
     const count = await selects.count().catch(() => 0);
     for (let i = 0; i < count; i += 1) {
       const select = selects.nth(i);
-      const optionTexts = await select
+      const options = await select
         .locator("option")
-        .evaluateAll((options) => options.map((option) => option.textContent?.trim() || ""))
+        .evaluateAll((options) =>
+          options.map((option, index) => ({
+            index,
+            text: option.textContent?.trim() || "",
+            value: option.value || "",
+          })),
+        )
         .catch(() => []);
-      if (optionTexts.includes(siteDefinition.xerpSiteName)) {
-        await select.selectOption({ label: siteDefinition.xerpSiteName });
+      const matched = options.find((option) => isMatchingXerpSiteOption(option.text, siteDefinition));
+      if (matched) {
+        if (matched.value) {
+          await select.selectOption({ value: matched.value });
+        } else {
+          await select.selectOption({ index: matched.index });
+        }
         return true;
       }
     }
   }
 
+  if (await clickMatchingXerpSiteTextInAnyFrame(page, siteDefinition, 1000)) return true;
+
+  const comboSelector = [
+    '[role="combobox"]',
+    '[aria-haspopup="listbox"]',
+    ".combo-arrow",
+    ".combo-text",
+    ".select2-selection",
+    ".select2-selection__rendered",
+    'input:not([type="hidden"]):not([disabled])',
+    'button:not([disabled])',
+  ].join(",");
+
   for (const frame of page.frames()) {
-    const siteText = frame.getByText(siteDefinition.xerpSiteName, { exact: true }).first();
-    if (await siteText.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await siteText.click();
-      return true;
+    const triggers = frame.locator(comboSelector);
+    const count = Math.min(await triggers.count().catch(() => 0), 12);
+    for (let i = 0; i < count; i += 1) {
+      const trigger = triggers.nth(i);
+      if (!(await trigger.isVisible({ timeout: 300 }).catch(() => false))) continue;
+      await trigger.click({ timeout: 1000 }).catch(() => undefined);
+      await page.waitForTimeout?.(250);
+      if (await clickMatchingXerpSiteTextInAnyFrame(page, siteDefinition, 500)) return true;
+      await trigger.fill?.(siteDefinition.xerpSiteName, { timeout: 1000 }).catch(() => undefined);
+      await page.waitForTimeout?.(250);
+      if (await clickMatchingXerpSiteTextInAnyFrame(page, siteDefinition, 500)) return true;
     }
   }
 

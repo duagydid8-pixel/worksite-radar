@@ -21,6 +21,7 @@ import {
   openDailyAttendanceSummaryPage,
   openXerpLoginWindow,
   scanDailyAttendanceSummaryDownloads,
+  selectXerpSiteInAnyFrame,
   scanWorkerRegistrationDownloads,
   selectLatestDailyAttendanceSummaryFile,
   selectLatestWorkerRegistrationFile,
@@ -591,6 +592,78 @@ describe("xerp-worker-registration-sync browser automation helpers", () => {
       "click:/출역\\s*관리/i",
       "click:/일일\\s*출역\\s*집계/i",
     ]);
+  });
+
+  it("selects an XERP site from a native select with flexible spacing", async () => {
+    const selectOption = vi.fn().mockResolvedValue(undefined);
+    const select = {
+      locator: vi.fn(() => ({
+        evaluateAll: vi.fn().mockResolvedValue([
+          { index: 0, text: "전체", value: "" },
+          { index: 1, text: "평택 P4 PH4 초순수", value: "10037" },
+        ]),
+      })),
+      selectOption,
+    };
+    const frame = {
+      locator: vi.fn((selector) => {
+        if (selector === "select") {
+          return {
+            count: vi.fn().mockResolvedValue(1),
+            nth: vi.fn(() => select),
+          };
+        }
+        return { count: vi.fn().mockResolvedValue(0) };
+      }),
+      getByText: vi.fn(() => ({
+        first: () => ({
+          isVisible: vi.fn().mockResolvedValue(false),
+        }),
+      })),
+    };
+    const page = { frames: vi.fn(() => [frame]) };
+
+    await expect(selectXerpSiteInAnyFrame(page, { xerpSiteName: "평택 P4-PH4 초순수" })).resolves.toBe(true);
+    expect(selectOption).toHaveBeenCalledWith({ value: "10037" });
+  });
+
+  it("opens a custom XERP site combobox before selecting the visible site option", async () => {
+    let dropdownOpen = false;
+    const openCombo = vi.fn(async () => {
+      dropdownOpen = true;
+    });
+    const clickSite = vi.fn().mockResolvedValue(undefined);
+    const frame = {
+      locator: vi.fn((selector) => {
+        if (selector === "select") {
+          return {
+            count: vi.fn().mockResolvedValue(0),
+          };
+        }
+        return {
+          count: vi.fn().mockResolvedValue(1),
+          nth: vi.fn(() => ({
+            isVisible: vi.fn().mockResolvedValue(true),
+            click: openCombo,
+            fill: vi.fn().mockResolvedValue(undefined),
+          })),
+        };
+      }),
+      getByText: vi.fn(() => ({
+        first: () => ({
+          isVisible: vi.fn(async () => dropdownOpen),
+          click: clickSite,
+        }),
+      })),
+    };
+    const page = {
+      frames: vi.fn(() => [frame]),
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await expect(selectXerpSiteInAnyFrame(page, { xerpSiteName: "평택 P4-PH4 초순수" })).resolves.toBe(true);
+    expect(openCombo).toHaveBeenCalled();
+    expect(clickSite).toHaveBeenCalled();
   });
 });
 
