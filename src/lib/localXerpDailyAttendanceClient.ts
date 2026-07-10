@@ -1,6 +1,6 @@
 import {
   decodeBase64Workbook,
-  getXerpWorkerRegistrationServerUrl,
+  fetchXerpHelperOrThrow,
 } from "./localXerpWorkerRegistrationClient";
 import type { XerpWorkerRegistrationSite } from "./xerpWorkerRegistration";
 
@@ -63,10 +63,6 @@ export type XerpDailyAttendanceExtraWorkUploadPayload = {
 
 export { decodeBase64Workbook };
 
-function buildXerpDailyAttendanceUrl(path: string) {
-  return `${getXerpWorkerRegistrationServerUrl()}${path}`;
-}
-
 async function readJsonOrThrow<T>(response: Response, actionLabel: string): Promise<T> {
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -80,7 +76,10 @@ async function readJsonOrThrow<T>(response: Response, actionLabel: string): Prom
 }
 
 export async function fetchXerpDailyAttendanceStatus() {
-  const response = await fetch(buildXerpDailyAttendanceUrl("/xerp-daily-attendance/status"));
+  const response = await fetchXerpHelperOrThrow(
+    "/xerp-daily-attendance/status",
+    "XERP 일일출역집계 상태 확인",
+  );
   return readJsonOrThrow<LocalXerpDailyAttendanceStatus>(response, "XERP 일일출역집계 상태 확인");
 }
 
@@ -88,11 +87,15 @@ export async function requestXerpDailyAttendanceDownload(
   site: XerpDailyAttendanceSite,
   date: string,
 ) {
-  const response = await fetch(buildXerpDailyAttendanceUrl("/xerp-daily-attendance/download"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ site, date }),
-  });
+  const response = await fetchXerpHelperOrThrow(
+    "/xerp-daily-attendance/download",
+    "XERP 일일출역집계 다운로드 요청",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site, date }),
+    },
+  );
   return readJsonOrThrow<LocalXerpDailyAttendanceDownloadResponse>(
     response,
     "XERP 일일출역집계 다운로드 요청",
@@ -104,11 +107,15 @@ export async function requestXerpDailyAttendanceExtraWorkUpload(
   date: string,
   payload: XerpDailyAttendanceExtraWorkUploadPayload,
 ) {
-  const response = await fetch(buildXerpDailyAttendanceUrl("/xerp-daily-attendance/upload-extra-work"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ site, date, ...payload }),
-  });
+  const response = await fetchXerpHelperOrThrow(
+    "/xerp-daily-attendance/upload-extra-work",
+    "XERP 가산공수 업로드 요청",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site, date, ...payload }),
+    },
+  );
   return readJsonOrThrow<LocalXerpDailyAttendanceExtraWorkUploadResponse>(
     response,
     "XERP 가산공수 업로드 요청",
@@ -125,8 +132,9 @@ export async function fetchLatestXerpDailyAttendanceFile(
     date,
     startedAtMs: String(startedAtMs),
   });
-  const response = await fetch(
-    buildXerpDailyAttendanceUrl(`/xerp-daily-attendance/latest?${query.toString()}`),
+  const response = await fetchXerpHelperOrThrow(
+    `/xerp-daily-attendance/latest?${query.toString()}`,
+    "XERP 일일출역집계 엑셀 조회",
   );
   return readJsonOrThrow<LocalXerpDailyAttendanceLatestResponse>(
     response,

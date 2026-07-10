@@ -1,9 +1,12 @@
 import type { XerpWorkerRegistrationSite } from "./xerpWorkerRegistration";
+import { requestLocalServicesStart } from "./localServicesLauncher";
 
 export const DEFAULT_XERP_WORKER_REGISTRATION_SERVER_URL = "http://127.0.0.1:8793";
 const LEGACY_XERP_WORKER_REGISTRATION_SERVER_URL = "http://127.0.0.1:8791";
 export const XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY =
   "worksite-radar:xerp-worker-registration-server-url";
+const DEFAULT_XERP_HELPER_RETRY_COUNT = 12;
+const DEFAULT_XERP_HELPER_RETRY_DELAY_MS = 250;
 
 export type LocalXerpWorkerRegistrationStatus = {
   ok: true;
@@ -93,6 +96,16 @@ function buildXerpWorkerRegistrationUrl(path: string) {
   return `${getXerpWorkerRegistrationServerUrl()}${path}`;
 }
 
+type FetchXerpHelperOptions = {
+  launchLocalServices?: () => void;
+  retryCount?: number;
+  retryDelayMs?: number;
+};
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 async function fetchXerpWorkerRegistrationOrThrow(
   path: string,
   actionLabel: string,
@@ -108,8 +121,40 @@ async function fetchXerpWorkerRegistrationOrThrow(
   }
 }
 
+export async function fetchXerpHelperOrThrow(
+  path: string,
+  actionLabel: string,
+  init?: RequestInit,
+  options: FetchXerpHelperOptions = {},
+) {
+  try {
+    return await fetchXerpWorkerRegistrationOrThrow(path, actionLabel, init);
+  } catch (firstError) {
+    const retryCount = options.retryCount ?? DEFAULT_XERP_HELPER_RETRY_COUNT;
+    const retryDelayMs = options.retryDelayMs ?? DEFAULT_XERP_HELPER_RETRY_DELAY_MS;
+    const launchLocalServices = options.launchLocalServices ?? requestLocalServicesStart;
+
+    try {
+      launchLocalServices();
+    } catch {
+      // The Windows protocol may not be registered yet.
+    }
+
+    for (let attempt = 0; attempt < retryCount; attempt += 1) {
+      if (attempt > 0 && retryDelayMs > 0) await wait(retryDelayMs);
+      try {
+        return await fetchXerpWorkerRegistrationOrThrow(path, actionLabel, init);
+      } catch {
+        // Keep polling while the local helper starts.
+      }
+    }
+
+    throw firstError;
+  }
+}
+
 export async function fetchXerpWorkerRegistrationStatus() {
-  const response = await fetchXerpWorkerRegistrationOrThrow(
+  const response = await fetchXerpHelperOrThrow(
     "/xerp-worker-registration/status",
     "XERP 연동 상태 확인",
   );
@@ -117,7 +162,7 @@ export async function fetchXerpWorkerRegistrationStatus() {
 }
 
 export async function requestXerpWorkerRegistrationDownload(site: XerpWorkerRegistrationSite) {
-  const response = await fetchXerpWorkerRegistrationOrThrow(
+  const response = await fetchXerpHelperOrThrow(
     "/xerp-worker-registration/download",
     "XERP 다운로드 요청",
     {
@@ -131,7 +176,7 @@ export async function requestXerpWorkerRegistrationDownload(site: XerpWorkerRegi
 
 export async function requestXerpLoginWindowOpen() {
   try {
-    const response = await fetchXerpWorkerRegistrationOrThrow(
+    const response = await fetchXerpHelperOrThrow(
       "/xerp-login/open",
       "XERP 로그인 창 열기",
       { method: "POST" },
@@ -155,7 +200,7 @@ export async function requestXerpLoginWindowOpen() {
 }
 
 export async function fetchXerpLoginStatus() {
-  const response = await fetchXerpWorkerRegistrationOrThrow(
+  const response = await fetchXerpHelperOrThrow(
     "/xerp-login/status",
     "XERP 로그인 상태 확인",
   );
@@ -170,7 +215,7 @@ export async function fetchLatestXerpWorkerRegistrationFile(
     site,
     startedAtMs: String(startedAtMs),
   });
-  const response = await fetchXerpWorkerRegistrationOrThrow(
+  const response = await fetchXerpHelperOrThrow(
     `/xerp-worker-registration/latest?${query.toString()}`,
     "XERP 엑셀 조회",
   );

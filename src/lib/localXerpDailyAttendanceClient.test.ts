@@ -129,4 +129,26 @@ describe("localXerpDailyAttendanceClient", () => {
       }),
     });
   });
+
+  it("retries daily attendance download after auto-starting local services", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          site: "PH4",
+          date: "2026-06-30",
+          mode: "downloaded",
+          startedAtMs: 1782800000000,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestXerpDailyAttendanceDownload("PH4", "2026-06-30")).resolves.toMatchObject({
+      site: "PH4",
+      mode: "downloaded",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

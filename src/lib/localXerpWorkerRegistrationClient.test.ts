@@ -4,6 +4,7 @@ import {
   XERP_WORKER_REGISTRATION_SERVER_URL_STORAGE_KEY,
   decodeBase64Workbook,
   fetchLatestXerpWorkerRegistrationFile,
+  fetchXerpHelperOrThrow,
   fetchXerpLoginStatus,
   fetchXerpWorkerRegistrationStatus,
   getXerpWorkerRegistrationServerUrl,
@@ -98,6 +99,33 @@ describe("localXerpWorkerRegistrationClient", () => {
         body: JSON.stringify({ site: "PH4" }),
       },
     );
+  });
+
+  it("starts local services and retries when the XERP helper is initially unavailable", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          downloadsDir: "C:\\Users\\bongryong\\Downloads",
+          port: 8793,
+          sites: {},
+        }),
+      );
+    const launchLocalServices = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await fetchXerpHelperOrThrow(
+      "/xerp-worker-registration/status",
+      "XERP status",
+      undefined,
+      { launchLocalServices, retryCount: 2, retryDelayMs: 0 },
+    );
+
+    await expect(response.json()).resolves.toMatchObject({ ok: true, port: 8793 });
+    expect(launchLocalServices).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("requests the shared XERP login window", async () => {
