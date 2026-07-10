@@ -7,7 +7,7 @@ const source = readFileSync(resolve(process.cwd(), "src/components/XerpWorkRefle
 describe("XerpWorkReflection XERP daily attendance import wiring", () => {
   it("uses the local daily attendance client", () => {
     expect(source).toContain("requestXerpDailyAttendanceDownload");
-    expect(source).toContain("fetchLatestXerpDailyAttendanceFile");
+    expect(source).toContain("waitForLatestXerpDailyAttendanceFile");
     expect(source).toContain("decodeBase64Workbook");
   });
 
@@ -29,8 +29,12 @@ describe("XerpWorkReflection XERP daily attendance import wiring", () => {
     expect(source).toContain("const resolvedSite = forcedWorkDate ? syncSite : detectedSite");
   });
 
-  it("does not fetch the latest workbook when XERP needs manual menu navigation", () => {
+  it("waits for a manually downloaded workbook when XERP needs manual menu navigation", () => {
     expect(source).toContain('session.mode === "manual-required"');
-    expect(source).toContain('session.mode !== "downloaded"');
+    expect(source).toContain('session.mode === "login-required" || session.mode === "manual-required"');
+    expect(source).toContain("waitForLatestXerpDailyAttendanceFile(");
+    expect(source).toContain("syncSite,");
+    expect(source).toContain("workDate,");
+    expect(source).toContain("session.startedAtMs,");
   });
 });

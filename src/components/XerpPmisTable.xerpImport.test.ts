@@ -7,7 +7,7 @@ const source = readFileSync(resolve(process.cwd(), "src/components/XerpPmisTable
 describe("XerpPmisTable XERP daily attendance import wiring", () => {
   it("uses the local daily attendance client", () => {
     expect(source).toContain("requestXerpDailyAttendanceDownload");
-    expect(source).toContain("fetchLatestXerpDailyAttendanceFile");
+    expect(source).toContain("waitForLatestXerpDailyAttendanceFile");
     expect(source).toContain("decodeBase64Workbook");
   });
 
@@ -29,6 +29,7 @@ describe("XerpPmisTable XERP daily attendance import wiring", () => {
 
   it("shows the local helper message when XERP login is required", () => {
     expect(source).toContain("session.message");
+    expect(source).toContain('session.mode === "login-required" || session.mode === "manual-required"');
   });
 
   it("adds a visible XERP import command near the PMIS upload controls", () => {

@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename, upsertXerpPmisDateList } from "@/lib/xerpPmisDates";
-import { decodeBase64Workbook, fetchLatestXerpDailyAttendanceFile, requestXerpDailyAttendanceDownload, requestXerpDailyAttendanceExtraWorkUpload } from "@/lib/localXerpDailyAttendanceClient";
+import { decodeBase64Workbook, requestXerpDailyAttendanceDownload, requestXerpDailyAttendanceExtraWorkUpload, waitForLatestXerpDailyAttendanceFile } from "@/lib/localXerpDailyAttendanceClient";
 import {
   calcDiff,
   calcGongsuForWorkDate,
@@ -783,21 +783,26 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setIsXerpImporting(true);
     try {
       const session = await requestXerpDailyAttendanceDownload(syncSite, workDate);
-      if (session.mode === "login-required") {
-        toast.info(session.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP에서 가져오기를 눌러주세요.");
-        return;
+      const waitsForManualDownload = session.mode === "login-required" || session.mode === "manual-required";
+      if (waitsForManualDownload) {
+        toast.info("열린 XERP 창에서 직접 일일출역집계 엑셀을 다운로드하면 자동 반영합니다. 3분간 기다립니다.");
       }
-      if (session.mode === "manual-required") {
-        toast.error(session.message || "XERP 로그인은 확인됐지만 일일출역집계 메뉴를 자동으로 찾지 못했습니다.");
-        return;
-      }
-      if (session.mode !== "downloaded") {
+      if (!waitsForManualDownload && session.mode !== "downloaded") {
         toast.info(session.message || `XERP 처리 상태: ${session.mode}`);
         return;
       }
 
-      const latest = await fetchLatestXerpDailyAttendanceFile(syncSite, workDate, session.startedAtMs);
+      const latest = await waitForLatestXerpDailyAttendanceFile(
+        syncSite,
+        workDate,
+        session.startedAtMs,
+        waitsForManualDownload ? { attempts: 90, intervalMs: 2000 } : { attempts: 5, intervalMs: 500 },
+      );
       if (!latest.found || !latest.file) {
+        if (waitsForManualDownload) {
+          toast.error("XERP 창에서 직접 다운로드한 일일출역집계 엑셀을 찾지 못했습니다.");
+          return;
+        }
         toast.error("다운로드된 일일출역집계 엑셀을 찾지 못했습니다.");
         return;
       }

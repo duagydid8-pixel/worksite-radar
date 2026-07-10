@@ -61,7 +61,17 @@ export type XerpDailyAttendanceExtraWorkUploadPayload = {
   fileName?: string;
 };
 
+export type WaitForLatestXerpDailyAttendanceFileOptions = {
+  attempts?: number;
+  intervalMs?: number;
+};
+
 export { decodeBase64Workbook };
+
+function wait(ms: number) {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 async function readJsonOrThrow<T>(response: Response, actionLabel: string): Promise<T> {
   const payload = await response.json().catch(() => null);
@@ -140,4 +150,23 @@ export async function fetchLatestXerpDailyAttendanceFile(
     response,
     "XERP 일일출역집계 엑셀 조회",
   );
+}
+
+export async function waitForLatestXerpDailyAttendanceFile(
+  site: XerpDailyAttendanceSite,
+  date: string,
+  startedAtMs = 0,
+  options: WaitForLatestXerpDailyAttendanceFileOptions = {},
+) {
+  const attempts = Math.max(1, options.attempts ?? 90);
+  const intervalMs = Math.max(0, options.intervalMs ?? 2000);
+  let latest: LocalXerpDailyAttendanceLatestResponse | null = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) await wait(intervalMs);
+    latest = await fetchLatestXerpDailyAttendanceFile(site, date, startedAtMs);
+    if (latest.found && latest.file) return latest;
+  }
+
+  return latest ?? fetchLatestXerpDailyAttendanceFile(site, date, startedAtMs);
 }

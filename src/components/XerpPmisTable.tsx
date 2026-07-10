@@ -8,8 +8,8 @@ import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, 
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 import {
   decodeBase64Workbook,
-  fetchLatestXerpDailyAttendanceFile,
   requestXerpDailyAttendanceDownload,
+  waitForLatestXerpDailyAttendanceFile,
   type XerpDailyAttendanceSite,
 } from "@/lib/localXerpDailyAttendanceClient";
 
@@ -1302,13 +1302,27 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     try {
       const xerpSite = site as XerpDailyAttendanceSite;
       const session = await requestXerpDailyAttendanceDownload(xerpSite, uploadDate);
-      if (session.mode === "login-required") {
-        toast.info(session.message || "열린 XERP 창에서 로그인한 뒤 다시 XERP 가져오기를 눌러주세요.");
+      const waitsForManualDownload = session.mode === "login-required" || session.mode === "manual-required";
+      if (waitsForManualDownload) {
+        toast.info("열린 XERP 창에서 직접 일일출역집계 엑셀을 다운로드하면 자동 반영합니다. 3분간 기다립니다.");
+      }
+
+      if (!waitsForManualDownload && session.mode !== "downloaded") {
+        toast.info(session.message || `XERP 처리 상태: ${session.mode}`);
         return;
       }
 
-      const latest = await fetchLatestXerpDailyAttendanceFile(xerpSite, uploadDate, session.startedAtMs);
+      const latest = await waitForLatestXerpDailyAttendanceFile(
+        xerpSite,
+        uploadDate,
+        session.startedAtMs,
+        waitsForManualDownload ? { attempts: 90, intervalMs: 2000 } : { attempts: 5, intervalMs: 500 },
+      );
       if (!latest.found || !latest.file) {
+        if (waitsForManualDownload) {
+          toast.error("XERP 창에서 직접 다운로드한 일일출역집계 엑셀을 찾지 못했습니다.");
+          return;
+        }
         toast.error("다운로드된 일일출역집계 엑셀을 찾지 못했습니다.");
         return;
       }

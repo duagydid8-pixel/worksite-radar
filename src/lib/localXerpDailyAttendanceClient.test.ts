@@ -5,6 +5,7 @@ import {
   fetchXerpDailyAttendanceStatus,
   requestXerpDailyAttendanceExtraWorkUpload,
   requestXerpDailyAttendanceDownload,
+  waitForLatestXerpDailyAttendanceFile,
 } from "./localXerpDailyAttendanceClient";
 
 afterEach(() => {
@@ -98,6 +99,46 @@ describe("localXerpDailyAttendanceClient", () => {
     const decoded = new TextDecoder().decode(decodeBase64Workbook("7YWM7Iqk7Yq4"));
 
     expect(decoded).toBe("테스트");
+  });
+
+  it("waits until a manually downloaded daily attendance workbook appears", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          site: "PH4",
+          date: "2026-06-30",
+          found: false,
+          file: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          site: "PH4",
+          date: "2026-06-30",
+          found: true,
+          file: {
+            fileName: "daily.xlsx",
+            modifiedAtMs: 1782800002000,
+            size: 4,
+            base64: "dGVzdA==",
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      waitForLatestXerpDailyAttendanceFile("PH4", "2026-06-30", 1782800000000, {
+        attempts: 2,
+        intervalMs: 0,
+      }),
+    ).resolves.toMatchObject({
+      found: true,
+      file: { fileName: "daily.xlsx" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("posts the adjusted extra-work workbook to the local XERP helper", async () => {
