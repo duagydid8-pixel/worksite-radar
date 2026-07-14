@@ -8,6 +8,7 @@ import {
   isWeekendWorkDate,
   resolveLoadedAdjustment,
   resolveSyncedGasanReason,
+  resolveWritableGasanAdjustment,
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
@@ -299,14 +300,14 @@ describe("XERP work reflection saved adjustment loading", () => {
 });
 
 describe("XERP work reflection XERP&PMIS sync reasons", () => {
-  it("does not persist automatically inferred gasan reasons as saved XERP&PMIS reasons", () => {
+  it("persists automatically inferred gasan reasons as saved XERP&PMIS reasons", () => {
     const result = resolveSyncedGasanReason("", {
       reason: "1h 야간근무",
       manualAdjustment: false,
       rawOutMin: 21 * 60,
     });
 
-    expect(result).toBe("");
+    expect(result).toBe("1h 야간근무");
   });
 
   it("persists manually edited gasan reasons when syncing to XERP&PMIS", () => {
@@ -327,5 +328,46 @@ describe("XERP work reflection XERP&PMIS sync reasons", () => {
     });
 
     expect(result).toBe("원본 Z열 사유");
+  });
+});
+
+describe("XERP work reflection writable adjustment values", () => {
+  const baseRow = {
+    diff: null,
+    가산사유: "",
+    xerpGongsuA: "0.875",
+    xerpIn: "07:00",
+    xerpOut: "16:30",
+    pmisIn: "07:00",
+    pmisOut: "16:30",
+    rawInMin: 7 * 60,
+    rawOutMin: 16 * 60 + 30,
+    isLate: false,
+    standardStart: 7 * 60,
+  };
+
+  it("applies the regular safety-education early-checkout adjustment when syncing or downloading", () => {
+    const result = resolveWritableGasanAdjustment(baseRow, true);
+
+    expect(result).toEqual({
+      diff: 0.13,
+      reason: "정기안전교육으로 빠른퇴근타각",
+    });
+  });
+
+  it("keeps an automatically inferred reason for normal writable adjustments", () => {
+    const result = resolveWritableGasanAdjustment({
+      ...baseRow,
+      diff: 0.25,
+      xerpGongsuA: "1",
+      xerpOut: "18:00",
+      pmisOut: "18:00",
+      rawOutMin: 18 * 60,
+    }, false);
+
+    expect(result).toEqual({
+      diff: 0.25,
+      reason: "1h 연장근무",
+    });
   });
 });
