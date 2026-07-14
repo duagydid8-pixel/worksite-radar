@@ -103,8 +103,47 @@ export function resolveSyncedGasanReason(
   const fallbackTags = inferGasanReasonTags({ rawOutMin: processed?.rawOutMin ?? null });
   const workbookReason = cleanGasanReason(originalReason);
   if (workbookReason) return normalizeGasanReasonParentheses(workbookReason, fallbackTags);
-  if (!processed?.manualAdjustment) return "";
-  return normalizeGasanReasonParentheses(cleanGasanReason(processed.reason), fallbackTags);
+  const processedReason = cleanGasanReason(processed?.reason);
+  if (!processedReason) return "";
+  return normalizeGasanReasonParentheses(processedReason, fallbackTags);
+}
+
+export interface XerpWritableGasanRow {
+  diff: number | null;
+  가산사유?: string;
+  xerpGongsuA?: string;
+  xerpIn: string;
+  xerpOut: string;
+  pmisIn: string;
+  pmisOut?: string;
+  rawInMin: number | null;
+  rawOutMin: number | null;
+  isLate: boolean;
+  standardStart: number;
+}
+
+export function resolveWritableGasanAdjustment(
+  row: XerpWritableGasanRow,
+  isSafetyEduDate: boolean,
+): { diff: number | null; reason: string } {
+  const storedReason = cleanGasanReason(row.가산사유);
+  let diff = row.diff;
+  let reason = normalizeGasanReasonParentheses(
+    storedReason || (row.diff !== null ? inferGasanReason(row) : ""),
+    inferGasanReasonTags(row),
+  );
+
+  if (isSafetyEduDate) {
+    const outMin = parseMin(row.xerpOut);
+    if (outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60) {
+      const xerpA = parseNumber(row.xerpGongsuA) ?? 0;
+      const safetyDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
+      if (safetyDiff > 0) diff = safetyDiff;
+      reason = "정기안전교육으로 빠른퇴근타각";
+    }
+  }
+
+  return { diff, reason };
 }
 
 export function excelSerialToDateStr(serial: unknown): string {

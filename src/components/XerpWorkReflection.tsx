@@ -25,6 +25,7 @@ import {
   resolveEffOutMin,
   resolveLoadedAdjustment,
   resolveSyncedGasanReason,
+  resolveWritableGasanAdjustment,
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
@@ -704,7 +705,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         // ProcessedRow에서 계산된 값 찾기
         const pr = rows.find((r) => r.rowIndex === re.rowIndex);
         const gongsuA = parseFloat(c[16]) || 0;
-        const gasanB  = pr?.diff ?? null;
+        const adjustment = pr
+          ? resolveWritableGasanAdjustment(pr, safetyEduDates.has(syncDate))
+          : { diff: null, reason: "" };
+        const gasanB  = adjustment.diff;
         const gongsuAB = gasanB !== null
           ? String(Math.round((gongsuA + gasanB) * 100) / 100)
           : c[21];
@@ -723,7 +727,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           공수합계AB: gongsuAB,
           월누계: c[22],
           가산사유: resolveSyncedGasanReason(c[25], pr ? {
-            reason: pr.가산사유,
+            reason: adjustment.reason,
             manualAdjustment: pr.manualAdjustment,
             rawOutMin: pr.rawOutMin,
           } : null),
@@ -763,20 +767,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       }
 
       for (const row of rows) {
-        const storedReason = ["—", "-", "–"].includes((row.가산사유 ?? "").replace(/\s+/g, "")) ? "" : (row.가산사유 ?? "");
-        let effectiveDiff = row.diff;
-        let effectiveReason = normalizeGasanReasonParentheses(
-          storedReason || (row.diff !== null ? inferGasanReason(row) : ""),
-          inferGasanReasonTags(row),
-        );
-        if (row.diff !== null && isSafetyEduDate) {
-          const outMin = parseMin(row.xerpOut);
-          if (outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60) {
-            const xerpA = parseFloat(row.xerpGongsuA) || 0;
-            effectiveDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
-            effectiveReason = "정기안전교육으로 빠른퇴근타각";
-          }
-        }
+        const { diff: effectiveDiff, reason: effectiveReason } = resolveWritableGasanAdjustment(row, isSafetyEduDate);
 
         const excelRow = row.rowIndex + 1; // 0-based → 1-based
 
@@ -785,7 +776,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           ws.getCell(excelRow, 26).value = effectiveReason;
         }
 
-        if (row.diff === null) continue;
+        if (effectiveDiff === null) continue;
 
         // T열 (col 20, 0-based 19): 가산공수(B) 신청
         ws.getCell(excelRow, 20).value = effectiveDiff;
