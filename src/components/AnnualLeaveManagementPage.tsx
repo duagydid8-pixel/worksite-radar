@@ -113,6 +113,14 @@ export default function AnnualLeaveManagementPage({
     );
   }, [searchQuery, statusRows]);
 
+  useEffect(() => {
+    if (!searchQuery.trim() || filteredRows.length !== 1) return;
+    const matchedEmployeeId = filteredRows[0].employee.id;
+    if (matchedEmployeeId !== selectedDetailId) {
+      setSelectedDetailId(matchedEmployeeId);
+    }
+  }, [filteredRows, searchQuery, selectedDetailId]);
+
   const summary = useMemo(() => {
     return statusRows.reduce(
       (acc, row) => ({

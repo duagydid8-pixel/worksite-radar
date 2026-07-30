@@ -48,4 +48,70 @@ describe("AnnualLeaveManagementPage", () => {
     expect(screen.getByText("0.5일")).toBeInTheDocument();
     expect(screen.getByTestId("remaining-e1")).toHaveTextContent("1.5");
   });
+
+  it("shows the matching employee usage details when search has one result", () => {
+    render(
+      <AnnualLeaveManagementPage
+        isAdmin={true}
+        initialEmployees={[
+          {
+            id: "e1",
+            project: "P4-PH4",
+            category: "현재직",
+            name: "김기존",
+            department: "공무",
+            hireDate: "2026-03-15",
+            sourceRow: 2,
+            createdAt: "2026-03-15T00:00:00.000Z",
+            updatedAt: "2026-03-15T00:00:00.000Z",
+          },
+          {
+            id: "e2",
+            project: "P4-PH4",
+            category: "현재직",
+            name: "김검색",
+            department: "안전",
+            hireDate: "2026-03-16",
+            sourceRow: 3,
+            createdAt: "2026-03-16T00:00:00.000Z",
+            updatedAt: "2026-03-16T00:00:00.000Z",
+          },
+        ]}
+        initialUsages={[
+          {
+            id: "u1",
+            date: "2026-04-10",
+            employeeId: "e1",
+            employeeName: "김기존",
+            type: "연차",
+            days: 1,
+            memo: "기존 직원 기록",
+            createdAt: "2026-04-10T00:00:00.000Z",
+            updatedAt: "2026-04-10T00:00:00.000Z",
+          },
+          {
+            id: "u2",
+            date: "2026-04-11",
+            employeeId: "e2",
+            employeeName: "김검색",
+            type: "연차",
+            days: 1,
+            memo: "검색 직원 기록",
+            createdAt: "2026-04-11T00:00:00.000Z",
+            updatedAt: "2026-04-11T00:00:00.000Z",
+          },
+        ]}
+        initialBasisDate="2026-04-30"
+      />
+    );
+
+    expect(screen.getByText("기존 직원 기록")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("이름, 부서, 프로젝트 검색"), {
+      target: { value: "김검색" },
+    });
+
+    expect(screen.getByText("검색 직원 기록")).toBeInTheDocument();
+    expect(screen.queryByText("기존 직원 기록")).not.toBeInTheDocument();
+  });
 });
