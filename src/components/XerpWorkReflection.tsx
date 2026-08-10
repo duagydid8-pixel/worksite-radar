@@ -72,6 +72,7 @@ interface ProcessedRow {
   rawInMin: number | null;
   rawOutMin: number | null;
   isJochul: boolean;
+  isLunchOt: boolean;
   effIn: string; effOut: string;
   xerpGongsuA: string;
   calcGongsuVal: number | null;
@@ -306,11 +307,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       }
       const cfg = getTeamConfig(r.팀명);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
-      const calcVal = calcGongsuForWorkDate(date, effInMin, r.rawOutMin, r.isJochul, cfg);
+      const isLunchOt = Boolean(r.isLunchOt);
+      const calcVal = calcGongsuForWorkDate(date, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const 가산사유 = needsUpdate ? inferGasanReason(r) : "";
+      const 가산사유 = needsUpdate ? inferGasanReason({ ...r, isLunchOt }) : "";
       const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
-      return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, ...adjustment };
+      return { ...r, isNewEmployee: false, isLunchOt, calcGongsuVal: calcVal, ...adjustment };
     });
 
   const deleteNewEmp = (name: string) => {
@@ -437,9 +439,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isNewEmployee) {
         const cfg = getTeamConfig(r.팀명);
         const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
-        const calcVal  = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg);
+        const isLunchOt = Boolean(r.isLunchOt);
+        const calcVal  = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt);
         const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-        const 가산사유 = needsUpdate ? inferGasanReason(r) : "";
+        const 가산사유 = needsUpdate ? inferGasanReason({ ...r, isLunchOt }) : "";
         const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
         return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, ...adjustment };
       }
@@ -457,13 +460,31 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const cfg       = getTeamConfig(r.팀명);
       const effInMin  = resolveEffInMin(r.rawInMin, newJochul, cfg);
       const effIn     = effInMin !== null ? minToStr(effInMin) : "";
-      const calcVal   = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, newJochul, cfg);
+      const isLunchOt = Boolean(r.isLunchOt);
+      const calcVal   = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, newJochul, cfg, isLunchOt);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const isLate    = effInMin !== null && effInMin > cfg.standardStart;
       const 가산사유 = needsUpdate
-        ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff }), inferGasanReasonTags(r))
+        ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt }), inferGasanReasonTags(r))
         : "";
       return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate, 가산사유 };
+    }));
+  };
+
+  // 중식OT 토글 (P5-PH1: 07시 이전 출근 + 13:50 이후 퇴근 시 수동 체크 → 가산사유 중식OT, 1공수 확정)
+  const toggleLunchOt = (rowIndex: number) => {
+    setRows((prev) => prev.map((r) => {
+      if (r.rowIndex !== rowIndex) return r;
+      if (r.isWaeju) return r; // 외주는 무시
+      const newLunchOt = !r.isLunchOt;
+      const cfg         = getTeamConfig(r.팀명);
+      const effInMin     = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+      const calcVal      = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, newLunchOt);
+      const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      const 가산사유 = needsUpdate
+        ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt: newLunchOt })
+        : "";
+      return { ...r, isLunchOt: newLunchOt, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     }));
   };
 
@@ -732,7 +753,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           rowIndex: i, 팀명, 성명,
           xerpIn: xerpInStr, xerpOut: xerpOutStr,
           pmisIn: pmisInStr, pmisOut: pmisOutStr,
-          rawInMin, rawOutMin, isJochul,
+          rawInMin, rawOutMin, isJochul, isLunchOt: false,
           effIn, effOut, xerpGongsuA,
           calcGongsuVal, diff,
           가산사유: normalizeGasanReasonParentheses(
@@ -1974,6 +1995,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <p>· <b>기본공수</b>: 07:00 ~ 17:00 = <b>1.0공</b></p>
           <p>· <b>연장공수</b>: 17:00 초과 시간당 <b>+0.25공</b> (50분 미만 미인정)</p>
           <p>· <b>조출공수</b>: 체크 시 07:00 이전 시간당 <b>+0.25공</b></p>
+          <p>· <b>중식OT</b>: 체크 시 가산사유 "중식OT" 고정, 공수 <b>1.0공</b> 확정 (P5-PH1 등)</p>
         </div>
       )}
 
@@ -1996,6 +2018,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 <th className={th}>팀명</th>
                 <th className={th}>성명</th>
                 <th className={`${th} bg-violet-50`}>조출근무</th>
+                <th className={`${th} bg-amber-50`}>중식OT</th>
                 <th className={th}>XERP 출근</th>
                 <th className={th}>XERP 퇴근</th>
                 <th className={th}>PMIS 출근</th>
@@ -2050,6 +2073,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         <label className="flex items-center justify-center cursor-pointer">
                           <input type="checkbox" checked={row.isJochul} onChange={() => toggleJochul(row.rowIndex)}
                             className="w-3.5 h-3.5 accent-violet-600 cursor-pointer" />
+                        </label>
+                      </td>
+
+                      <td className={`${cell} bg-amber-50/30`}>
+                        <label className="flex items-center justify-center cursor-pointer">
+                          <input type="checkbox" checked={row.isLunchOt} onChange={() => toggleLunchOt(row.rowIndex)}
+                            title="P5-PH1: 07시 이전 출근 + 13:50 이후 퇴근 → 가산사유 중식OT / 1공수"
+                            className="w-3.5 h-3.5 accent-amber-600 cursor-pointer" />
                         </label>
                       </td>
 
