@@ -43,6 +43,7 @@ const WEEKEND_END        = 14 * 60;  // 14:00
 const WEEKEND_RATE_PER_HOUR = 0.143;
 const WEEKEND_FULL_WORK_MIN = 7 * 60;
 const GASAN_REASON_TAG_ORDER = ["조출", "주간", "조퇴", "연장", "야간", "주말OT"] as const;
+const LUNCH_OT_REASON = "중식OT";
 
 export type GasanReasonTag = typeof GASAN_REASON_TAG_ORDER[number];
 
@@ -224,7 +225,10 @@ export function inferGasanReason(row: {
   xerpGongsuA?: string;
   calcGongsuVal?: number | null;
   diff?: number | null;
+  isLunchOt?: boolean;
 }): string {
+  if (row.isLunchOt) return LUNCH_OT_REASON;
+
   const reasons: string[] = [];
   const noXerpIn  = !row.xerpIn;
   const noXerpOut = !row.xerpOut;
@@ -384,7 +388,9 @@ export function calcGongsuForWorkDate(
   effOutMin: number | null,
   isJochul: boolean,
   cfg: TeamConfig,
+  isLunchOt = false,
 ): number | null {
+  if (isLunchOt) return 1;
   if (isWeekendWorkDate(workDate)) return calcWeekendGongsu(effInMin, effOutMin);
   return calcGongsu(effInMin, effOutMin, isJochul, cfg);
 }
