@@ -25,7 +25,7 @@ import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
 import { fetchXerpLoginStatus, requestXerpLoginWindowOpen } from "@/lib/localXerpWorkerRegistrationClient";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power, FilePenLine } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power, FilePenLine, BellRing } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -33,6 +33,7 @@ import OrgChart from "@/components/OrgChart";
 
 const LazyHomePage = lazy(() => import("@/components/HomePage"));
 const LazyNewEmployeeList = lazy(() => import("@/components/NewEmployeeList"));
+const LazyTenureAlert = lazy(() => import("@/components/TenureAlert"));
 const LazyAnnualLeavePanel = lazy(() => import("@/components/AnnualLeavePanel"));
 const LazyAnnualLeaveManagementPage = lazy(() => import("@/components/AnnualLeaveManagementPage"));
 const LazyXerpPmisTable = lazy(() => import("@/components/XerpPmisTable"));
@@ -188,7 +189,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
 }
 
 type TeamFilter = "전체" | "한성" | "태화" | "현채";
-type ActiveTab = "홈" | "신규자명단" | "연차관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
+type ActiveTab = "홈" | "신규자명단" | "근속알림" | "연차관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔" | "직종변경";
 
@@ -219,6 +220,7 @@ const NAV_ADMIN: NavItem[] = [
   { key: "오늘할일관리", label: "오늘 할 일 관리", icon: <ListChecks className="h-4 w-4" />, adminOnly: true },
   { key: "주간일정", label: "작업일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
+  { key: "근속알림", label: "근속 1년 도래 알림", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
   { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
 ];
 
@@ -1798,6 +1800,15 @@ const Index = () => {
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
               <LazyNewEmployeeList />
+            </LazyPanel>
+          </div>
+        )}
+
+        {/* 근속 1년 도래 알림 (관리자 전용) */}
+        {activeTab === "근속알림" && isAdmin && (
+          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+            <LazyPanel>
+              <LazyTenureAlert />
             </LazyPanel>
           </div>
         )}

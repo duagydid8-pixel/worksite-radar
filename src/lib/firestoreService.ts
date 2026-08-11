@@ -6,6 +6,7 @@
  *   - doc "new_employees_ph2"   : { rows }
  *   - doc "xerp_pmis"           : { dateMap }
  *   - doc "work_schedule"       : ScheduleData
+ *   - doc "tenure_workers"      : { rows } (근속 1년 도래 알림)
  *
  * Firestore 보안 규칙 (Firebase Console → Firestore → 규칙):
  *   rules_version = '2';
@@ -22,6 +23,7 @@ import { getOrgPhotoContentType, getOrgPhotoExtension, getOrgPhotoStoragePath, i
 import type { ScheduleData } from "./scheduleTypes";
 import type { ManualAbsence } from "./manualAbsences";
 import type { LeaveManagedEmployee, LeaveUsage } from "./annualLeaveManagement";
+import type { TenureWorker } from "./tenureAlert";
 import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
 import {
   buildFinalWorkUnitsReviewMemoryEntries,
@@ -167,6 +169,15 @@ export async function loadEmployeesP5PH1FS() {
 }
 export async function saveEmployeesP5PH1FS(rows: unknown[]) {
   return fsSet("new_employees_p5_ph1", { rows });
+}
+
+// ── 근속 1년 도래 알림 (이관자 최초입사일 추적) ───────
+export async function loadTenureWorkersFS(): Promise<TenureWorker[] | null> {
+  const data = await fsGet<{ rows: TenureWorker[] }>("tenure_workers");
+  return data?.rows ?? null;
+}
+export async function saveTenureWorkersFS(rows: TenureWorker[]): Promise<boolean> {
+  return fsSet("tenure_workers", { rows });
 }
 
 // ── 급여대장 수동 결근 입력 ───────────────────────────
