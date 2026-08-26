@@ -53,11 +53,12 @@ describe("annual leave management", () => {
     expect(result.errors).toEqual([]);
   });
 
-  it("parses the previous annual leave summary workbook as starting counts", () => {
+  it("parses the previous annual leave summary workbook, keeping only 사용연차 as a starting fact", () => {
     const result = parseAnnualLeaveRosterWorkbook(makeLegacySummaryWorkbook());
 
     expect(result.basisDate).toBe("2026-07-09");
     expect(result.errors).toEqual([]);
+    // 발생연차·잔여연차는 엑셀 값을 신뢰하지 않고 입사일 기준으로 다시 계산하므로 파싱 결과에 남기지 않는다.
     expect(result.employees).toMatchObject([
       {
         project: "",
@@ -65,12 +66,11 @@ describe("annual leave management", () => {
         name: "엄태원",
         department: "공사팀",
         hireDate: "2025-11-01",
-        startingBasisDate: "2026-07-09",
-        startingAccrued: 8,
         startingUsed: 3,
-        startingRemaining: 5,
       },
     ]);
+    expect(result.employees[0]).not.toHaveProperty("startingAccrued");
+    expect(result.employees[0]).not.toHaveProperty("startingRemaining");
   });
 
   it("reports missing roster headers", () => {
@@ -128,7 +128,7 @@ describe("annual leave management", () => {
     expect(rows[0]).toMatchObject({ accrued: 2, used: 1.5, remaining: 0.5 });
   });
 
-  it("continues counting from imported starting counts", () => {
+  it("computes accrued from hire date, adding new usage on top of the imported 사용연차", () => {
     const employee = parseAnnualLeaveRosterWorkbook(makeLegacySummaryWorkbook()).employees[0];
     const rows = deriveLeaveStatusRows([
       employee,
@@ -146,22 +146,23 @@ describe("annual leave management", () => {
       },
     ], "2026-08-31");
 
-    expect(rows[0]).toMatchObject({ accrued: 9, used: 3.5, remaining: 5.5 });
+    // 입사일 2025-11-01 → 2026-08-31 기준 10개월치 발생 (엑셀의 발생연차 8과는 무관).
+    expect(rows[0]).toMatchObject({ accrued: 10, used: 3.5, remaining: 6.5 });
   });
 
-  it("parses the 보상휴가 column into startingCompLeave", () => {
+  it("parses the 보상휴가 column into startingCompLeave without trusting 발생연차/잔여연차", () => {
     const result = parseAnnualLeaveRosterWorkbook(makeCompLeaveSummaryWorkbook());
 
     expect(result.errors).toEqual([]);
     expect(result.employees).toMatchObject([
       {
         name: "나경민",
-        startingAccrued: 3,
         startingUsed: 0,
-        startingRemaining: 3,
         startingCompLeave: 2,
       },
     ]);
+    expect(result.employees[0]).not.toHaveProperty("startingAccrued");
+    expect(result.employees[0]).not.toHaveProperty("startingRemaining");
   });
 
   it("consumes 보상휴가 before regular 연차 when usage is added", () => {
@@ -185,7 +186,8 @@ describe("annual leave management", () => {
       ],
       "2026-08-26"
     );
-    expect(withinComp[0]).toMatchObject({ used: 0, remaining: 3, compRemaining: 1 });
+    // 입사일 2026-04-30 → 2026-08-26 기준 5개월치 발생 (엑셀의 발생연차 3과는 무관).
+    expect(withinComp[0]).toMatchObject({ accrued: 5, used: 0, remaining: 5, compRemaining: 1 });
 
     // 보상휴가(2일)를 넘는 3일 사용 → 보상휴가 전부 소진 후 남은 1일만 연차에서 차감.
     const beyondComp = deriveLeaveStatusRows(
@@ -227,6 +229,6 @@ describe("annual leave management", () => {
       ],
       "2026-08-26"
     );
-    expect(beyondComp[0]).toMatchObject({ used: 1, remaining: 2, compRemaining: 0 });
+    expect(beyondComp[0]).toMatchObject({ accrued: 5, used: 1, remaining: 4, compRemaining: 0 });
   });
 });

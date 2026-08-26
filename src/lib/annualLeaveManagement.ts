@@ -9,10 +9,7 @@ export interface LeaveManagedEmployee {
   name: string;
   department: string;
   hireDate: string;
-  startingBasisDate?: string;
-  startingAccrued?: number;
   startingUsed?: number;
-  startingRemaining?: number;
   startingCompLeave?: number;
   sourceRow: number;
   createdAt: string;
@@ -48,18 +45,18 @@ export interface RosterParseResult {
 const REQUIRED_ROSTER_HEADERS = ["소속프로젝트", "구분", "이름", "부서", "입사일"] as const;
 
 type RosterHeader = typeof REQUIRED_ROSTER_HEADERS[number];
-type RosterColumn = RosterHeader | "발생연차" | "사용연차" | "잔여연차" | "보상휴가";
+type RosterColumn = RosterHeader | "사용연차" | "보상휴가";
 
 const REQUIRED_IMPORT_HEADERS: RosterHeader[] = ["구분", "이름", "부서", "입사일"];
+// 발생연차·잔여연차는 엑셀 값을 신뢰하지 않고 항상 입사일 기준으로 앱이 다시 계산한다.
+// (같은 회사 엑셀이라도 담당자마다 발생연차 산정 방식이 달라 실제 값과 어긋나는 경우가 있었음)
 const ROSTER_HEADER_ALIASES: Record<RosterColumn, string[]> = {
   소속프로젝트: ["소속프로젝트", "프로젝트", "소속현장", "현장"],
   구분: ["구분", "직종"],
   이름: ["이름", "성명", "성함"],
   부서: ["부서"],
   입사일: ["입사일"],
-  발생연차: ["발생연차"],
   사용연차: ["사용연차"],
-  잔여연차: ["잔여연차"],
   보상휴가: ["보상휴가", "보상연차"],
 };
 
@@ -114,12 +111,6 @@ function parseLeaveNumber(value: unknown): number | undefined {
   if (!text || text === "-") return 0;
   const numeric = Number(text);
   return Number.isFinite(numeric) ? Math.round(numeric * 10) / 10 : undefined;
-}
-
-function dateKeyFromTimestamp(value: string): string {
-  const match = value.match(/\d{4}-\d{2}-\d{2}/);
-  if (match) return match[0];
-  return new Date().toISOString().slice(0, 10);
 }
 
 function makeEmployeeId(input: {
@@ -225,7 +216,6 @@ export function parseAnnualLeaveRosterWorkbook(buffer: ArrayBuffer, now = new Da
 
   const employees: LeaveManagedEmployee[] = [];
   const errors: string[] = [];
-  const fallbackStartingBasisDate = basisDate ?? dateKeyFromTimestamp(now);
 
   for (let rowIndex = headerInfo.rowIndex + 1; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex];
@@ -237,12 +227,8 @@ export function parseAnnualLeaveRosterWorkbook(buffer: ArrayBuffer, now = new Da
     const name = cellText(row, headerInfo.columns, "이름");
     const department = cellText(row, headerInfo.columns, "부서");
     const hireDate = cellDate(row, headerInfo.columns, "입사일");
-    const startingAccrued = cellLeaveNumber(row, headerInfo.columns, "발생연차");
     const startingUsed = cellLeaveNumber(row, headerInfo.columns, "사용연차");
-    const startingRemaining = cellLeaveNumber(row, headerInfo.columns, "잔여연차");
     const startingCompLeave = cellLeaveNumber(row, headerInfo.columns, "보상휴가");
-    const hasStartingCounts =
-      startingAccrued !== undefined || startingUsed !== undefined || startingRemaining !== undefined;
     const displayRow = rowIndex + 1;
 
     if (!name) {
@@ -262,14 +248,7 @@ export function parseAnnualLeaveRosterWorkbook(buffer: ArrayBuffer, now = new Da
       name,
       department,
       hireDate,
-      ...(hasStartingCounts
-        ? {
-            startingBasisDate: fallbackStartingBasisDate,
-            startingAccrued: startingAccrued ?? 0,
-            startingUsed: startingUsed ?? 0,
-            startingRemaining: startingRemaining ?? Math.round(((startingAccrued ?? 0) - (startingUsed ?? 0)) * 10) / 10,
-          }
-        : {}),
+      ...(startingUsed !== undefined ? { startingUsed } : {}),
       ...(startingCompLeave !== undefined ? { startingCompLeave } : {}),
       sourceRow: displayRow,
       createdAt: now,
@@ -294,14 +273,6 @@ export function calculateAccruedLeave(hireDate: string, basisDate: string): numb
   const basis = parseYearMonth(basisDate);
   if (!hire || !basis) return 0;
   const months = (basis.year - hire.year) * 12 + (basis.month - hire.month) + 1;
-  return Math.max(0, months);
-}
-
-function calculateMonthsAfter(startDate: string, basisDate: string): number {
-  const start = parseYearMonth(startDate);
-  const basis = parseYearMonth(basisDate);
-  if (!start || !basis) return 0;
-  const months = (basis.year - start.year) * 12 + (basis.month - start.month);
   return Math.max(0, months);
 }
 
@@ -354,35 +325,12 @@ export function deriveLeaveStatusRows(
     const annualConsumed = roundLeave(newUsed - compConsumed);
     const compRemaining = roundLeave(compStarting - compConsumed);
 
-    const hasStartingCounts =
-      employee.startingAccrued !== undefined ||
-      employee.startingUsed !== undefined ||
-      employee.startingRemaining !== undefined;
-
-    if (hasStartingCounts) {
-      const additionalAccrued = calculateMonthsAfter(employee.startingBasisDate ?? employee.hireDate, basisDate);
-      const accrued = roundLeave((employee.startingAccrued ?? 0) + additionalAccrued);
-      const used = roundLeave((employee.startingUsed ?? 0) + annualConsumed);
-      const startingRemaining =
-        employee.startingRemaining ?? roundLeave((employee.startingAccrued ?? 0) - (employee.startingUsed ?? 0));
-      return {
-        employee,
-        accrued,
-        used,
-        remaining: roundLeave(startingRemaining + additionalAccrued - annualConsumed),
-        compRemaining,
-      };
-    }
-
+    // 발생연차는 엑셀에 적힌 값을 신뢰하지 않고 입사일 기준으로 항상 새로 계산한다.
     const accrued = calculateAccruedLeave(employee.hireDate, basisDate);
-    const used = annualConsumed;
-    return {
-      employee,
-      accrued,
-      used,
-      remaining: roundLeave(accrued - used),
-      compRemaining,
-    };
+    const used = roundLeave((employee.startingUsed ?? 0) + annualConsumed);
+    const remaining = roundLeave(accrued - used);
+
+    return { employee, accrued, used, remaining, compRemaining };
   });
 }
 
