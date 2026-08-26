@@ -13,6 +13,7 @@ export interface LeaveManagedEmployee {
   startingAccrued?: number;
   startingUsed?: number;
   startingRemaining?: number;
+  startingCompLeave?: number;
   sourceRow: number;
   createdAt: string;
   updatedAt: string;
@@ -35,6 +36,7 @@ export interface LeaveStatusRow {
   accrued: number;
   used: number;
   remaining: number;
+  compRemaining: number;
 }
 
 export interface RosterParseResult {
@@ -46,7 +48,7 @@ export interface RosterParseResult {
 const REQUIRED_ROSTER_HEADERS = ["소속프로젝트", "구분", "이름", "부서", "입사일"] as const;
 
 type RosterHeader = typeof REQUIRED_ROSTER_HEADERS[number];
-type RosterColumn = RosterHeader | "발생연차" | "사용연차" | "잔여연차";
+type RosterColumn = RosterHeader | "발생연차" | "사용연차" | "잔여연차" | "보상휴가";
 
 const REQUIRED_IMPORT_HEADERS: RosterHeader[] = ["구분", "이름", "부서", "입사일"];
 const ROSTER_HEADER_ALIASES: Record<RosterColumn, string[]> = {
@@ -58,6 +60,7 @@ const ROSTER_HEADER_ALIASES: Record<RosterColumn, string[]> = {
   발생연차: ["발생연차"],
   사용연차: ["사용연차"],
   잔여연차: ["잔여연차"],
+  보상휴가: ["보상휴가", "보상연차"],
 };
 
 function normalizeHeader(value: unknown): string {
@@ -237,6 +240,7 @@ export function parseAnnualLeaveRosterWorkbook(buffer: ArrayBuffer, now = new Da
     const startingAccrued = cellLeaveNumber(row, headerInfo.columns, "발생연차");
     const startingUsed = cellLeaveNumber(row, headerInfo.columns, "사용연차");
     const startingRemaining = cellLeaveNumber(row, headerInfo.columns, "잔여연차");
+    const startingCompLeave = cellLeaveNumber(row, headerInfo.columns, "보상휴가");
     const hasStartingCounts =
       startingAccrued !== undefined || startingUsed !== undefined || startingRemaining !== undefined;
     const displayRow = rowIndex + 1;
@@ -266,6 +270,7 @@ export function parseAnnualLeaveRosterWorkbook(buffer: ArrayBuffer, now = new Da
             startingRemaining: startingRemaining ?? Math.round(((startingAccrued ?? 0) - (startingUsed ?? 0)) * 10) / 10,
           }
         : {}),
+      ...(startingCompLeave !== undefined ? { startingCompLeave } : {}),
       sourceRow: displayRow,
       createdAt: now,
       updatedAt: now,
@@ -343,6 +348,12 @@ export function deriveLeaveStatusRows(
 
   return employees.map((employee) => {
     const newUsed = roundLeave(usedByEmployee.get(employee.id) ?? usedByEmployee.get(employee.name) ?? 0);
+    // 보상휴가는 잔여 연차보다 먼저 소진한다: 새로 입력된 사용일수는 보상휴가 잔여분부터 차감한다.
+    const compStarting = employee.startingCompLeave ?? 0;
+    const compConsumed = Math.min(newUsed, compStarting);
+    const annualConsumed = roundLeave(newUsed - compConsumed);
+    const compRemaining = roundLeave(compStarting - compConsumed);
+
     const hasStartingCounts =
       employee.startingAccrued !== undefined ||
       employee.startingUsed !== undefined ||
@@ -351,24 +362,26 @@ export function deriveLeaveStatusRows(
     if (hasStartingCounts) {
       const additionalAccrued = calculateMonthsAfter(employee.startingBasisDate ?? employee.hireDate, basisDate);
       const accrued = roundLeave((employee.startingAccrued ?? 0) + additionalAccrued);
-      const used = roundLeave((employee.startingUsed ?? 0) + newUsed);
+      const used = roundLeave((employee.startingUsed ?? 0) + annualConsumed);
       const startingRemaining =
         employee.startingRemaining ?? roundLeave((employee.startingAccrued ?? 0) - (employee.startingUsed ?? 0));
       return {
         employee,
         accrued,
         used,
-        remaining: roundLeave(startingRemaining + additionalAccrued - newUsed),
+        remaining: roundLeave(startingRemaining + additionalAccrued - annualConsumed),
+        compRemaining,
       };
     }
 
     const accrued = calculateAccruedLeave(employee.hireDate, basisDate);
-    const used = newUsed;
+    const used = annualConsumed;
     return {
       employee,
       accrued,
       used,
       remaining: roundLeave(accrued - used),
+      compRemaining,
     };
   });
 }
@@ -380,7 +393,7 @@ function todayStr() {
 
 export function buildAnnualLeaveExportWorkbook(rows: LeaveStatusRow[], usages: LeaveUsage[]): XLSX.WorkBook {
   const statusRows: (string | number)[][] = [
-    ["NO", "소속프로젝트", "구분", "이름", "부서", "입사일", "발생연차", "사용연차", "잔여연차"],
+    ["NO", "소속프로젝트", "구분", "이름", "부서", "입사일", "발생연차", "사용연차", "잔여연차", "보상휴가"],
     ...rows.map((row, index) => [
       index + 1,
       row.employee.project,
@@ -391,6 +404,7 @@ export function buildAnnualLeaveExportWorkbook(rows: LeaveStatusRow[], usages: L
       row.accrued,
       row.used,
       row.remaining,
+      row.compRemaining,
     ]),
   ];
 
@@ -408,6 +422,7 @@ export function buildAnnualLeaveExportWorkbook(rows: LeaveStatusRow[], usages: L
     { wch: 10 },
     { wch: 12 },
     { wch: 12 },
+    { wch: 8 },
     { wch: 8 },
     { wch: 8 },
     { wch: 8 },

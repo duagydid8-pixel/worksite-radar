@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CalendarDays,
   Download,
+  Gift,
   Loader2,
   Pencil,
   Save,
@@ -125,15 +126,21 @@ export default function AnnualLeaveManagementPage({
         totalAccrued: acc.totalAccrued + row.accrued,
         totalUsed: acc.totalUsed + row.used,
         totalRemaining: acc.totalRemaining + row.remaining,
+        totalCompRemaining: acc.totalCompRemaining + row.compRemaining,
         negativeRemaining: acc.negativeRemaining + (row.remaining < 0 ? 1 : 0),
       }),
-      { totalEmployees: 0, totalAccrued: 0, totalUsed: 0, totalRemaining: 0, negativeRemaining: 0 }
+      { totalEmployees: 0, totalAccrued: 0, totalUsed: 0, totalRemaining: 0, totalCompRemaining: 0, negativeRemaining: 0 }
     );
   }, [statusRows]);
 
   const selectedEmployee = useMemo(
     () => employees.find((employee) => employee.id === selectedEmployeeId) ?? null,
     [employees, selectedEmployeeId]
+  );
+
+  const selectedEmployeeStatus = useMemo(
+    () => statusRows.find((row) => row.employee.id === selectedEmployeeId) ?? null,
+    [statusRows, selectedEmployeeId]
   );
 
   const detailUsages = useMemo(
@@ -321,12 +328,13 @@ export default function AnnualLeaveManagementPage({
         </div>
       </section>
 
-      <section className="grid gap-2.5 md:grid-cols-5">
+      <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
         {[
           { label: "총 인원", value: summary.totalEmployees, unit: "명", icon: <Users className="h-4 w-4" />, color: "text-slate-950" },
           { label: "총 발생연차", value: formatLeave(summary.totalAccrued), unit: "일", icon: <CalendarDays className="h-4 w-4" />, color: "text-sky-700" },
           { label: "총 사용연차", value: formatLeave(summary.totalUsed), unit: "일", icon: <Pencil className="h-4 w-4" />, color: "text-amber-700" },
           { label: "총 잔여연차", value: formatLeave(summary.totalRemaining), unit: "일", icon: <Save className="h-4 w-4" />, color: "text-emerald-700" },
+          { label: "보상휴가 잔여", value: formatLeave(summary.totalCompRemaining), unit: "일", icon: <Gift className="h-4 w-4" />, color: "text-violet-700" },
           { label: "잔여 부족", value: summary.negativeRemaining, unit: "명", icon: <AlertTriangle className="h-4 w-4" />, color: "text-rose-700" },
         ].map((card) => (
           <div key={card.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -366,7 +374,7 @@ export default function AnnualLeaveManagementPage({
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-xs">
+              <table className="w-full min-w-[960px] text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left font-extrabold text-slate-400">
                     <th className="px-4 py-2.5">소속프로젝트</th>
@@ -377,6 +385,7 @@ export default function AnnualLeaveManagementPage({
                     <th className="px-4 py-2.5 text-right">발생</th>
                     <th className="px-4 py-2.5 text-right">사용</th>
                     <th className="px-4 py-2.5 text-right">잔여</th>
+                    <th className="px-4 py-2.5 text-right">보상휴가</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -408,6 +417,9 @@ export default function AnnualLeaveManagementPage({
                       >
                         {formatLeave(row.remaining)}
                       </td>
+                      <td className="px-4 py-2.5 text-right font-extrabold text-violet-700">
+                        {row.compRemaining > 0 ? formatLeave(row.compRemaining) : <span className="text-slate-300">-</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -422,6 +434,11 @@ export default function AnnualLeaveManagementPage({
             <p className="mt-0.5 text-[11px] font-semibold text-sky-700">
               {selectedEmployee ? `${selectedEmployee.name} 님 기준` : "표에서 직원을 선택하거나 아래에서 직접 선택하세요."}
             </p>
+            {selectedEmployeeStatus && selectedEmployeeStatus.compRemaining > 0 && (
+              <p className="mt-0.5 text-[11px] font-semibold text-violet-700">
+                보상휴가 {formatLeave(selectedEmployeeStatus.compRemaining)}일 남음 · 사용 입력 시 보상휴가부터 차감됩니다.
+              </p>
+            )}
             <div className="mt-4 grid gap-3">
               <label className="text-[11px] font-extrabold text-slate-400">
                 사용일

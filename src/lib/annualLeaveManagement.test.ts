@@ -30,6 +30,18 @@ function makeLegacySummaryWorkbook() {
   return XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
 }
 
+function makeCompLeaveSummaryWorkbook() {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([
+    ["연차 현황 요약", "", "", "", "", "", "", "", ""],
+    ["기준일", 46260, "", "", "", "", "", "", ""],
+    ["번호", "성명", "직종", "부서", "입사일", "발생연차", "사용연차", "잔여연차", "보상휴가"],
+    [1, "나경민", "현채", "공사팀", 46142, 3, 0, 3, 2],
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws, "연차_요약");
+  return XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+}
+
 describe("annual leave management", () => {
   it("parses the minimal roster workbook", () => {
     const result = parseAnnualLeaveRosterWorkbook(makeRosterWorkbook());
@@ -135,5 +147,86 @@ describe("annual leave management", () => {
     ], "2026-08-31");
 
     expect(rows[0]).toMatchObject({ accrued: 9, used: 3.5, remaining: 5.5 });
+  });
+
+  it("parses the 보상휴가 column into startingCompLeave", () => {
+    const result = parseAnnualLeaveRosterWorkbook(makeCompLeaveSummaryWorkbook());
+
+    expect(result.errors).toEqual([]);
+    expect(result.employees).toMatchObject([
+      {
+        name: "나경민",
+        startingAccrued: 3,
+        startingUsed: 0,
+        startingRemaining: 3,
+        startingCompLeave: 2,
+      },
+    ]);
+  });
+
+  it("consumes 보상휴가 before regular 연차 when usage is added", () => {
+    const employee = parseAnnualLeaveRosterWorkbook(makeCompLeaveSummaryWorkbook()).employees[0];
+
+    // 보상휴가(2일) 이내 사용 → 보상휴가만 줄고 연차 사용/잔여는 그대로.
+    const withinComp = deriveLeaveStatusRows(
+      [employee],
+      [
+        {
+          id: "u1",
+          date: "2026-08-10",
+          employeeId: employee.id,
+          employeeName: "나경민",
+          type: "연차",
+          days: 1,
+          memo: "",
+          createdAt: "2026-08-10T00:00:00.000Z",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+        },
+      ],
+      "2026-08-26"
+    );
+    expect(withinComp[0]).toMatchObject({ used: 0, remaining: 3, compRemaining: 1 });
+
+    // 보상휴가(2일)를 넘는 3일 사용 → 보상휴가 전부 소진 후 남은 1일만 연차에서 차감.
+    const beyondComp = deriveLeaveStatusRows(
+      [employee],
+      [
+        {
+          id: "u1",
+          date: "2026-08-10",
+          employeeId: employee.id,
+          employeeName: "나경민",
+          type: "연차",
+          days: 1,
+          memo: "",
+          createdAt: "2026-08-10T00:00:00.000Z",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+        },
+        {
+          id: "u2",
+          date: "2026-08-11",
+          employeeId: employee.id,
+          employeeName: "나경민",
+          type: "연차",
+          days: 1,
+          memo: "",
+          createdAt: "2026-08-11T00:00:00.000Z",
+          updatedAt: "2026-08-11T00:00:00.000Z",
+        },
+        {
+          id: "u3",
+          date: "2026-08-12",
+          employeeId: employee.id,
+          employeeName: "나경민",
+          type: "연차",
+          days: 1,
+          memo: "",
+          createdAt: "2026-08-12T00:00:00.000Z",
+          updatedAt: "2026-08-12T00:00:00.000Z",
+        },
+      ],
+      "2026-08-26"
+    );
+    expect(beyondComp[0]).toMatchObject({ used: 1, remaining: 2, compRemaining: 0 });
   });
 });
