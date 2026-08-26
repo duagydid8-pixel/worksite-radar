@@ -46,7 +46,8 @@ describe("AnnualLeaveManagementPage", () => {
 
     expect(screen.getByText("병원")).toBeInTheDocument();
     expect(screen.getByText("0.5일")).toBeInTheDocument();
-    expect(screen.getByTestId("remaining-e1")).toHaveTextContent("1.5");
+    // 입사일 2026-03-15 → 기준일 2026-04-30 기준 만 1개월 경과(1일 발생) - 0.5일 사용 = 0.5일 잔여.
+    expect(screen.getByTestId("remaining-e1")).toHaveTextContent("0.5");
   });
 
   it("shows the matching employee usage details when search has one result", () => {

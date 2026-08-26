@@ -86,9 +86,13 @@ describe("annual leave management", () => {
     expect(result.employees).toEqual([]);
   });
 
-  it("counts one accrued day from the hire month", () => {
-    expect(calculateAccruedLeave("2026-03-15", "2026-03-31")).toBe(1);
-    expect(calculateAccruedLeave("2026-03-15", "2026-04-01")).toBe(2);
+  it("accrues one day per full month counted from the exact hire date, not the calendar month", () => {
+    // 입사일 3/15 → 아직 만 1개월이 안 된 3/31, 4/14는 0일.
+    expect(calculateAccruedLeave("2026-03-15", "2026-03-31")).toBe(0);
+    expect(calculateAccruedLeave("2026-03-15", "2026-04-14")).toBe(0);
+    // 4/15에 정확히 만 1개월 → 1일 발생, 5/15에 2일째.
+    expect(calculateAccruedLeave("2026-03-15", "2026-04-15")).toBe(1);
+    expect(calculateAccruedLeave("2026-03-15", "2026-05-15")).toBe(2);
     expect(calculateAccruedLeave("2026-05-01", "2026-04-30")).toBe(0);
   });
 
@@ -125,7 +129,8 @@ describe("annual leave management", () => {
       },
     ], "2026-04-30");
 
-    expect(rows[0]).toMatchObject({ accrued: 2, used: 1.5, remaining: 0.5 });
+    // 입사일 2026-03-15 → 2026-04-30 기준 만 1개월 경과 = 1일 발생.
+    expect(rows[0]).toMatchObject({ accrued: 1, used: 1.5, remaining: -0.5 });
   });
 
   it("computes accrued from hire date, adding new usage on top of the imported 사용연차", () => {
@@ -146,8 +151,8 @@ describe("annual leave management", () => {
       },
     ], "2026-08-31");
 
-    // 입사일 2025-11-01 → 2026-08-31 기준 10개월치 발생 (엑셀의 발생연차 8과는 무관).
-    expect(rows[0]).toMatchObject({ accrued: 10, used: 3.5, remaining: 6.5 });
+    // 입사일 2025-11-01 → 2026-08-31 기준 만 9개월 경과 (엑셀의 발생연차 8과는 무관).
+    expect(rows[0]).toMatchObject({ accrued: 9, used: 3.5, remaining: 5.5 });
   });
 
   it("parses the 보상휴가 column into startingCompLeave without trusting 발생연차/잔여연차", () => {
@@ -186,8 +191,8 @@ describe("annual leave management", () => {
       ],
       "2026-08-26"
     );
-    // 입사일 2026-04-30 → 2026-08-26 기준 5개월치 발생 (엑셀의 발생연차 3과는 무관).
-    expect(withinComp[0]).toMatchObject({ accrued: 5, used: 0, remaining: 5, compRemaining: 1 });
+    // 입사일 2026-04-30 → 2026-08-26 기준 아직 8/30에 도달 전이라 만 3개월치만 발생 (엑셀의 발생연차 3과는 무관, 우연히 같음).
+    expect(withinComp[0]).toMatchObject({ accrued: 3, used: 0, remaining: 3, compRemaining: 1 });
 
     // 보상휴가(2일)를 넘는 3일 사용 → 보상휴가 전부 소진 후 남은 1일만 연차에서 차감.
     const beyondComp = deriveLeaveStatusRows(
@@ -229,6 +234,6 @@ describe("annual leave management", () => {
       ],
       "2026-08-26"
     );
-    expect(beyondComp[0]).toMatchObject({ accrued: 5, used: 1, remaining: 4, compRemaining: 0 });
+    expect(beyondComp[0]).toMatchObject({ accrued: 3, used: 1, remaining: 2, compRemaining: 0 });
   });
 });

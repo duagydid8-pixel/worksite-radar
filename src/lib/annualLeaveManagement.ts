@@ -259,20 +259,25 @@ export function parseAnnualLeaveRosterWorkbook(buffer: ArrayBuffer, now = new Da
   return { employees, errors, basisDate };
 }
 
-function parseYearMonth(date: string): { year: number; month: number } | null {
-  const match = date.match(/^(\d{4})-(\d{2})-\d{2}$/);
+function parseDateParts(date: string): { year: number; month: number; day: number } | null {
+  const match = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   const year = Number(match[1]);
   const month = Number(match[2]);
+  const day = Number(match[3]);
   if (month < 1 || month > 12) return null;
-  return { year, month };
+  return { year, month, day };
 }
 
+// 입사일로부터 만 1개월을 채운 날에 1일씩 발생한다(근로기준법 60조 2항).
+// 예: 입사일 3/15 → 4/15에 1일, 5/15에 2일 발생. 아직 그 달의 입사일과 같은 날짜에
+// 도달하지 않았다면(기준일의 일(day)이 입사일의 일보다 작다면) 이번 달은 아직 채워지지 않은 것으로 본다.
 export function calculateAccruedLeave(hireDate: string, basisDate: string): number {
-  const hire = parseYearMonth(hireDate);
-  const basis = parseYearMonth(basisDate);
+  const hire = parseDateParts(hireDate);
+  const basis = parseDateParts(basisDate);
   if (!hire || !basis) return 0;
-  const months = (basis.year - hire.year) * 12 + (basis.month - hire.month) + 1;
+  let months = (basis.year - hire.year) * 12 + (basis.month - hire.month);
+  if (basis.day < hire.day) months -= 1;
   return Math.max(0, months);
 }
 
