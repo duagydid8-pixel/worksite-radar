@@ -65,7 +65,6 @@ export default function AnnualLeaveManagementPage({
   const [memo, setMemo] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [editingUsageId, setEditingUsageId] = useState<string | null>(null);
-  const [selectedDetailId, setSelectedDetailId] = useState<string | null>(initialEmployees?.[0]?.id ?? null);
   const [uploadedAt, setUploadedAt] = useState("");
   const [isLoading, setIsLoading] = useState(!usesInitialData);
   const [isSaving, setIsSaving] = useState(false);
@@ -81,7 +80,6 @@ export default function AnnualLeaveManagementPage({
         setUploadedAt(snapshot.uploadedAt);
         if (snapshot.employees[0]) {
           setSelectedEmployeeId(snapshot.employees[0].id);
-          setSelectedDetailId(snapshot.employees[0].id);
         }
       })
       .catch(() => toast.error("연차 데이터를 불러오지 못했습니다."))
@@ -95,8 +93,7 @@ export default function AnnualLeaveManagementPage({
 
   useEffect(() => {
     if (!selectedEmployeeId && employees[0]) setSelectedEmployeeId(employees[0].id);
-    if (!selectedDetailId && employees[0]) setSelectedDetailId(employees[0].id);
-  }, [employees, selectedDetailId, selectedEmployeeId]);
+  }, [employees, selectedEmployeeId]);
 
   const statusRows = useMemo(
     () => deriveLeaveStatusRows(employees, usages, basisDate),
@@ -116,10 +113,10 @@ export default function AnnualLeaveManagementPage({
   useEffect(() => {
     if (!searchQuery.trim() || filteredRows.length !== 1) return;
     const matchedEmployeeId = filteredRows[0].employee.id;
-    if (matchedEmployeeId !== selectedDetailId) {
-      setSelectedDetailId(matchedEmployeeId);
+    if (matchedEmployeeId !== selectedEmployeeId) {
+      setSelectedEmployeeId(matchedEmployeeId);
     }
-  }, [filteredRows, searchQuery, selectedDetailId]);
+  }, [filteredRows, searchQuery, selectedEmployeeId]);
 
   const summary = useMemo(() => {
     return statusRows.reduce(
@@ -139,14 +136,9 @@ export default function AnnualLeaveManagementPage({
     [employees, selectedEmployeeId]
   );
 
-  const detailEmployee = useMemo(
-    () => employees.find((employee) => employee.id === selectedDetailId) ?? null,
-    [employees, selectedDetailId]
-  );
-
   const detailUsages = useMemo(
-    () => sortUsages(usages.filter((usage) => usage.employeeId === selectedDetailId)),
-    [selectedDetailId, usages]
+    () => sortUsages(usages.filter((usage) => usage.employeeId === selectedEmployeeId)),
+    [selectedEmployeeId, usages]
   );
 
   const resetUsageForm = () => {
@@ -166,7 +158,6 @@ export default function AnnualLeaveManagementPage({
       }
       setEmployees(parsed.employees);
       setSelectedEmployeeId(parsed.employees[0]?.id ?? "");
-      setSelectedDetailId(parsed.employees[0]?.id ?? null);
       if (parsed.basisDate) {
         setBasisDate(parsed.basisDate);
         setUsageDate(parsed.basisDate);
@@ -235,7 +226,6 @@ export default function AnnualLeaveManagementPage({
         memo,
       }),
     ]);
-    setSelectedDetailId(selectedEmployee.id);
     resetUsageForm();
   };
 
@@ -380,7 +370,7 @@ export default function AnnualLeaveManagementPage({
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left font-extrabold text-slate-400">
                     <th className="px-4 py-2.5">소속프로젝트</th>
-                    <th className="px-4 py-2.5">구분</th>
+                    <th className="px-4 py-2.5">재직구분</th>
                     <th className="px-4 py-2.5">이름</th>
                     <th className="px-4 py-2.5">부서</th>
                     <th className="px-4 py-2.5">입사일</th>
@@ -393,14 +383,16 @@ export default function AnnualLeaveManagementPage({
                   {filteredRows.map((row) => (
                     <tr
                       key={row.employee.id}
-                      className="border-b border-slate-100 transition-colors hover:bg-slate-50"
+                      className={`border-b border-slate-100 transition-colors hover:bg-slate-50 ${
+                        row.employee.id === selectedEmployeeId ? "bg-sky-50/70" : ""
+                      }`}
                     >
                       <td className="px-4 py-2.5 font-semibold text-slate-700">{row.employee.project || "-"}</td>
                       <td className="px-4 py-2.5 text-slate-500">{row.employee.category || "-"}</td>
                       <td className="px-4 py-2.5">
                         <button
                           type="button"
-                          onClick={() => setSelectedDetailId(row.employee.id)}
+                          onClick={() => setSelectedEmployeeId(row.employee.id)}
                           className="font-extrabold text-slate-950 transition-colors hover:text-sky-700"
                         >
                           {row.employee.name}
@@ -427,6 +419,9 @@ export default function AnnualLeaveManagementPage({
         <aside className="space-y-4">
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="text-sm font-extrabold text-slate-950">연차 사용 입력</h2>
+            <p className="mt-0.5 text-[11px] font-semibold text-sky-700">
+              {selectedEmployee ? `${selectedEmployee.name} 님 기준` : "표에서 직원을 선택하거나 아래에서 직접 선택하세요."}
+            </p>
             <div className="mt-4 grid gap-3">
               <label className="text-[11px] font-extrabold text-slate-400">
                 사용일
@@ -497,8 +492,8 @@ export default function AnnualLeaveManagementPage({
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-4 py-3">
               <h2 className="text-sm font-extrabold text-slate-950">연차 사용내역</h2>
-              {detailEmployee && (
-                <p className="mt-0.5 text-[11px] font-semibold text-slate-400">{detailEmployee.name} 기준</p>
+              {selectedEmployee && (
+                <p className="mt-0.5 text-[11px] font-semibold text-slate-400">{selectedEmployee.name} 기준</p>
               )}
             </div>
             {detailUsages.length === 0 ? (
