@@ -79,6 +79,44 @@ describe("buildElcdCompareRows", () => {
     ]);
   });
 
+  it("does not guess a 이름불일치 match when two XERP workers share the same birth6", () => {
+    const result = buildElcdCompareRows({
+      xerpRows: [
+        { 팀명: "A", 직종: "배관", 성명: "홍길동", 생년월일: "930215-1234567", xerp출근: "07:00" },
+        { 팀명: "B", 직종: "전기", 성명: "김영수", 생년월일: "930215-2234567", xerp출근: "07:10" },
+      ],
+      // 전자카드에는 홍길동이 이름 다르게("홍 길동") 찍힘. 김영수는 안 찍음.
+      elcdRows: [
+        { name: "홍 길동", birthday: "930215", inTime: "06:55" },
+      ],
+      maskBirth: (value) => value,
+    });
+
+    const byName = Object.fromEntries(result.map((r) => [r.성명, r.타각여부]));
+    expect(byName["김영수"]).toBe("N");
+    expect(byName["홍길동"]).toBe("N");
+    // 실제 태각자는 미등록 명단으로 노출
+    expect(result.some((r) => r.팀명 === "미등록" && r.성명 === "홍 길동")).toBe(true);
+  });
+
+  it("uses the resident-number gender digit to disambiguate a shared birth6", () => {
+    const result = buildElcdCompareRows({
+      xerpRows: [
+        { 팀명: "A", 직종: "배관", 성명: "홍길동", 생년월일: "930215-1234567", xerp출근: "07:00" },
+        { 팀명: "B", 직종: "전기", 성명: "김영수", 생년월일: "930215-2234567", xerp출근: "07:10" },
+      ],
+      elcdRows: [
+        { name: "홍길동오타", birthday: "9302151234567", inTime: "06:55" },
+      ],
+      maskBirth: (value) => value,
+    });
+
+    const holgildong = result.find((r) => r.성명 === "홍길동");
+    expect(holgildong?.타각여부).toBe("이름불일치");
+    expect(holgildong?.elcdName).toBe("홍길동오타");
+    expect(result.find((r) => r.성명 === "김영수")?.타각여부).toBe("N");
+  });
+
   it("keeps electronic-card workers missing from the XERP roster as unregistered", () => {
     const result = buildElcdCompareRows({
       xerpRows: [

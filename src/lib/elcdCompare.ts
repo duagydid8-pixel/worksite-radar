@@ -54,6 +54,17 @@ export function normBirth(s: string): string {
   return d.length >= 8 ? d.slice(2, 8) : d.slice(0, 6);
 }
 
+/**
+ * 주민번호 성별자리(생년월일 6자리 + 7번째 숫자)까지 확보 가능하면 7자리를 돌려준다.
+ * 전체 주민번호(13자리) 또는 앞 7자리 이상이 들어올 때만 7자리, 그 외엔 6자리.
+ */
+export function normBirth7(s: string): string {
+  const d = (s || "").replace(/\D/g, "");
+  if (d.length >= 13) return d.slice(0, 7);
+  if (d.length === 7) return d;
+  return normBirth(s);
+}
+
 /** 미가입 명단 등에서 사람을 식별하는 키 (`성명|생년월일6자리`) */
 export function personKey(name: string, birth: string): string {
   return `${(name || "").replace(/\s+/g, "")}|${normBirth(birth || "")}`;
@@ -117,6 +128,14 @@ export function buildElcdCompareRows({
     birthOnlyMap.set(birthKey, rows);
   });
 
+  // 주민번호 앞 6자리가 겹치는 XERP 인원 수 (2명 이상이면 6자리만으론 특정 불가)
+  const xerpBirth6Counts = new Map<string, number>();
+  xerpRows.forEach((row) => {
+    const birthKey = normBirth(row.생년월일 || "");
+    if (!birthKey) return;
+    xerpBirth6Counts.set(birthKey, (xerpBirth6Counts.get(birthKey) ?? 0) + 1);
+  });
+
   const usedBirthKeys = new Set<string>();
   const rows: CompareRow[] = [];
 
@@ -150,19 +169,29 @@ export function buildElcdCompareRows({
 
     if (!hit) {
       const birthKey = normBirth(xerpRow.생년월일);
-      const birthMatches = birthKey ? birthOnlyMap.get(birthKey) : undefined;
+      // 이미 다른 XERP 인원에게 배정된 태각 기록은 제외
+      const birthMatches = (birthKey ? birthOnlyMap.get(birthKey) : undefined)
+        ?.filter((row) => !usedBirthKeys.has(toElcdKey(row)));
       if (birthMatches?.length === 1) {
         const birthHit = birthMatches[0];
-        usedBirthKeys.add(toElcdKey(birthHit));
-        rows.push({
-          ...base,
-          타각여부: hasCheckIn ? "이름불일치" : "XERP출근미타각",
-          출근: birthHit.inTime ?? "",
-          퇴근: birthHit.outTime ?? "",
-          인증방식: birthHit.authMethod ?? "",
-          elcdName: birthHit.name,
-        });
-        return;
+        const xerp7 = normBirth7(xerpRow.생년월일);
+        const elcd7 = normBirth7(birthHit.birthday || "");
+        const genderKnown = xerp7.length === 7 && elcd7.length === 7;
+        const birth6Collision = (xerpBirth6Counts.get(birthKey) ?? 0) > 1;
+        // 성별자리까지 알면 그걸로 확정, 모르면 6자리가 겹치지 않을 때만 허용
+        const safeBirthMatch = genderKnown ? xerp7 === elcd7 : !birth6Collision;
+        if (safeBirthMatch) {
+          usedBirthKeys.add(toElcdKey(birthHit));
+          rows.push({
+            ...base,
+            타각여부: hasCheckIn ? "이름불일치" : "XERP출근미타각",
+            출근: birthHit.inTime ?? "",
+            퇴근: birthHit.outTime ?? "",
+            인증방식: birthHit.authMethod ?? "",
+            elcdName: birthHit.name,
+          });
+          return;
+        }
       }
     }
 
