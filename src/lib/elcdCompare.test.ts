@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildElcdCompareRows } from "./elcdCompare";
+import { buildElcdCompareRows, personKey } from "./elcdCompare";
 
 describe("buildElcdCompareRows", () => {
   it("checks electronic-card taps only for workers with an XERP check-in", () => {
@@ -38,6 +38,44 @@ describe("buildElcdCompareRows", () => {
         타각여부: "XERP출근미타각",
         출근: "06:58",
       },
+    ]);
+  });
+
+  it("flags a worker who tapped on a previous project as 타현장타각", () => {
+    const result = buildElcdCompareRows({
+      xerpRows: [
+        { 팀명: "A", 직종: "배관", 성명: "김이관", 생년월일: "900101-1234567", xerp출근: "07:00" },
+      ],
+      elcdRows: [
+        { name: "김이관", birthday: "900101-1234567", inTime: "06:58", site: "[P4 Ph2] 이전현장" },
+      ],
+      maskBirth: (value) => value,
+    });
+
+    expect(result).toMatchObject([
+      {
+        성명: "김이관",
+        타각여부: "타현장타각",
+        소속현장: "[P4 Ph2] 이전현장",
+        출근: "06:58",
+      },
+    ]);
+  });
+
+  it("classifies an admin-marked worker with no tap as 미가입 instead of 미타각", () => {
+    const result = buildElcdCompareRows({
+      xerpRows: [
+        { 팀명: "A", 직종: "배관", 성명: "김미가입", 생년월일: "900101-1234567", xerp출근: "07:00" },
+        { 팀명: "A", 직종: "배관", 성명: "이미타각", 생년월일: "900102-1234567", xerp출근: "07:05" },
+      ],
+      elcdRows: [],
+      maskBirth: (value) => value,
+      unregisteredKeys: new Set([personKey("김미가입", "900101-1234567")]),
+    });
+
+    expect(result.map((row) => [row.성명, row.타각여부])).toEqual([
+      ["김미가입", "미가입"],
+      ["이미타각", "N"],
     ]);
   });
 

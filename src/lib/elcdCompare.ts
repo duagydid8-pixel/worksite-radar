@@ -1,4 +1,4 @@
-export type ElcdCompareStatus = "Y" | "N" | "착오" | "이름불일치" | "XERP출근미타각";
+export type ElcdCompareStatus = "Y" | "N" | "착오" | "이름불일치" | "XERP출근미타각" | "타현장타각" | "미가입";
 
 export interface XerpCompareRow {
   id?: string;
@@ -21,6 +21,8 @@ export interface ElcdRow {
   inTime?: string;
   outTime?: string;
   authMethod?: string;
+  /** 태각이 다른(이전) 프로젝트에서 이뤄진 경우 그 현장 라벨 */
+  site?: string;
 }
 
 export interface CompareRow {
@@ -34,6 +36,7 @@ export interface CompareRow {
   퇴근: string;
   인증방식: string;
   소속업체?: string;
+  소속현장?: string;
   elcdName?: string;
 }
 
@@ -41,12 +44,19 @@ interface BuildElcdCompareRowsOptions {
   xerpRows: XerpCompareRow[];
   elcdRows: ElcdRow[];
   maskBirth: (value: string) => string;
+  /** `성명|생년월일6자리` 키 집합. 여기 포함된 사람은 미타각 대신 "미가입"으로 분류 */
+  unregisteredKeys?: Set<string>;
 }
 
 export function normBirth(s: string): string {
   const d = (s || "").replace(/\D/g, "");
   if (d.length >= 13) return d.slice(0, 6);
   return d.length >= 8 ? d.slice(2, 8) : d.slice(0, 6);
+}
+
+/** 미가입 명단 등에서 사람을 식별하는 키 (`성명|생년월일6자리`) */
+export function personKey(name: string, birth: string): string {
+  return `${(name || "").replace(/\s+/g, "")}|${normBirth(birth || "")}`;
 }
 
 function hasXerpCheckIn(row: XerpCompareRow): boolean {
@@ -69,7 +79,9 @@ export function buildElcdCompareRows({
   xerpRows,
   elcdRows,
   maskBirth,
+  unregisteredKeys,
 }: BuildElcdCompareRowsOptions): CompareRow[] {
+  const unregistered = unregisteredKeys ?? new Set<string>();
   const tappedMap = new Map<string, ElcdRow>();
   elcdRows.forEach((row) => {
     const key = toElcdKey(row);
@@ -111,7 +123,9 @@ export function buildElcdCompareRows({
   xerpRows.forEach((xerpRow) => {
     const hit = tappedMap.get(toXerpKey(xerpRow));
     const wrongCompany = hit && !isHanseong(hit.company);
+    const otherSite = hit?.site ? hit.site : "";
     const hasCheckIn = hasXerpCheckIn(xerpRow);
+    const isUnregistered = unregistered.has(personKey(xerpRow.성명, xerpRow.생년월일));
     const base = {
       팀명: xerpRow.팀명,
       직종: xerpRow.직종,
@@ -119,6 +133,20 @@ export function buildElcdCompareRows({
       생년월일: maskBirth(xerpRow.생년월일),
       rawResidentNumber: xerpRow.생년월일,
     };
+
+    // 프로젝트 이관 후 이전 현장 카드리더로 태각한 경우
+    if (hit && otherSite) {
+      rows.push({
+        ...base,
+        타각여부: "타현장타각",
+        출근: hit.inTime ?? "",
+        퇴근: hit.outTime ?? "",
+        인증방식: hit.authMethod ?? "",
+        소속현장: otherSite,
+        소속업체: wrongCompany ? hit.company : undefined,
+      });
+      return;
+    }
 
     if (!hit) {
       const birthKey = normBirth(xerpRow.생년월일);
@@ -142,7 +170,9 @@ export function buildElcdCompareRows({
 
     rows.push({
       ...base,
-      타각여부: hit ? (wrongCompany ? "착오" : hasCheckIn ? "Y" : "XERP출근미타각") : "N",
+      타각여부: hit
+        ? (wrongCompany ? "착오" : hasCheckIn ? "Y" : "XERP출근미타각")
+        : isUnregistered ? "미가입" : "N",
       출근: hit?.inTime ?? "",
       퇴근: hit?.outTime ?? "",
       인증방식: hit?.authMethod ?? "",

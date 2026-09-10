@@ -5,6 +5,8 @@ export interface ElectronicCardPerson {
   outTime: string;
   authMethod: string;
   company: string;
+  /** 태각이 이 현장이 아닌 다른(이전) 프로젝트에서 이뤄진 경우 그 현장 라벨. 이 현장 태각이면 비어 있음. */
+  site?: string;
 }
 
 export interface ElectronicCardDateData {
@@ -91,7 +93,8 @@ export function buildCurrentMonthRange(today = new Date()): CurrentMonthRange {
   };
 }
 
-export function normalizeElectronicCardApiRows(rows: unknown[]): ElectronicCardNormalizedRow[] {
+export function normalizeElectronicCardApiRows(rows: unknown[], siteLabel = ""): ElectronicCardNormalizedRow[] {
+  const site = text(siteLabel);
   return rows.flatMap((value) => {
     if (!value || typeof value !== "object") return [];
     const row = value as ApiRow;
@@ -107,6 +110,7 @@ export function normalizeElectronicCardApiRows(rows: unknown[]): ElectronicCardN
       inTime: normalizeTime(firstText(row, ["gtwkDt", "workStrTm", "inTm", "strTm", "inTime"])),
       outTime: normalizeTime(firstText(row, ["lvwkDt", "workEndTm", "outTm", "endTm", "outTime"])),
       authMethod: firstText(row, ["tagNm", "authMtdNm", "tagMtdNm", "tagMtdCd", "tagSeNm", "inOutNm"]),
+      ...(site ? { site } : {}),
     }];
   });
 }
@@ -119,6 +123,12 @@ export function groupElectronicCardRowsByDate(rows: ElectronicCardNormalizedRow[
     const people = byDate.get(row.date) ?? new Map<string, ElectronicCardPerson>();
     const key = `${row.name.replace(/\s+/g, "")}|${normalizeBirth(row.birthDate)}`;
     const current = people.get(key);
+    // 이 현장(site 없음) 태각이 항상 우선. 다른 프로젝트 태각만 있을 때에만 site 유지.
+    const mergedSite = !current
+      ? row.site || undefined
+      : current.site === undefined
+        ? undefined
+        : row.site || undefined;
     const next: ElectronicCardPerson = {
       name: current?.name || row.name,
       birthDate: current?.birthDate || normalizeBirth(row.birthDate),
@@ -126,6 +136,7 @@ export function groupElectronicCardRowsByDate(rows: ElectronicCardNormalizedRow[
       outTime: current?.outTime || row.outTime || "",
       authMethod: current?.authMethod || row.authMethod || "",
       company: current?.company || row.company || "",
+      ...(mergedSite ? { site: mergedSite } : {}),
     };
     people.set(key, next);
     byDate.set(row.date, people);
@@ -157,6 +168,7 @@ export function coerceElectronicCardData(value: unknown): ElectronicCardDateData
     const row = person as Record<string, unknown>;
     const name = text(row.name);
     if (!name) return [];
+    const site = text(row.site);
     return [{
       name,
       birthDate: normalizeBirth(text(row.birthDate ?? row.birthday)),
@@ -164,6 +176,7 @@ export function coerceElectronicCardData(value: unknown): ElectronicCardDateData
       outTime: normalizeTime(text(row.outTime)),
       authMethod: text(row.authMethod),
       company: text(row.company),
+      ...(site ? { site } : {}),
     }];
   });
 

@@ -57,6 +57,24 @@ describe("electronicCardSync", () => {
     });
   });
 
+  it("tags rows with a site label and lets a same-site tap clear it in grouping", () => {
+    const extra = normalizeElectronicCardApiRows([
+      { custNm: "김이관", birthday: "900101", lbrYmd: "20260521", gtwkDt: "2026-05-21 06:58:00" },
+    ], "[P4 Ph2] 이전현장");
+    expect(extra[0].site).toBe("[P4 Ph2] 이전현장");
+
+    const onlyOtherSite = groupElectronicCardRowsByDate([
+      { name: "김이관", birthDate: "900101", date: "2026-05-21", inTime: "06:58", outTime: "", authMethod: "", company: "", site: "[P4 Ph2] 이전현장" },
+    ]);
+    expect(onlyOtherSite["2026-05-21"].persons[0].site).toBe("[P4 Ph2] 이전현장");
+
+    const alsoThisSite = groupElectronicCardRowsByDate([
+      { name: "김이관", birthDate: "900101", date: "2026-05-21", inTime: "06:58", outTime: "", authMethod: "", company: "", site: "[P4 Ph2] 이전현장" },
+      { name: "김이관", birthDate: "900101", date: "2026-05-21", inTime: "", outTime: "17:00", authMethod: "", company: "" },
+    ]);
+    expect(alsoThisSite["2026-05-21"].persons[0].site).toBeUndefined();
+  });
+
   it("coerces Firestore data into final-work-unit electronic-card data", () => {
     expect(coerceElectronicCardData({
       dateLabel: "2026-05-21",

@@ -8,10 +8,23 @@ import html2canvas from "html2canvas";
 import { decryptExcelPassword } from "@/utils/xlsxDecrypt";
 import { detectSensitiveInfo, summarizeSensitiveInfoFindings } from "@/lib/sensitiveInfoGuard";
 import { canCopyResidentNumber, displayResidentNumber } from "@/lib/elcdResidentNumber";
-import { buildElcdCompareRows, normBirth, type CompareRow, type ElcdRow, type XerpCompareRow } from "@/lib/elcdCompare";
+import { buildElcdCompareRows, normBirth, personKey, type CompareRow, type ElcdRow, type XerpCompareRow } from "@/lib/elcdCompare";
 import { coerceElectronicCardData, type ElectronicCardDateData } from "@/lib/electronicCardSync";
 
 const EXCLUDED_STORAGE_KEY = "elcd_excluded_teams";
+const UNREGISTERED_STORAGE_KEY = "elcd_unregistered";
+
+type UnregisteredStore = Record<string, string[]>;
+
+function loadUnregisteredStore(): UnregisteredStore {
+  try {
+    const raw = localStorage.getItem(UNREGISTERED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? (parsed as UnregisteredStore) : {};
+  } catch {
+    return {};
+  }
+}
 
 type SiteKey = "PH4" | "PH2" | "P5PH1";
 const SITES: { value: SiteKey; label: string }[] = [
@@ -20,7 +33,7 @@ const SITES: { value: SiteKey; label: string }[] = [
   { value: "P5PH1", label: "P5-PH1" },
 ];
 
-type ResultFilter = "전체" | "타각" | "미타각" | "착오태그" | "이름불일치" | "XERP출근미타각";
+type ResultFilter = "전체" | "타각" | "미타각" | "미가입" | "타현장타각" | "착오태그" | "이름불일치" | "XERP출근미타각";
 
 function maskBirth(s: string): string {
   return displayResidentNumber(s, false);
@@ -34,6 +47,7 @@ function savedElectronicCardToElcdRows(data: ElectronicCardDateData | null): Elc
     inTime: person.inTime,
     outTime: person.outTime,
     authMethod: person.authMethod,
+    site: person.site,
   })) ?? [];
 }
 
@@ -55,12 +69,44 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch { return new Set(); }
   });
+  const [unregistered, setUnregistered] = useState<Set<string>>(() => new Set(loadUnregisteredStore()["PH4"] ?? []));
   const tableRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const saveExclusions = () => {
     localStorage.setItem(EXCLUDED_STORAGE_KEY, JSON.stringify([...excludedTeams]));
     toast.success("제외 팀 목록이 저장되었습니다.");
+  };
+
+  // 현장 전환 시 해당 현장의 미가입 명단 로드
+  useEffect(() => {
+    setUnregistered(new Set(loadUnregisteredStore()[site] ?? []));
+  }, [site]);
+
+  const toggleUnregistered = (name: string, birth: string) => {
+    const key = personKey(name, birth);
+    setUnregistered((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      const store = loadUnregisteredStore();
+      store[site] = [...next];
+      try {
+        localStorage.setItem(UNREGISTERED_STORAGE_KEY, JSON.stringify(store));
+      } catch { /* 무시 */ }
+      return next;
+    });
+    setResult((prev) => {
+      if (!prev) return prev;
+      const nextSet = new Set(unregistered);
+      if (nextSet.has(key)) nextSet.delete(key); else nextSet.add(key);
+      return prev.map((row) => {
+        if (personKey(row.성명, row.rawResidentNumber ?? row.생년월일) !== key) return row;
+        if (row.타각여부 === "N" && nextSet.has(key)) return { ...row, 타각여부: "미가입" as const };
+        if (row.타각여부 === "미가입" && !nextSet.has(key)) return { ...row, 타각여부: "N" as const };
+        return row;
+      });
+    });
   };
 
   const toggleTeam = (team: string) => {
@@ -234,14 +280,19 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
       xerpRows: currentRows,
       elcdRows,
       maskBirth,
+      unregisteredKeys: unregistered,
     });
     setResult(allRows);
     const y = allRows.filter((r) => r.타각여부 === "Y").length;
     const nm = allRows.filter((r) => r.타각여부 === "이름불일치").length;
     const missedXerp = allRows.filter((r) => r.타각여부 === "XERP출근미타각").length;
+    const otherSite = allRows.filter((r) => r.타각여부 === "타현장타각").length;
+    const unreg = allRows.filter((r) => r.타각여부 === "미가입").length;
     const extra = allRows.filter((r) => r.팀명 === "미등록").length;
     toast.success(
       `대조 완료 — 타각 ${y}명 / 미타각 ${allRows.filter((r) => r.타각여부 === "N").length}명` +
+      (otherSite > 0 ? ` / 타현장타각 ${otherSite}명` : "") +
+      (unreg > 0 ? ` / 미가입 ${unreg}명` : "") +
       (nm > 0 ? ` / 이름불일치 ${nm}명` : "") +
       (missedXerp > 0 ? ` / XERP출근미타각 ${missedXerp}명` : "") +
       (extra > 0 ? ` (XERP 미등록 ${extra}명 포함)` : "")
@@ -257,6 +308,8 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
     if (!result) return [];
     if (filter === "타각") return result.filter((r) => r.타각여부 === "Y");
     if (filter === "미타각") return result.filter((r) => r.타각여부 === "N" && !excludedTeams.has(r.팀명));
+    if (filter === "미가입") return result.filter((r) => r.타각여부 === "미가입");
+    if (filter === "타현장타각") return result.filter((r) => r.타각여부 === "타현장타각");
     if (filter === "착오태그") return result.filter((r) => r.타각여부 === "착오");
     if (filter === "이름불일치") return result.filter((r) => r.타각여부 === "이름불일치");
     if (filter === "XERP출근미타각") return result.filter((r) => r.타각여부 === "XERP출근미타각");
@@ -289,8 +342,10 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
 
   const exportShareImage = async () => {
     const missingRows = result?.filter((r) => r.타각여부 === "N" && !excludedTeams.has(r.팀명)) ?? [];
-    if (!missingRows.length) { toast.error("미타각 인원이 없습니다."); return; }
-    const visibleShareRows = missingRows.map(({ rawResidentNumber: _rawResidentNumber, ...row }) => row);
+    const unregRows = result?.filter((r) => r.타각여부 === "미가입") ?? [];
+    const otherSiteRows = result?.filter((r) => r.타각여부 === "타현장타각") ?? [];
+    if (!missingRows.length && !unregRows.length && !otherSiteRows.length) { toast.error("미타각/미가입/타현장타각 인원이 없습니다."); return; }
+    const visibleShareRows = [...missingRows, ...unregRows, ...otherSiteRows].map(({ rawResidentNumber: _rawResidentNumber, ...row }) => row);
     const sensitiveFindings = detectSensitiveInfo(JSON.stringify(visibleShareRows));
     if (sensitiveFindings.length > 0) {
       toast.warning(`공유 이미지에 민감정보 의심 항목이 있습니다: ${summarizeSensitiveInfoFindings(sensitiveFindings)}`);
@@ -300,6 +355,16 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
       (acc[r.팀명] ??= []).push(r);
       return acc;
     }, {});
+    const chip = (r: CompareRow, border: string) => `
+      <div style="background:#f8fafc;border:1.5px solid ${border};border-radius:12px;padding:10px 16px;text-align:center;min-width:72px;">
+        <div style="font-size:20px;font-weight:900;color:#1e293b;line-height:1.2;">${r.성명}</div>
+        ${r.생년월일 ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;font-weight:500;">${r.생년월일.slice(0, 6)}</div>` : ""}
+      </div>`;
+    const extraSection = (title: string, color: string, border: string, rows: CompareRow[]) => rows.length ? `
+      <div style="padding:18px 24px 14px;border-bottom:1px solid #f1f5f9;">
+        <div style="font-size:12px;font-weight:800;color:${color};margin-bottom:12px;letter-spacing:0.04em;">${title} · ${rows.length}명</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${rows.map((r) => chip(r, border)).join("")}</div>
+      </div>` : "";
 
     const wrap = document.createElement("div");
     wrap.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:640px;background:#ffffff;font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;border-radius:20px;overflow:hidden;";
@@ -307,21 +372,18 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
     wrap.innerHTML = `
       <div style="background:#1e293b;color:#fff;padding:28px 32px 22px;text-align:center;">
         <div style="font-size:28px;font-weight:900;letter-spacing:-0.5px;margin-bottom:6px;">미타각 명단</div>
-        <div style="font-size:15px;color:#94a3b8;">${selectedDate} &nbsp;·&nbsp; 총 ${missingRows.length}명 미타각</div>
+        <div style="font-size:15px;color:#94a3b8;">${selectedDate} &nbsp;·&nbsp; 미타각 ${missingRows.length}명${unregRows.length ? ` · 미가입 ${unregRows.length}명` : ""}${otherSiteRows.length ? ` · 타현장타각 ${otherSiteRows.length}명` : ""}</div>
       </div>
       ${Object.entries(byTeam).map(([team, rows]) => `
         <div style="padding:18px 24px 14px;border-bottom:1px solid #f1f5f9;">
           <div style="font-size:12px;font-weight:800;color:#64748b;margin-bottom:12px;letter-spacing:0.08em;">${team} · ${rows.length}명</div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            ${rows.map((r) => `
-              <div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 16px;text-align:center;min-width:72px;">
-                <div style="font-size:20px;font-weight:900;color:#1e293b;line-height:1.2;">${r.성명}</div>
-                ${r.생년월일 ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;font-weight:500;">${r.생년월일.slice(0, 6)}</div>` : ""}
-              </div>
-            `).join("")}
+            ${rows.map((r) => chip(r, "#e2e8f0")).join("")}
           </div>
         </div>
       `).join("")}
+      ${extraSection("미가입 (EUM 전자카드 미등록)", "#64748b", "#cbd5e1", unregRows)}
+      ${extraSection("타현장타각 (이전 프로젝트에서 태각)", "#ea580c", "#fed7aa", otherSiteRows)}
       <div style="background:#f8fafc;padding:10px;text-align:center;">
         <span style="font-size:11px;color:#cbd5e1;">worksite-radar</span>
       </div>
@@ -349,6 +411,8 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
   const wrongTagCount = result?.filter((r) => r.타각여부 === "착오").length ?? 0;
   const nameMismatchCount = result?.filter((r) => r.타각여부 === "이름불일치").length ?? 0;
   const missedXerpCheckInCount = result?.filter((r) => r.타각여부 === "XERP출근미타각").length ?? 0;
+  const otherSiteCount = result?.filter((r) => r.타각여부 === "타현장타각").length ?? 0;
+  const unregisteredCount = result?.filter((r) => r.타각여부 === "미가입").length ?? 0;
   const notTappedCount = result
     ? result.filter((r) => r.타각여부 === "N" && !excludedTeams.has(r.팀명)).length
     : 0;
@@ -382,6 +446,11 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
             <p>생년월일: 생년월일</p>
             <p>출근: "출근" 포함 컬럼</p>
             <p>퇴근: "퇴근" 포함 컬럼</p>
+          </div>
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600 space-y-1">
+            <p className="font-bold text-slate-700">프로젝트 이관 관련 분류</p>
+            <p><span className="font-bold text-orange-600">타현장타각</span> — 이관됐는데 이전 프로젝트 카드리더로 태각한 경우. 동기화 자료에 이전 현장이 포함돼야 자동 표시됩니다.</p>
+            <p><span className="font-bold text-slate-600">미가입</span> — EUM 전자카드 미등록으로 태각 자체가 불가한 근로자. 관리자가 미타각 행의 "미가입" 버튼으로 지정하면 미타각 집계에서 빠집니다(브라우저에 현장별 저장).</p>
           </div>
         </div>
       </DialogContent>
@@ -531,6 +600,16 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
               <span className="flex items-center gap-1 text-sm font-bold text-red-500">
                 <XCircle className="h-4 w-4" /> 미타각 {notTappedCount}명
               </span>
+              {otherSiteCount > 0 && (
+                <span className="flex items-center gap-1 text-sm font-bold text-orange-500">
+                  <AlertCircle className="h-4 w-4" /> 타현장타각 {otherSiteCount}명
+                </span>
+              )}
+              {unregisteredCount > 0 && (
+                <span className="flex items-center gap-1 text-sm font-bold text-slate-500">
+                  <AlertCircle className="h-4 w-4" /> 미가입 {unregisteredCount}명
+                </span>
+              )}
               {wrongTagCount > 0 && (
                 <span className="flex items-center gap-1 text-sm font-bold text-amber-500">
                   <AlertCircle className="h-4 w-4" /> 착오태그 {wrongTagCount}명
@@ -548,7 +627,7 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {(["전체", "타각", "미타각", "XERP출근미타각", "착오태그", "이름불일치"] as const).map((f) => (
+              {(["전체", "타각", "미타각", "미가입", "타현장타각", "XERP출근미타각", "착오태그", "이름불일치"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -630,6 +709,10 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
                       ? "bg-violet-50/60"
                       : r.타각여부 === "XERP출근미타각"
                       ? "bg-blue-50/60"
+                      : r.타각여부 === "타현장타각"
+                      ? "bg-orange-50/60"
+                      : r.타각여부 === "미가입"
+                      ? "bg-slate-100/70"
                       : r.타각여부 === "N"
                       ? "bg-red-50/60"
                       : ""
@@ -669,8 +752,29 @@ export default function ElcdComparePage({ isAdmin }: { isAdmin: boolean }) {
                             <span className="inline-flex items-center gap-0.5"><AlertCircle className="h-3.5 w-3.5" /> XERP출근미타각</span>
                             {r.elcdName && <span className="text-xs font-normal text-blue-400">전자카드: {r.elcdName}</span>}
                           </span>
+                        : r.타각여부 === "타현장타각"
+                        ? <span className="inline-flex flex-col items-center gap-0 text-orange-600 font-bold">
+                            <span className="inline-flex items-center gap-0.5"><AlertCircle className="h-3.5 w-3.5" /> 타현장타각</span>
+                            {r.소속현장 && <span className="text-xs font-normal text-orange-400 max-w-[220px] truncate" title={r.소속현장}>{r.소속현장}</span>}
+                          </span>
+                        : r.타각여부 === "미가입"
+                        ? <span className="inline-flex items-center gap-0.5 text-slate-500 font-bold"><AlertCircle className="h-3.5 w-3.5" /> 미가입</span>
                         : <span className="inline-flex items-center gap-0.5 text-red-500 font-bold"><XCircle className="h-3.5 w-3.5" /> 미타각</span>
                       }
+                      {isAdmin && (r.타각여부 === "N" || r.타각여부 === "미가입") && (
+                        <button
+                          type="button"
+                          onClick={() => toggleUnregistered(r.성명, r.rawResidentNumber ?? r.생년월일)}
+                          className={`ml-1.5 rounded px-1.5 py-0.5 text-[11px] font-bold border transition-colors ${
+                            r.타각여부 === "미가입"
+                              ? "border-slate-300 bg-white text-slate-500 hover:bg-slate-50"
+                              : "border-slate-300 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                          }`}
+                          title="EUM 미가입 근로자로 표시 (미타각 집계에서 제외)"
+                        >
+                          {r.타각여부 === "미가입" ? "미가입 해제" : "미가입"}
+                        </button>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 text-center tabular-nums text-slate-600">{r.출근}</td>
                     <td className="px-3 py-1.5 text-center tabular-nums text-slate-600">{r.퇴근}</td>

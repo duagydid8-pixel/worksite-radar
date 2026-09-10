@@ -37,6 +37,13 @@ Config flow:
   2. Log in to eum.cw.or.kr if needed.
   3. Open 전자카드사용내역 and choose 현장 plus both 소속 업체명 values.
   4. Leave that page open. The script reads selected values and saves config.
+
+프로젝트 이관 처리 (이전 현장 태각 포함):
+  config/electronic-card-sync.local 에 "extraSites" 배열을 직접 추가하면
+  이관 전 프로젝트의 전자카드 사용내역도 함께 수집해 "타현장타각"으로 표시됩니다.
+    "extraSites": [
+      { "siteLabel": "[P4 Ph2] ...", "grndsCd": "700000", "margNo": "2402...", "osrccSnStr": "" }
+    ]
 `);
 }
 
@@ -111,7 +118,8 @@ function firstText(row, keys) {
   return "";
 }
 
-function normalizeApiRows(rows) {
+function normalizeApiRows(rows, siteLabel = "") {
+  const site = text(siteLabel);
   return rows.flatMap((row) => {
     const name = firstText(row, ["custNm", "wkrNm", "nm", "workerNm", "name"]);
     const date = normalizeDate(firstText(row, ["tagYmd", "lbrYmd", "wkYmd", "workYmd", "useYmd"]))
@@ -126,6 +134,7 @@ function normalizeApiRows(rows) {
       inTime: normalizeTime(firstText(row, ["gtwkDt", "workStrTm", "inTm", "strTm", "inTime"])),
       outTime: normalizeTime(firstText(row, ["lvwkDt", "workEndTm", "outTm", "endTm", "outTime"])),
       authMethod: firstText(row, ["tagNm", "authMtdNm", "tagMtdNm", "tagMtdCd", "tagSeNm", "inOutNm"]),
+      ...(site ? { site } : {}),
     }];
   });
 }
@@ -136,6 +145,12 @@ function groupByDate(rows) {
     const people = byDate.get(row.date) ?? new Map();
     const key = `${row.name.replace(/\s+/g, "")}|${normalizeBirth(row.birthDate)}`;
     const current = people.get(key);
+    // 이 현장(site 없음) 태각이 항상 우선. 다른 프로젝트 태각만 있을 때에만 site 유지.
+    const mergedSite = !current
+      ? row.site || undefined
+      : current.site === undefined
+        ? undefined
+        : row.site || undefined;
     people.set(key, {
       name: current?.name || row.name,
       birthDate: current?.birthDate || normalizeBirth(row.birthDate),
@@ -143,6 +158,7 @@ function groupByDate(rows) {
       outTime: current?.outTime || row.outTime || "",
       authMethod: current?.authMethod || row.authMethod || "",
       company: current?.company || row.company || "",
+      ...(mergedSite ? { site: mergedSite } : {}),
     });
     byDate.set(row.date, people);
   }
@@ -331,8 +347,9 @@ async function commandConfig(args) {
   const { context } = await openContext(profileDir, args.url || EUM_CARD_URL);
   console.log("[elcd] 브라우저가 열렸습니다. EUM 로그인 후 전자카드사용내역 화면에서 현장과 업체 2개를 선택해두세요.");
   const selected = await findSelectedConfig(context, timeoutMs);
+  const previous = existsSync(configPath) ? await readJson(configPath).catch(() => ({})) : {};
   const config = {
-    site: args.site || "PH4",
+    site: args.site || previous.site || "PH4",
     siteLabel: selected.siteLabel,
     grndsCd: selected.grndsCd,
     margNo: selected.margNo,
@@ -340,6 +357,8 @@ async function commandConfig(args) {
     companies: selected.companies,
     osrccSnStr: selected.osrccSnStr,
     sourceUrl: selected.sourceUrl,
+    // 이관 전 프로젝트 목록은 수동 관리 항목이므로 재설정 시 보존한다.
+    ...(Array.isArray(previous.extraSites) ? { extraSites: previous.extraSites } : {}),
     savedAt: new Date().toISOString(),
   };
   await writeJson(configPath, config);
@@ -562,6 +581,30 @@ async function commandSync(args) {
   console.log(`[elcd] Site: ${runtimeConfig.grndsCd} / ${runtimeConfig.margNo}`);
   const apiRows = await fetchRows(page, runtimeConfig, range);
   const normalized = normalizeApiRows(apiRows);
+
+  // 프로젝트 이관 후 이전 현장 카드리더로 태각하는 인원을 잡기 위해
+  // config.extraSites (이전 프로젝트) 에서도 사용내역을 가져와 site 라벨을 붙인다.
+  const extraSites = Array.isArray(config.extraSites) ? config.extraSites : [];
+  for (const extra of extraSites) {
+    const extraCode = text(extra.grndsCd);
+    const extraLabel = text(extra.siteLabel || extra.label || extra.grndsCd);
+    if (!extraCode) continue;
+    try {
+      const extraConfig = {
+        grndsCd: extraCode,
+        margNo: text(extra.margNo),
+        osrccSnStr: text(extra.osrccSnStr),
+        grndsCdObj: extra.grndsCdObj || { grndsCd: extraCode, margNo: text(extra.margNo) },
+      };
+      const extraRows = await fetchRows(page, extraConfig, range);
+      const extraNormalized = normalizeApiRows(extraRows, extraLabel);
+      normalized.push(...extraNormalized);
+      console.log(`[elcd] 이전 현장 '${extraLabel}': ${extraRows.length}건 수집`);
+    } catch (error) {
+      console.warn(`[elcd] 이전 현장 '${extraLabel}' 수집 실패 (건너뜀): ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
   const grouped = groupByDate(normalized);
   await mkdir(outputDir, { recursive: true });
   await writeJson(path.join(outputDir, `raw_${range.startYmd}_${range.endYmd}.json`), apiRows);
