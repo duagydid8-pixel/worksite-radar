@@ -18,6 +18,7 @@ import {
   hasClockCellValue,
   inferGasanReason,
   inferGasanReasonTags,
+  inferNewEmployeeGasanReason,
   isWaejuTeam,
   minToStr,
   normalizeGasanReasonParentheses,
@@ -331,20 +332,26 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     }
   };
 
+  // 신규자 가산B — 항상 1.0공수 기준으로 계산한다.
+  // 수기 입력(manualAdjustment)한 행만 저장값을 보존하고, 자동 계산으로 남아 있던
+  // 예전 가산B(예: 지각 기준 0.44)는 버리고 1.0 - 공수A로 다시 계산한다.
+  const resolveNewEmpAdjustment = (r: ProcessedRow) => {
+    const gongsuA = parseFloat(r.xerpGongsuA) || 0;
+    const d = 1.0 - gongsuA;
+    const 가산사유 = d > 0 ? inferNewEmployeeGasanReason(r) : "";
+    const calculated = { diff: d > 0 ? d : null, needsUpdate: d > 0, 가산사유 };
+    return r.manualAdjustment
+      ? resolveLoadedAdjustment(r, calculated)
+      : { ...calculated, manualAdjustment: false };
+  };
+
   // rows에 신규자 데이터 즉시 적용 (타이밍 이슈 방지용)
   const applyNewEmpToRows = (loadedRows: ProcessedRow[], empData: Map<string, NewEmpInfo>, date: string = workDate): ProcessedRow[] =>
     loadedRows.map((r) => {
       if (r.isWaeju) return r;
       const isNew = empData.has(r.성명);
       if (isNew) {
-        const gongsuA = parseFloat(r.xerpGongsuA) || 0;
-        const d = 1.0 - gongsuA;
-        const adjustment = resolveLoadedAdjustment(r, {
-          diff: d > 0 ? d : null,
-          needsUpdate: d > 0,
-          가산사유: r.가산사유 || "",
-        });
-        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...adjustment };
+        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) };
       }
       const cfg = getTeamConfig(r.팀명);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
@@ -468,14 +475,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isWaeju) return r; // 외주는 항상 0 유지
       const isNew = newEmpData.has(r.성명);
       if (isNew) {
-        const gongsuA = parseFloat(r.xerpGongsuA) || 0;
-        const diff = 1.0 - gongsuA;
-        const adjustment = resolveLoadedAdjustment(r, {
-          diff: diff > 0 ? diff : null,
-          needsUpdate: diff > 0,
-          가산사유: r.가산사유 || "",
-        });
-        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...adjustment };
+        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) };
       }
       // 신규자 해제 시 원래 값으로 재계산
       if (r.isNewEmployee) {
@@ -485,8 +485,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const isCheolya = Boolean(r.isCheolya);
         const calcVal  = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, isCheolya);
         const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-        const 가산사유 = needsUpdate ? inferGasanReason({ ...r, calcGongsuVal: calcVal, isLunchOt, isCheolya }) : "";
-        const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
+        const 가산사유 = needsUpdate ? inferGasanReason({ ...r, isNewEmployee: false, calcGongsuVal: calcVal, isLunchOt, isCheolya }) : "";
+        // 신규자로 잡혀 있던 1.0 기준 가산B는 버리고 재계산 — 수기 입력한 행만 저장값 보존
+        const adjustment = r.manualAdjustment
+          ? resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 })
+          : { diff, needsUpdate, 가산사유, manualAdjustment: false };
         return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, ...adjustment };
       }
       return r;
@@ -745,6 +748,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         xerpGongsuA,
         calcGongsuVal,
         diff,
+        isNewEmployee,
       });
 
       processed.push({
@@ -884,6 +888,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           xerpGongsuA,
           calcGongsuVal,
           diff,
+          isNewEmployee,
         });
 
         processed.push({

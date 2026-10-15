@@ -3,6 +3,7 @@ import {
   calcGongsuForWorkDate,
   getSpecialListLabels,
   inferGasanReason,
+  inferNewEmployeeGasanReason,
   normalizeGasanReasonParentheses,
   canBuildDownloadWorkbook,
   isWeekendWorkDate,
@@ -369,5 +370,48 @@ describe("XERP work reflection writable adjustment values", () => {
       diff: 0.25,
       reason: "1h 연장근무",
     });
+  });
+});
+
+describe("신규자 가산사유", () => {
+  const newEmpRow = {
+    xerpIn: "13:29",
+    xerpOut: "17:02",
+    pmisIn: "",
+    pmisOut: "",
+    rawInMin: 13 * 60 + 29,
+    rawOutMin: 17 * 60,
+    isLate: true,
+    standardStart: 7 * 60,
+    isNewEmployee: true,
+  };
+
+  it("XERP 출근 타각이 기준보다 늦으면 출근타각지연으로 적는다", () => {
+    expect(inferGasanReason(newEmpRow)).toBe("xerp 승인대기로 인한 출근타각지연(주간)");
+  });
+
+  it("퇴근 타각이 없으면 퇴근미타각으로 적는다", () => {
+    expect(inferNewEmployeeGasanReason({ xerpIn: "07:00", xerpOut: "", rawOutMin: null, standardStart: 7 * 60 }))
+      .toBe("xerp 승인대기로 인한 퇴근미타각(주간)");
+  });
+
+  it("출근 타각이 없으면 출근미타각으로 적는다", () => {
+    expect(inferNewEmployeeGasanReason({ xerpIn: "", xerpOut: "17:02", rawOutMin: 17 * 60, standardStart: 7 * 60 }))
+      .toBe("xerp 승인대기로 인한 출근미타각(주간)");
+  });
+
+  it("출퇴근 모두 미타각이면 출퇴근미타각으로 적는다", () => {
+    expect(inferNewEmployeeGasanReason({ xerpIn: "", xerpOut: "", rawOutMin: null, standardStart: 7 * 60 }))
+      .toBe("xerp 승인대기로 인한 출퇴근미타각(주간)");
+  });
+
+  it("타각이 모두 정상이면 공수미반영으로 적는다", () => {
+    expect(inferNewEmployeeGasanReason({ xerpIn: "07:00", xerpOut: "17:02", rawOutMin: 17 * 60, standardStart: 7 * 60 }))
+      .toBe("xerp 승인대기로 인한 공수미반영(주간)");
+  });
+
+  it("신규자가 아니면 기존 사유 규칙을 그대로 쓴다", () => {
+    expect(inferGasanReason({ ...newEmpRow, isNewEmployee: false }))
+      .not.toContain("xerp 승인대기");
   });
 });

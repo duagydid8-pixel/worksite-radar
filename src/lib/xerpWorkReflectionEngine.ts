@@ -44,6 +44,7 @@ const WEEKEND_RATE_PER_HOUR = 0.143;
 const WEEKEND_FULL_WORK_MIN = 7 * 60;
 const GASAN_REASON_TAG_ORDER = ["조출", "주간", "조퇴", "연장", "야간", "철야", "주말OT"] as const;
 const LUNCH_OT_REASON = "중식OT";
+const NEW_EMP_REASON_PREFIX = "xerp 승인대기로 인한 ";
 const CHEOLYA_CROSS_MIDNIGHT_THRESHOLD = 12 * 60; // 철야 체크 시, 이 시각 이전 퇴근 기록은 익일로 간주
 const CHEOLYA_BREAK_MIN = 120; // 철야 고정 휴게(저녁·야식) 2시간
 const CHEOLYA_HOURLY_RATE = 0.25; // 19:00~05:00 철야: 실근무 1시간당 0.25공 (예: 8시간 근무 = 2.0공)
@@ -238,6 +239,34 @@ function resolveFastCheckoutShortageMinutes(row: {
 }
 
 /** 가산 사유 자동 추론 */
+/**
+ * 신규자 가산사유 — 신규 등록자는 XERP 승인이 나기 전이라 타각/공수가 비어 있거나 늦게 찍힌다.
+ * 예) "xerp 승인대기로 인한 출근타각지연(주간)", "xerp 승인대기로 인한 퇴근미타각(주간)"
+ */
+export function inferNewEmployeeGasanReason(row: {
+  xerpIn: string; xerpOut: string;
+  rawOutMin: number | null;
+  standardStart: number;
+  isCheolya?: boolean;
+}): string {
+  const tagLabel = formatGasanReasonTags(inferGasanReasonTags(row)) || "주간";
+  const noXerpIn  = !row.xerpIn;
+  const noXerpOut = !row.xerpOut;
+  const xerpInMin = parseMin(row.xerpIn);
+
+  const reasons: string[] = [];
+  if (noXerpIn && noXerpOut) {
+    reasons.push(`출퇴근미타각(${tagLabel})`);
+  } else {
+    if (noXerpIn) reasons.push(`출근미타각(${tagLabel})`);
+    else if (xerpInMin !== null && xerpInMin > row.standardStart) reasons.push(`출근타각지연(${tagLabel})`);
+    if (noXerpOut) reasons.push(`퇴근미타각(${tagLabel})`);
+  }
+  if (reasons.length === 0) reasons.push(`공수미반영(${tagLabel})`);
+
+  return `${NEW_EMP_REASON_PREFIX}${reasons.join(" / ")}`;
+}
+
 export function inferGasanReason(row: {
   xerpIn: string; xerpOut: string;
   pmisIn: string; pmisOut?: string;
@@ -248,7 +277,9 @@ export function inferGasanReason(row: {
   diff?: number | null;
   isLunchOt?: boolean;
   isCheolya?: boolean;
+  isNewEmployee?: boolean;
 }): string {
+  if (row.isNewEmployee) return inferNewEmployeeGasanReason(row);
   if (row.isLunchOt) return LUNCH_OT_REASON;
   if (row.isCheolya) {
     const hours = row.calcGongsuVal !== undefined && row.calcGongsuVal !== null
