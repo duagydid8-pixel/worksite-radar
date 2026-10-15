@@ -6,6 +6,7 @@
  *   - doc "new_employees_ph2"   : { rows }
  *   - doc "xerp_pmis"           : { dateMap }
  *   - doc "work_schedule"       : ScheduleData
+ *   - doc "tenure_workers"      : { rows } (근속 1년 도래 알림)
  *
  * Firestore 보안 규칙 (Firebase Console → Firestore → 규칙):
  *   rules_version = '2';
@@ -16,9 +17,11 @@
  *   }
  */
 import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "./firebase";
+import { getOrgPhotoContentType, getOrgPhotoExtension, getOrgPhotoStoragePath, isInlineOrgPhoto } from "./orgPhotoStorage";
 import type { ScheduleData } from "./scheduleTypes";
+import type { TenureWorker } from "./tenureAlert";
 import type { ManualAbsence } from "./manualAbsences";
 import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
 import {
@@ -59,6 +62,20 @@ export async function saveOrgFS(data: object, docId = "org") {
   return fsSet(docId, data);
 }
 
+export async function uploadOrgPhotoFS(docId: string, ownerId: string, photoUrl: string): Promise<string | null> {
+  if (!isInlineOrgPhoto(photoUrl)) return photoUrl;
+  if (!storage) return null;
+  try {
+    const path = getOrgPhotoStoragePath(docId, ownerId, Date.now(), getOrgPhotoExtension(photoUrl));
+    const storageRef = ref(storage, path);
+    await uploadString(storageRef, photoUrl, "data_url", { contentType: getOrgPhotoContentType(photoUrl) });
+    return getDownloadURL(storageRef);
+  } catch (e) {
+    console.error("[Storage] uploadOrgPhotoFS 실패:", e);
+    return null;
+  }
+}
+
 // ── 기술인 및 관리자 명단 — P4-PH4 초순수 ───────────
 export async function loadEmployeesPH4FS() {
   const ph4Data = await fsGet<{ rows: unknown[] }>("new_employees_ph4");
@@ -91,6 +108,15 @@ export async function loadEmployeesP5PH1FS() {
 }
 export async function saveEmployeesP5PH1FS(rows: unknown[]) {
   return fsSet("new_employees_p5_ph1", { rows });
+}
+
+// ── 근속 1년 도래 알림 (이관자 최초입사일 추적) ───────
+export async function loadTenureWorkersFS(): Promise<TenureWorker[] | null> {
+  const data = await fsGet<{ rows: TenureWorker[] }>("tenure_workers");
+  return data?.rows ?? null;
+}
+export async function saveTenureWorkersFS(rows: TenureWorker[]): Promise<boolean> {
+  return fsSet("tenure_workers", { rows });
 }
 
 // ── 급여대장 수동 결근 입력 ───────────────────────────
@@ -203,28 +229,47 @@ export async function loadXerpDateFS(site: string, date: string): Promise<unknow
 }
 
 // ── XERP 공수 반영 저장 (날짜별) ─────────────────────
+// 과거에는 모든 날짜를 문서 하나("xerp_work_dates"/dateMap)에 몰아 저장했는데,
+// 날짜가 쌓이면서 Firestore 문서 크기 제한(1MB)을 넘어 이후 저장이 전부 조용히 실패했다.
+// 이제는 날짜별로 별도 문서에 저장하고, 인덱스 문서에는 파일명/저장시각만 가볍게 보관한다.
 interface XerpWorkEntry { fileName: string; savedAt: string; rows: unknown[]; rawExcelRows?: unknown[] }
 type XerpWorkDateMap = Record<string, XerpWorkEntry>;
+type XerpWorkDateIndex = Record<string, { fileName: string; savedAt: string }>;
+
+function xerpWorkDateDocId(date: string): string {
+  return `xerp_work_date_${date}`;
+}
 
 export async function loadXerpWorkDateMapFS(): Promise<XerpWorkDateMap | null> {
-  const data = await fsGet<{ dateMap: XerpWorkDateMap }>("xerp_work_dates");
-  return data?.dateMap ?? null;
+  const index = await fsGet<{ dates?: XerpWorkDateIndex }>("xerp_work_dates");
+  const dates = Object.keys(index?.dates ?? {});
+  if (dates.length === 0) return null;
+
+  const entries = await Promise.all(
+    dates.map(async (date) => [date, await fsGet<XerpWorkEntry>(xerpWorkDateDocId(date))] as const),
+  );
+  const map: XerpWorkDateMap = {};
+  for (const [date, entry] of entries) if (entry) map[date] = entry;
+  return Object.keys(map).length > 0 ? map : null;
 }
 export async function saveXerpWorkDateFS(
   date: string, fileName: string, rows: unknown[], rawExcelRows?: unknown[]
 ): Promise<boolean> {
-  const current = (await loadXerpWorkDateMapFS()) ?? {};
-  const updated: XerpWorkDateMap = {
-    ...current,
-    [date]: { fileName, savedAt: new Date().toISOString(), rows, rawExcelRows: rawExcelRows ?? [] },
-  };
-  return fsSet("xerp_work_dates", { dateMap: updated });
+  const savedAt = new Date().toISOString();
+  const entryOk = await fsSet(xerpWorkDateDocId(date), { fileName, savedAt, rows, rawExcelRows: rawExcelRows ?? [] });
+  if (!entryOk) return false;
+
+  const index = await fsGet<{ dates?: XerpWorkDateIndex }>("xerp_work_dates");
+  const updatedDates: XerpWorkDateIndex = { ...(index?.dates ?? {}), [date]: { fileName, savedAt } };
+  return fsSet("xerp_work_dates", { dates: updatedDates });
 }
 export async function deleteXerpWorkDateFS(date: string): Promise<boolean> {
-  const current = (await loadXerpWorkDateMapFS()) ?? {};
-  const updated = { ...current };
-  delete updated[date];
-  return fsSet("xerp_work_dates", { dateMap: updated });
+  const index = await fsGet<{ dates?: XerpWorkDateIndex }>("xerp_work_dates");
+  const updatedDates = { ...(index?.dates ?? {}) };
+  delete updatedDates[date];
+  const indexOk = await fsSet("xerp_work_dates", { dates: updatedDates });
+  if (!indexOk) return false;
+  return fsSet(xerpWorkDateDocId(date), { fileName: "", savedAt: new Date().toISOString(), rows: [], rawExcelRows: [] });
 }
 // 레거시 단일 저장 (하위 호환)
 export async function loadXerpWorkFS() {

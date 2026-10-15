@@ -315,12 +315,6 @@ export function inferGasanReason(row: {
   return normalizeGasanReasonParentheses(reasons.join(" / "), reasonTags);
 }
 
-/** 지각 시 출근 시간을 다음 정각으로 올림 (ex. 16:37 → 17:00) */
-function ceilToHour(min: number): number {
-  const m = min % 60;
-  return m === 0 ? min : (Math.floor(min / 60) + 1) * 60;
-}
-
 export function resolveEffInMin(rawInMin: number | null, isJochul: boolean, cfg: TeamConfig): number | null {
   if (rawInMin === null) return null;
   if (!isJochul && rawInMin < cfg.jochulCutoff) return cfg.standardStart;
@@ -339,12 +333,11 @@ export function resolveEffOutMin(xerpOut: unknown, pmisOut: unknown): number | n
 /**
  * 공수 계산
  *
- * ① 출근 시간이 standardStart 이후 지각이면 다음 정각으로 올림
- * ② standardStart~17:00 표준 시간대 내 근무분 / 480분 = 주간 공수 (최대 1.0)
- * ③ 17:00 이후 연장 시간:
- *    - 주간 8시간 충족(공수 1.0) 시 → 0.25/h (연장 단가)
- *    - 주간 8시간 미충족 시         → 0.125/h (기본 단가, 연장 할증 없음)
- * ④ 조출: standardStart 이전 1시간마다 +0.25
+ * ① standardStart~퇴근 사이 실근무시간(점심 제외) 집계 — 지각해도 그만큼 더 늦게까지
+ *    일해서 표준 8시간을 채우면 지각 손실 없이 표준 1.0 전액 인정
+ * ② 표준 8시간 미충족 시에는 채운 비율만큼 비례 감산 (예: 7시간 근무 = 0.875)
+ * ③ 표준 8시간을 넘긴 실근무시간은 50분 기준으로 시간 단위 반올림해 시간당 0.25공 가산
+ * ④ 조출: standardStart 이전 1시간마다 +0.25 (체크 시에만, 표준/연장 집계와 별도)
  */
 function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul: boolean, cfg: TeamConfig): number | null {
   if (effInMin === null || effOutMin === null) return null;
@@ -353,27 +346,19 @@ function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul:
   // 팀 기준 하루 실근무 = 오전(breakStart-standardStart) + 오후(STANDARD_END-breakEnd)
   const standardWorkMin = (breakStart - standardStart) + (STANDARD_END - breakEnd);
 
-  // 지각 시 출근 올림 처리 (standardStart 이후 지각만 적용)
-  const ceiledIn = effInMin > standardStart ? ceilToHour(effInMin) : effInMin;
-  const lateMin  = effInMin > standardStart ? (ceiledIn - standardStart) : 0;
+  // standardStart 이전(조출 구간)은 jochulBonus에서 별도 가산하므로 표준/연장 집계에서는 제외
+  const workStart = Math.max(effInMin, standardStart);
+  const lunchOverlap = Math.max(0, Math.min(effOutMin, breakEnd) - Math.max(workStart, breakStart));
+  const netWorkedMin = Math.max(0, effOutMin - workStart - lunchOverlap);
 
-  const stdIn  = Math.max(ceiledIn, standardStart);
-  const stdOut = Math.min(effOutMin, STANDARD_END);
+  // 표준 공수: 못 채운 만큼 비례 감산, 늦게까지 일해 채우면 1.0 전액 인정
+  const stdWorkMin = Math.min(netWorkedMin, standardWorkMin);
+  const stdGongsu  = stdWorkMin / standardWorkMin;
 
-  // 오전 근무 (휴게 시작 전)
-  const morningMin   = Math.max(0, Math.min(stdOut, breakStart) - stdIn);
-  // 오후 근무 (휴게 종료 후)
-  const afternoonMin = Math.max(0, stdOut - Math.max(stdIn, breakEnd));
-  const stdWorkMin   = morningMin + afternoonMin;
-
-  // 지각 손실분 차감 후 공수 계산
-  const effectiveWorkMin = Math.min(stdWorkMin, standardWorkMin - lateMin);
-  const stdGongsu = Math.max(0, effectiveWorkMin / standardWorkMin);
-
-  // 연장 시간 (17:00 이후) — 주간 충족 여부에 따라 단가 분기
-  const overtimeMin    = Math.max(0, effOutMin - STANDARD_END);
-  const isStdMet       = stdGongsu >= 1.0;
-  const overtimeGongsu = (overtimeMin / 60) * (isStdMet ? 0.25 : 0.125);
+  // 연장 공수: 표준 8시간 초과분을 50분 기준 반올림해 시간당 0.25공
+  const excessMin      = Math.max(0, netWorkedMin - standardWorkMin);
+  const overtimeHours   = Math.floor(excessMin / 60) + (excessMin % 60 >= 50 ? 1 : 0);
+  const overtimeGongsu = overtimeHours * 0.25;
 
   // 조출 보너스: standardStart 이전 1시간마다 0.25 (체크 시에만)
   const jochulBonus = isJochul
