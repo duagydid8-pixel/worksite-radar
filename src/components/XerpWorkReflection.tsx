@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, History, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, ArrowUpDown, ArrowUp, ArrowDown, History, ChevronDown, ChevronUp } from "lucide-react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
-import { extractXerpPmisDateFromFilename as extractDateFromFilename, upsertXerpPmisDateList } from "@/lib/xerpPmisDates";
+import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 import {
   calcDiff,
   calcGongsuForWorkDate,
@@ -24,7 +24,6 @@ import {
   resolveEffInMin,
   resolveEffOutMin,
   resolveLoadedAdjustment,
-  resolveSyncedGasanReason,
   resolveWritableGasanAdjustment,
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
@@ -57,6 +56,7 @@ interface ProcessedRow {
   rawOutMin: number | null;
   isJochul: boolean;
   isLunchOt: boolean;
+  isCheolya: boolean;
   effIn: string; effOut: string;
   xerpGongsuA: string;
   calcGongsuVal: number | null;
@@ -143,7 +143,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState<string>("전체");
   const [isSaving, setIsSaving] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editingVal, setEditingVal] = useState("");
   const [editingReason, setEditingReason] = useState("");
@@ -164,6 +163,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
   // 일괄 선택
   const [selectedIdxes, setSelectedIdxes] = useState<Set<number>>(new Set());
+  const [bulkGasanVal, setBulkGasanVal] = useState("");
+  const [bulkGasanReason, setBulkGasanReason] = useState("");
+  const lastSelectedRowIndexRef = useRef<number | null>(null);
 
   // 정기안전교육
   const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
@@ -177,10 +179,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [sortColWR, setSortColWR] = useState<SortColWR | null>(null);
   const [sortDirWR, setSortDirWR] = useState<"asc" | "desc">("asc");
 
-  // XERP&PMIS 연동 설정
+  // XERP&PMIS 연동 설정 (사이트는 외출 명단 조회에도 쓰임)
   const [syncSite, setSyncSite] = useState<XerpSyncSite>("PH4");
-  const [syncDate, setSyncDate] = useState<string>(today());
-  const [xerpDates, setXerpDates] = useState<string[]>([]);
 
   const fileRef    = useRef<HTMLInputElement>(null);
   const newEmpRef  = useRef<HTMLInputElement>(null);
@@ -196,20 +196,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setWorkDates([]);
     return { dm: null, dates: [] };
   };
-
-  // 사이트 변경 시 XERP&PMIS 날짜 목록 로드
-  useEffect(() => {
-    const loadFn = syncSite === "P5PH1" ? loadXerpP5PH1FS : syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
-    loadFn().then((dm) => {
-      if (dm && typeof dm === "object") {
-        const dates = Object.keys(dm).sort().reverse();
-        setXerpDates(dates);
-        if (dates.length > 0 && !dates.includes(syncDate)) setSyncDate(dates[0]);
-      } else {
-        setXerpDates([]);
-      }
-    });
-  }, [syncSite]);
 
   // 정기안전교육 날짜 로드
   useEffect(() => {
@@ -290,9 +276,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const cfg = getTeamConfig(r.팀명);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
       const isLunchOt = Boolean(r.isLunchOt);
-      const calcVal = calcGongsuForWorkDate(date, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt);
+      const isCheolya = Boolean(r.isCheolya);
+      const calcVal = calcGongsuForWorkDate(date, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const 가산사유 = needsUpdate ? inferGasanReason({ ...r, isLunchOt }) : "";
+      const 가산사유 = needsUpdate ? inferGasanReason({ ...r, calcGongsuVal: calcVal, isLunchOt, isCheolya }) : "";
       const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
       return { ...r, isNewEmployee: false, isLunchOt, calcGongsuVal: calcVal, ...adjustment };
     });
@@ -422,9 +409,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const cfg = getTeamConfig(r.팀명);
         const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
         const isLunchOt = Boolean(r.isLunchOt);
-        const calcVal  = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt);
+        const isCheolya = Boolean(r.isCheolya);
+        const calcVal  = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, isCheolya);
         const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-        const 가산사유 = needsUpdate ? inferGasanReason({ ...r, isLunchOt }) : "";
+        const 가산사유 = needsUpdate ? inferGasanReason({ ...r, calcGongsuVal: calcVal, isLunchOt, isCheolya }) : "";
         const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
         return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, ...adjustment };
       }
@@ -443,11 +431,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const effInMin  = resolveEffInMin(r.rawInMin, newJochul, cfg);
       const effIn     = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt = Boolean(r.isLunchOt);
-      const calcVal   = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, newJochul, cfg, isLunchOt);
+      const isCheolya = Boolean(r.isCheolya);
+      const calcVal   = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, newJochul, cfg, isLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const isLate    = effInMin !== null && effInMin > cfg.standardStart;
       const 가산사유 = needsUpdate
-        ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt }), inferGasanReasonTags(r))
+        ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }), inferGasanReasonTags(r))
         : "";
       return { ...r, isJochul: newJochul, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate, 가산사유 };
     }));
@@ -461,13 +450,107 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const newLunchOt = !r.isLunchOt;
       const cfg         = getTeamConfig(r.팀명);
       const effInMin     = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
-      const calcVal      = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, newLunchOt);
+      const isCheolya    = Boolean(r.isCheolya);
+      const calcVal      = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, newLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const 가산사유 = needsUpdate
-        ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt: newLunchOt })
+        ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt: newLunchOt, isCheolya })
         : "";
       return { ...r, isLunchOt: newLunchOt, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     }));
+  };
+
+  // 철야 토글 — 체크 시 자정을 넘긴 퇴근 기록을 익일로 보정해 연장 공수 계산
+  const toggleCheolya = (rowIndex: number) => {
+    setRows((prev) => prev.map((r) => {
+      if (r.rowIndex !== rowIndex) return r;
+      if (r.isWaeju) return r; // 외주는 무시
+      const newCheolya = !r.isCheolya;
+      const cfg        = getTeamConfig(r.팀명);
+      const effInMin    = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+      const isLunchOt   = Boolean(r.isLunchOt);
+      const calcVal     = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, newCheolya);
+      const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      const 가산사유 = needsUpdate
+        ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya: newCheolya })
+        : "";
+      return { ...r, isCheolya: newCheolya, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+    }));
+  };
+
+  // 일괄 조출 설정 (선택된 행 전체)
+  const bulkSetJochul = (value: boolean) => {
+    if (!selectedIdxes.size) return;
+    setRows((prev) => prev.map((r) => {
+      if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isJochul === value) return r;
+      const cfg = getTeamConfig(r.팀명);
+      const effInMin = resolveEffInMin(r.rawInMin, value, cfg);
+      const effIn = effInMin !== null ? minToStr(effInMin) : "";
+      const isLunchOt = Boolean(r.isLunchOt);
+      const isCheolya = Boolean(r.isCheolya);
+      const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, value, cfg, isLunchOt, isCheolya);
+      const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      const isLate = effInMin !== null && effInMin > cfg.standardStart;
+      const 가산사유 = needsUpdate
+        ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }), inferGasanReasonTags(r))
+        : "";
+      return { ...r, isJochul: value, effIn, calcGongsuVal: calcVal, diff, needsUpdate, isLate, 가산사유 };
+    }));
+    toast.success(`${selectedIdxes.size}명 조출근무 ${value ? "ON" : "OFF"} 일괄 적용됨`);
+  };
+
+  // 일괄 중식OT 설정 (선택된 행 전체)
+  const bulkSetLunchOt = (value: boolean) => {
+    if (!selectedIdxes.size) return;
+    setRows((prev) => prev.map((r) => {
+      if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isLunchOt === value) return r;
+      const cfg = getTeamConfig(r.팀명);
+      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+      const isCheolya = Boolean(r.isCheolya);
+      const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, value, isCheolya);
+      const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      const 가산사유 = needsUpdate
+        ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt: value, isCheolya })
+        : "";
+      return { ...r, isLunchOt: value, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+    }));
+    toast.success(`${selectedIdxes.size}명 중식OT ${value ? "ON" : "OFF"} 일괄 적용됨`);
+  };
+
+  // 일괄 철야 설정 (선택된 행 전체)
+  const bulkSetCheolya = (value: boolean) => {
+    if (!selectedIdxes.size) return;
+    setRows((prev) => prev.map((r) => {
+      if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isCheolya === value) return r;
+      const cfg = getTeamConfig(r.팀명);
+      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+      const isLunchOt = Boolean(r.isLunchOt);
+      const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, value);
+      const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      const 가산사유 = needsUpdate
+        ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya: value })
+        : "";
+      return { ...r, isCheolya: value, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+    }));
+    toast.success(`${selectedIdxes.size}명 철야 ${value ? "ON" : "OFF"} 일괄 적용됨`);
+  };
+
+  // 일괄 가산B 입력 적용 (선택된 행 전체)
+  const applyBulkGasan = () => {
+    if (!selectedIdxes.size) return;
+    const num = parseFloat(bulkGasanVal);
+    if (isNaN(num) || num <= 0) { toast.error("유효한 가산 공수를 입력하세요"); return; }
+    setRows((prev) => prev.map((r) => {
+      if (!selectedIdxes.has(r.rowIndex)) return r;
+      const reason = normalizeGasanReasonParentheses(
+        bulkGasanReason.trim() || inferGasanReason({ ...r, diff: num }),
+        inferGasanReasonTags(r),
+      );
+      return { ...r, diff: num, 가산사유: reason, needsUpdate: true, manualAdjustment: true };
+    }));
+    toast.success(`${selectedIdxes.size}명에게 가산 +${num}공 일괄 적용됨`);
+    setBulkGasanVal("");
+    setBulkGasanReason("");
   };
 
   // 가산B 수기 편집
@@ -595,7 +678,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           rowIndex: i, 팀명, 성명,
           xerpIn: xerpInStr, xerpOut: xerpOutStr,
           pmisIn: pmisInStr, pmisOut: pmisOutStr,
-          rawInMin, rawOutMin, isJochul, isLunchOt: false,
+          rawInMin, rawOutMin, isJochul, isLunchOt: false, isCheolya: false,
           effIn, effOut, xerpGongsuA,
           calcGongsuVal, diff,
           가산사유: normalizeGasanReasonParentheses(
@@ -627,7 +710,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       // 자동 사이트/날짜 감지
       setSyncSite(detectedSite);
-      if (detectedDate) { setSyncDate(detectedDate); setWorkDate(detectedDate); }
+      if (detectedDate) setWorkDate(detectedDate);
 
       const noRec = processed.filter((r) => r.isNoRecord).length;
       const late  = processed.filter((r) => r.isLate).length;
@@ -703,66 +786,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         setRows([]);
         setFileName(null);
       }
-    }
-  };
-
-  // XERP&PMIS 전체 명단 반영 (파일 전체 데이터 교체)
-  const handleSync = async () => {
-    if (!rows.length) return;
-    if (!rawExcelRows.length) {
-      toast.error("원본 엑셀 데이터가 없습니다. 엑셀을 다시 업로드하거나 저장 후 시도해 주세요.");
-      return;
-    }
-    setIsSyncing(true);
-    try {
-      const loadFn = syncSite === "P5PH1" ? loadXerpP5PH1FS : syncSite === "PH2" ? loadXerpPH2FS : loadXerpFS;
-      const saveFn = syncSite === "P5PH1" ? saveXerpP5PH1FS : syncSite === "PH2" ? saveXerpPH2FS : saveXerpFS;
-
-      const dateMap = (await loadFn() as Record<string, unknown[]> | null) ?? {};
-
-      // 엑셀 전체 컬럼으로 완전한 XERP&PMIS 레코드 구성
-      const newEntries = rawExcelRows.map((re) => {
-        const c = re.cols;
-        // ProcessedRow에서 계산된 값 찾기
-        const pr = rows.find((r) => r.rowIndex === re.rowIndex);
-        const gongsuA = parseFloat(c[16]) || 0;
-        const adjustment = pr
-          ? resolveWritableGasanAdjustment(pr, safetyEduDates.has(syncDate))
-          : { diff: null, reason: "" };
-        const gasanB  = adjustment.diff;
-        const gongsuAB = gasanB !== null
-          ? String(Math.round((gongsuA + gasanB) * 100) / 100)
-          : c[21];
-
-        return {
-          id: crypto.randomUUID(),
-          팀명: c[0],  직종: c[1],  사번: c[2],  성명: c[3],  생년월일: c[4],
-          xerp출근: c[5],  xerp퇴근: c[6],
-          pmis출근: c[7],  pmis퇴근: c[8],
-          조출: c[9],  오전: c[10], 오후: c[11], 연장: c[12],
-          야간: c[13], 철야: c[14], 점심: c[15],
-          공수합계A: c[16],
-          초과당일: c[17], 초과합계: c[18],
-          가산신청: gasanB !== null ? String(gasanB) : c[19],
-          가산승인: c[20],
-          공수합계AB: gongsuAB,
-          월누계: c[22],
-          가산사유: resolveSyncedGasanReason(c[25], pr ? {
-            reason: adjustment.reason,
-            manualAdjustment: pr.manualAdjustment,
-            rawOutMin: pr.rawOutMin,
-          } : null),
-        };
-      });
-
-      const updated = { ...dateMap, [syncDate]: newEntries };
-      await saveFn(updated as Record<string, unknown[]>);
-      setXerpDates((current) => upsertXerpPmisDateList(current, syncDate));
-      toast.success(`XERP&PMIS (${syncSite}, ${syncDate}) 반영 완료 — ${newEntries.length}명 전체 업데이트`);
-    } catch (err) {
-      toast.error("반영 중 오류: " + String(err));
-    } finally {
-      setIsSyncing(false);
     }
   };
 
@@ -909,6 +932,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const allSelected = displayRows.length > 0 && displayRows.every((r) => selectedIdxes.has(r.rowIndex));
   const someSelected = !allSelected && displayRows.some((r) => selectedIdxes.has(r.rowIndex));
 
+  // 선택된 행들의 현재 조출/중식OT/철야 상태 — 액션바 ON/OFF 버튼 활성 표시용
+  const selectedRowsState = useMemo(() => {
+    const selected = rows.filter((r) => selectedIdxes.has(r.rowIndex));
+    const allOn  = (key: "isJochul" | "isLunchOt" | "isCheolya") => selected.length > 0 && selected.every((r) => r[key]);
+    const allOff = (key: "isJochul" | "isLunchOt" | "isCheolya") => selected.length > 0 && selected.every((r) => !r[key]);
+    return {
+      jochulOn: allOn("isJochul"), jochulOff: allOff("isJochul"),
+      lunchOtOn: allOn("isLunchOt"), lunchOtOff: allOff("isLunchOt"),
+      cheolyaOn: allOn("isCheolya"), cheolyaOff: allOff("isCheolya"),
+    };
+  }, [rows, selectedIdxes]);
+
   const toggleSelectAll = () => {
     if (allSelected) {
       setSelectedIdxes((prev) => {
@@ -931,6 +966,25 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (next.has(idx)) next.delete(idx); else next.add(idx);
       return next;
     });
+    lastSelectedRowIndexRef.current = idx;
+  };
+
+  // Shift+클릭 시 마지막으로 선택한 행부터 현재 행까지 화면에 보이는 순서대로 일괄 선택
+  const selectRowRange = (rowIndex: number) => {
+    const anchor = lastSelectedRowIndexRef.current;
+    const anchorPos = anchor !== null ? displayRows.findIndex((r) => r.rowIndex === anchor) : -1;
+    const targetPos = displayRows.findIndex((r) => r.rowIndex === rowIndex);
+    if (anchorPos === -1 || targetPos === -1) {
+      toggleSelectRow(rowIndex);
+      return;
+    }
+    const [start, end] = anchorPos < targetPos ? [anchorPos, targetPos] : [targetPos, anchorPos];
+    setSelectedIdxes((prev) => {
+      const next = new Set(prev);
+      for (let i = start; i <= end; i++) next.add(displayRows[i].rowIndex);
+      return next;
+    });
+    lastSelectedRowIndexRef.current = rowIndex;
   };
 
   const totalCount    = rows.length;
@@ -1314,54 +1368,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         </div>
       )}
 
-      {/* XERP&PMIS 연동 패널 */}
-      {rows.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 shrink-0">
-          <span className="text-xs font-bold text-emerald-800">XERP&PMIS 반영</span>
-
-          <select
-            value={syncSite}
-            onChange={(e) => setSyncSite(e.target.value as XerpSyncSite)}
-            className="border border-emerald-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none"
-          >
-            <option value="PH4">P4-PH4</option>
-            <option value="PH2">P4-PH2</option>
-            <option value="P5PH1">P5-PH1</option>
-          </select>
-
-          <input
-            type="date"
-            value={syncDate}
-            onChange={(e) => setSyncDate(e.target.value)}
-            className="border border-emerald-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none"
-          />
-
-          {xerpDates.length > 0 ? (
-            <select
-              value={syncDate}
-              onChange={(e) => setSyncDate(e.target.value)}
-              className="border border-emerald-300 rounded-lg px-2 py-1.5 text-xs font-semibold bg-white outline-none"
-            >
-              {xerpDates.map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          ) : (
-            <span className="text-xs text-emerald-600">입력한 날짜로 새로 저장됩니다</span>
-          )}
-
-          <button
-            onClick={handleSync}
-            disabled={isSyncing || !rows.length || !syncDate}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? "animate-spin" : ""}`} />
-            {isSyncing ? "반영 중..." : "XERP&PMIS에 저장/반영"}
-          </button>
-
-          <span className="text-[11px] text-emerald-600">가산B 신청값을 입력한 날짜에 업데이트합니다</span>
-        </div>
-      )}
 
       {/* 특이자 명단 패널 */}
       {showSpecialList && rows.length > 0 && (() => {
@@ -1596,10 +1602,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         );
       })()}
 
-      {/* 검색창 + 정기안전교육 + 정렬 + 범례 */}
+      {/* 검색창 + 정기안전교육 + 정렬 + 선택 행 액션 + 범례 (한 레이아웃) */}
       {rows.length > 0 && (
-        <div className="flex flex-col gap-2 shrink-0">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3 bg-white border border-border rounded-xl px-4 py-3.5 shrink-0">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             {/* 검색 */}
             <div className="relative w-full max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -1688,24 +1694,120 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
           {/* 선택 행 액션바 */}
           {selectedIdxes.size > 0 && (
-            <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-xl px-4 py-2">
-              <span className="text-xs font-semibold text-primary">{selectedIdxes.size}행 선택됨</span>
-              <button
-                onClick={() => setSelectedIdxes(new Set())}
-                className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                선택 해제
-              </button>
+            <div className="flex flex-col gap-2.5 pt-3 border-t border-border/60">
+              <div className="flex flex-wrap items-center justify-center gap-4">
+                <span className="text-xs font-semibold text-primary whitespace-nowrap">{selectedIdxes.size}행 선택됨</span>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">조출</span>
+                  <div className="inline-flex rounded-md border border-border overflow-hidden bg-white">
+                    <button
+                      onClick={() => bulkSetJochul(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                        selectedRowsState.jochulOn ? "bg-violet-600 text-white" : "text-muted-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      ON
+                    </button>
+                    <button
+                      onClick={() => bulkSetJochul(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold border-l border-border transition-colors ${
+                        selectedRowsState.jochulOff ? "bg-violet-100 text-violet-700" : "text-muted-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      OFF
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">중식OT</span>
+                  <div className="inline-flex rounded-md border border-border overflow-hidden bg-white">
+                    <button
+                      onClick={() => bulkSetLunchOt(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                        selectedRowsState.lunchOtOn ? "bg-amber-600 text-white" : "text-muted-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      ON
+                    </button>
+                    <button
+                      onClick={() => bulkSetLunchOt(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold border-l border-border transition-colors ${
+                        selectedRowsState.lunchOtOff ? "bg-amber-100 text-amber-700" : "text-muted-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      OFF
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">철야</span>
+                  <div className="inline-flex rounded-md border border-border overflow-hidden bg-white">
+                    <button
+                      onClick={() => bulkSetCheolya(true)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                        selectedRowsState.cheolyaOn ? "bg-indigo-600 text-white" : "text-muted-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      ON
+                    </button>
+                    <button
+                      onClick={() => bulkSetCheolya(false)}
+                      className={`px-2.5 py-1 text-[11px] font-semibold border-l border-border transition-colors ${
+                        selectedRowsState.cheolyaOff ? "bg-indigo-100 text-indigo-700" : "text-muted-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      OFF
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedIdxes(new Set())}
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                >
+                  선택 해제
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-2.5 border-t border-border/60">
+                <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap">가산B 일괄입력</span>
+                <input
+                  type="number"
+                  step="0.25"
+                  min="0"
+                  value={bulkGasanVal}
+                  onChange={(e) => setBulkGasanVal(e.target.value)}
+                  placeholder="공수"
+                  className="w-16 px-2 py-1 text-[11px] text-center border border-border rounded-md bg-white outline-none focus:ring-1 focus:ring-primary/40"
+                />
+                <input
+                  type="text"
+                  value={bulkGasanReason}
+                  onChange={(e) => setBulkGasanReason(e.target.value)}
+                  placeholder="사유 (선택)"
+                  className="w-32 px-2 py-1 text-[11px] border border-border rounded-md bg-white outline-none focus:ring-1 focus:ring-primary/40"
+                />
+                <button
+                  onClick={applyBulkGasan}
+                  className="px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-semibold hover:bg-primary/90 transition-colors"
+                >
+                  적용
+                </button>
+              </div>
             </div>
           )}
 
           {/* 범례 */}
-          <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+          <div className="flex items-center justify-center gap-3 text-[11px] text-muted-foreground flex-wrap pt-1 border-t border-border/60">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-100 border border-rose-300 inline-block" /> 기록없음</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 border border-orange-300 inline-block" /> 지각</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-300 inline-block" /> 가산필요</span>
             {isSafetyEduDate && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-400 inline-block" /> 정기안전교육(16:20~17:00)</span>}
             <span className="text-[11px] text-muted-foreground">· 가산B 셀 클릭 시 수기 입력 가능</span>
+            <span className="text-[11px] text-muted-foreground">· 철야 체크 시 자정 넘긴 퇴근을 익일로 보정</span>
           </div>
         </div>
       )}
@@ -1720,6 +1822,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <p>· <b>연장공수</b>: 17:00 초과 시간당 <b>+0.25공</b> (50분 미만 미인정)</p>
           <p>· <b>조출공수</b>: 체크 시 07:00 이전 시간당 <b>+0.25공</b></p>
           <p>· <b>중식OT</b>: 체크 시 가산사유 "중식OT" 고정, 공수 <b>1.0공</b> 확정 (P5-PH1 등)</p>
+          <p>· <b>철야</b>: 19:00~05:00 야간 전담 근무 — 경과시간에서 휴게 2시간 제외 실근무시간 × <b>0.25공/h</b> (예: 8시간 근무 = 2.0공)</p>
         </div>
       )}
 
@@ -1743,6 +1846,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 <th className={th}>성명</th>
                 <th className={`${th} bg-violet-50`}>조출근무</th>
                 <th className={`${th} bg-amber-50`}>중식OT</th>
+                <th className={`${th} bg-indigo-50`}>철야</th>
                 <th className={th}>XERP 출근</th>
                 <th className={th}>XERP 퇴근</th>
                 <th className={th}>PMIS 출근</th>
@@ -1759,7 +1863,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             <tbody>
               {displayRows.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={16} className="py-12 text-center text-sm text-muted-foreground">
                     "{search}"에 해당하는 데이터가 없습니다.
                   </td>
                 </tr>
@@ -1786,6 +1890,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         <input
                           type="checkbox"
                           checked={selectedIdxes.has(row.rowIndex)}
+                          onClick={(e) => {
+                            if (e.shiftKey) {
+                              e.preventDefault();
+                              selectRowRange(row.rowIndex);
+                            }
+                          }}
                           onChange={() => toggleSelectRow(row.rowIndex)}
                           className="h-4 w-4 accent-primary cursor-pointer"
                         />
@@ -1808,6 +1918,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         </label>
                       </td>
 
+                      <td className={`${cell} bg-indigo-50/30`}>
+                        <label className="flex items-center justify-center cursor-pointer">
+                          <input type="checkbox" checked={row.isCheolya} onChange={() => toggleCheolya(row.rowIndex)}
+                            title="자정을 넘긴 퇴근(철야) → 퇴근시각을 익일로 보정해 연장 공수 계산"
+                            className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer" />
+                        </label>
+                      </td>
+
                       <td className={`${cell} tabular-nums ${!row.xerpIn ? "text-rose-400 font-semibold" : "text-blue-600"}`}>{row.xerpIn || "미기록"}</td>
                       <td className={`${cell} tabular-nums ${!row.xerpOut ? "text-rose-400 font-semibold" : "text-red-600"}`}>{row.xerpOut || "미기록"}</td>
                       <td className={`${cell} tabular-nums ${!row.pmisIn ? "text-rose-400 font-semibold" : "text-blue-400"}`}>{row.pmisIn || "미기록"}</td>
@@ -1827,6 +1945,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       </td>
                       <td className={`${cell} bg-blue-50/40 font-semibold tabular-nums ${row.rawOutMin === null ? "text-rose-400" : "text-blue-700"}`}>
                         {row.effOut || "—"}
+                        {row.isCheolya && row.rawOutMin !== null && row.rawOutMin < 12 * 60 && (
+                          <span className="ml-1 text-[9px] font-bold text-indigo-500">익일</span>
+                        )}
                       </td>
 
                       <td className={`${cell} tabular-nums`}>{row.xerpGongsuA || "—"}</td>

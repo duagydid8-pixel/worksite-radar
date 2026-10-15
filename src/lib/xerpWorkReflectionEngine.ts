@@ -42,8 +42,11 @@ const WEEKEND_START      = 7 * 60;   // 07:00
 const WEEKEND_END        = 14 * 60;  // 14:00
 const WEEKEND_RATE_PER_HOUR = 0.143;
 const WEEKEND_FULL_WORK_MIN = 7 * 60;
-const GASAN_REASON_TAG_ORDER = ["조출", "주간", "조퇴", "연장", "야간", "주말OT"] as const;
+const GASAN_REASON_TAG_ORDER = ["조출", "주간", "조퇴", "연장", "야간", "철야", "주말OT"] as const;
 const LUNCH_OT_REASON = "중식OT";
+const CHEOLYA_CROSS_MIDNIGHT_THRESHOLD = 12 * 60; // 철야 체크 시, 이 시각 이전 퇴근 기록은 익일로 간주
+const CHEOLYA_BREAK_MIN = 120; // 철야 고정 휴게(저녁·야식) 2시간
+const CHEOLYA_HOURLY_RATE = 0.25; // 19:00~05:00 철야: 실근무 1시간당 0.25공 (예: 8시간 근무 = 2.0공)
 
 export type GasanReasonTag = typeof GASAN_REASON_TAG_ORDER[number];
 
@@ -56,9 +59,26 @@ function formatGasanReasonTags(tags: GasanReasonTag[]): string {
   return orderedTags[orderedTags.length - 1] ?? "";
 }
 
-export function inferGasanReasonTags(row: { rawOutMin: number | null }): GasanReasonTag[] {
+/** 철야 체크 시 자정을 넘긴 퇴근 기록(예: 01:00)을 익일 시각으로 보정 */
+export function resolveCheolyaEffOutMin(rawOutMin: number | null, isCheolya: boolean): number | null {
+  if (rawOutMin === null) return null;
+  if (isCheolya && rawOutMin < CHEOLYA_CROSS_MIDNIGHT_THRESHOLD) return rawOutMin + 24 * 60;
+  return rawOutMin;
+}
+
+/** 철야(19:00~05:00 야간 전담) 근무 공수 — 경과시간에서 고정 휴게 2시간을 뺀 실근무시간 × 0.25공/h */
+function calcCheolyaGongsu(effInMin: number | null, effOutMin: number | null): number | null {
+  if (effInMin === null || effOutMin === null) return null;
+  const adjustedOutMin = resolveCheolyaEffOutMin(effOutMin, true)!;
+  const elapsedMin = adjustedOutMin - effInMin;
+  const workMin = Math.max(0, elapsedMin - CHEOLYA_BREAK_MIN);
+  return (workMin / 60) * CHEOLYA_HOURLY_RATE;
+}
+
+export function inferGasanReasonTags(row: { rawOutMin: number | null; isCheolya?: boolean }): GasanReasonTag[] {
   const tags: GasanReasonTag[] = ["주간"];
-  if (row.rawOutMin !== null && row.rawOutMin > STANDARD_END) tags.push("연장");
+  if (row.isCheolya) tags.push("철야");
+  else if (row.rawOutMin !== null && row.rawOutMin > STANDARD_END) tags.push("연장");
   return uniqueGasanReasonTags(tags);
 }
 
@@ -71,6 +91,7 @@ function extractGasanReasonTags(text: string): GasanReasonTag[] {
   if (compact.includes("조퇴")) tags.push("조퇴");
   if (compact.includes("연장")) tags.push("연장");
   if (compact.includes("야간")) tags.push("야간");
+  if (compact.includes("철야")) tags.push("철야");
   if (compact.includes("주말")) tags.push("주말OT");
 
   return uniqueGasanReasonTags(tags);
@@ -226,8 +247,15 @@ export function inferGasanReason(row: {
   calcGongsuVal?: number | null;
   diff?: number | null;
   isLunchOt?: boolean;
+  isCheolya?: boolean;
 }): string {
   if (row.isLunchOt) return LUNCH_OT_REASON;
+  if (row.isCheolya) {
+    const hours = row.calcGongsuVal !== undefined && row.calcGongsuVal !== null
+      ? row.calcGongsuVal / CHEOLYA_HOURLY_RATE
+      : null;
+    return hours !== null && hours > 0 ? `${formatHourCount(hours)}h 철야근무` : "철야근무";
+  }
 
   const reasons: string[] = [];
   const noXerpIn  = !row.xerpIn;
@@ -389,8 +417,10 @@ export function calcGongsuForWorkDate(
   isJochul: boolean,
   cfg: TeamConfig,
   isLunchOt = false,
+  isCheolya = false,
 ): number | null {
   if (isLunchOt) return 1;
+  if (isCheolya) return calcCheolyaGongsu(effInMin, effOutMin);
   if (isWeekendWorkDate(workDate)) return calcWeekendGongsu(effInMin, effOutMin);
   return calcGongsu(effInMin, effOutMin, isJochul, cfg);
 }
