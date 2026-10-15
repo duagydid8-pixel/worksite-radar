@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { rejectDisallowedOrigin, writeCorsHeaders } from "./local-service-cors.mjs";
 
-export const DEFAULT_WATCH_DIR = "C:\\Users\\bongryong\\Desktop\\모음\\염효양\\P4-PH4\\8. 상용,현채,서드 근태관리";
+export const DEFAULT_WATCH_DIR = "C:\\Users\\bongryong\\Desktop\\모음\\염효양\\8. 상용,현채,서드 근태관리";
 export const DEFAULT_PORT = 8787;
 
 const EXCEL_EXTENSIONS = new Set([".xlsx", ".xls"]);

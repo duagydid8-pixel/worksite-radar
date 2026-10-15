@@ -1,0 +1,42 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const source = readFileSync(resolve(process.cwd(), "src/components/XerpWorkReflection.tsx"), "utf8");
+
+describe("XerpWorkReflection XERP daily attendance import wiring", () => {
+  it("uses the local daily attendance client", () => {
+    expect(source).toContain("requestXerpDailyAttendanceDownload");
+    expect(source).toContain("waitForLatestXerpDailyAttendanceFile");
+    expect(source).toContain("decodeBase64Workbook");
+  });
+
+  it("adds a visible XERP import command to the workbook controls", () => {
+    expect(source).toContain("handleXerpWorkImport");
+    expect(source).toContain("XERP에서 가져오기");
+  });
+
+  it("adds a visible XERP export command for extra-work upload", () => {
+    expect(source).toContain("requestXerpDailyAttendanceExtraWorkUpload");
+    expect(source).toContain("handleXerpWorkExport");
+    expect(source).toContain("XERP로 내보내기");
+    expect(source).toContain("buildAdjustedWorkbookBuffer");
+    expect(source).toContain('result.mode === "login-required" || result.mode === "manual-required"');
+  });
+
+  it("uses the selected work date for the XERP query and loaded work date", () => {
+    expect(source).toContain("requestXerpDailyAttendanceDownload(syncSite, workDate)");
+    expect(source).toContain("processWorkbookBuffer(buffer, latest.file.fileName, workDate)");
+    expect(source).toContain("const resolvedSite = forcedWorkDate ? syncSite : detectedSite");
+  });
+
+  it("waits for a manually downloaded workbook when XERP needs manual menu navigation", () => {
+    expect(source).toContain('session.mode === "manual-required"');
+    expect(source).toContain('session.mode === "login-required" || session.mode === "manual-required"');
+    expect(source).toContain("XERP 전용 창");
+    expect(source).toContain("waitForLatestXerpDailyAttendanceFile(");
+    expect(source).toContain("syncSite,");
+    expect(source).toContain("workDate,");
+    expect(source).toContain("session.startedAtMs,");
+  });
+});

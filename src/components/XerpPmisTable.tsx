@@ -6,6 +6,12 @@ import { toast } from "sonner";
 import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
 import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadEmployeesP5PH1FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS, loadPerfectAttendanceWeekdayHolidaysFS, savePerfectAttendanceWeekdayHolidaysFS } from "@/lib/firestoreService";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
+import {
+  decodeBase64Workbook,
+  requestXerpDailyAttendanceDownload,
+  waitForLatestXerpDailyAttendanceFile,
+  type XerpDailyAttendanceSite,
+} from "@/lib/localXerpDailyAttendanceClient";
 
 // ── 타입 ──────────────────────────────────────────────
 interface XerpPmisRow {
@@ -885,10 +891,13 @@ interface Props { isAdmin: boolean; site?: XerpPmisSite }
 export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const loadXerp = site === "P5PH1" ? loadXerpP5PH1FS : site === "PH2" ? loadXerpPH2FS : loadXerpFS;
   const saveXerp = site === "P5PH1" ? saveXerpP5PH1FS : site === "PH2" ? saveXerpPH2FS : saveXerpFS;
+  const loadEmployees = site === "P5PH1" ? loadEmployeesP5PH1FS : site === "PH2" ? loadEmployeesPH2FS : loadEmployeesPH4FS;
   const [dateMap, setDateMap] = useState<DateMap>({});
   const [selectedDate, setSelectedDate] = useState<string>(TODAY);
   const [resignedNames, setResignedNames] = useState<Set<string>>(new Set());
+  const [activeNames, setActiveNames] = useState<Set<string>>(new Set());
   const [uploadDate, setUploadDate] = useState<string>(TODAY);
+  const [xerpImporting, setXerpImporting] = useState(false);
   const [search, setSearch] = useState("");
   const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -903,6 +912,7 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [perfectDialog, setPerfectDialog] = useState<"perfect" | "failed" | "reserve" | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadedTemplateBuffersRef = useRef<Record<string, ArrayBuffer>>({});
+  const canUseXerpDailyImport = isAdmin && site !== "P5PH1";
 
   // 달력 모달 상태
   const [calendarEmp, setCalendarEmp] = useState<XerpPmisRow | null>(null);
@@ -946,11 +956,11 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     else setCalendarMonth((m) => m + 1);
   };
 
-  // 연속 3일 이상 결근 감지 — 퇴사자 제외
+  // 연속 3일 이상 결근 감지 — 기술인 명단 재직중인 직원만
   const absentEmployees = useMemo(() => {
     const allAbsent = detectConsecutiveAbsences(dateMap);
-    return allAbsent.filter((emp) => !resignedNames.has(emp.성명));
-  }, [dateMap, resignedNames]);
+    return allAbsent.filter((emp) => activeNames.has(emp.성명));
+  }, [dateMap, activeNames]);
 
   // 월별 통계
   const monthlyStats = useMemo(() => calcMonthlyStats(dateMap), [dateMap]);
@@ -1016,17 +1026,23 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
 
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
-    // 퇴사자 명단 로드 (PH4 + PH2 + P5-PH1)
-    Promise.all([loadEmployeesPH4FS(), loadEmployeesPH2FS(), loadEmployeesP5PH1FS()]).then(([ph4, ph2, p5]) => {
-      const names = new Set<string>();
-      for (const rows of [ph4, ph2, p5]) {
-        if (!Array.isArray(rows)) continue;
-        for (const emp of rows as { 이름?: string; 퇴사일?: string }[]) {
-          const name = emp.이름?.trim();
-          if (emp.퇴사일 && name) names.add(name);
-        }
+    // 퇴사자 명단 로드 (현재 선택한 현장만)
+    loadEmployees().then((rows) => {
+      const resigned = new Set<string>();
+      const active = new Set<string>();
+      if (!Array.isArray(rows)) {
+        setResignedNames(resigned);
+        setActiveNames(active);
+        return;
       }
-      setResignedNames(names);
+      for (const emp of rows as { 이름?: string; 퇴사일?: string; 이관처?: string }[]) {
+        const name = emp.이름?.trim();
+        if (!name) continue;
+        if (emp.퇴사일 || emp.이관처) resigned.add(name);
+        else active.add(name);
+      }
+      setResignedNames(resigned);
+      setActiveNames(active);
     });
 
     loadXerp().then((fsMap) => {
@@ -1272,6 +1288,63 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       if (files.length > 1) {
         toast.success(`총 ${successCount}개 파일 업로드 완료`);
       }
+    }
+  };
+
+  const handleXerpDailyImport = async () => {
+    if (!canUseXerpDailyImport) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(uploadDate)) {
+      toast.error("XERP 조회 날짜를 먼저 선택하세요.");
+      return;
+    }
+
+    setXerpImporting(true);
+    try {
+      const xerpSite = site as XerpDailyAttendanceSite;
+      const session = await requestXerpDailyAttendanceDownload(xerpSite, uploadDate);
+      const waitsForManualDownload = session.mode === "login-required" || session.mode === "manual-required";
+      if (waitsForManualDownload) {
+        toast.info("XERP 전용 창(Chrome for Testing)에서 직접 일일출역집계 엑셀을 다운로드하면 자동 반영합니다. 3분간 기다립니다.");
+      }
+
+      if (!waitsForManualDownload && session.mode !== "downloaded") {
+        toast.info(session.message || `XERP 처리 상태: ${session.mode}`);
+        return;
+      }
+
+      const latest = await waitForLatestXerpDailyAttendanceFile(
+        xerpSite,
+        uploadDate,
+        session.startedAtMs,
+        waitsForManualDownload ? { attempts: 90, intervalMs: 2000 } : { attempts: 5, intervalMs: 500 },
+      );
+      if (!latest.found || !latest.file) {
+        if (waitsForManualDownload) {
+          toast.error("XERP 전용 창에서 직접 다운로드한 일일출역집계 엑셀을 찾지 못했습니다.");
+          return;
+        }
+        toast.error("다운로드된 일일출역집계 엑셀을 찾지 못했습니다.");
+        return;
+      }
+
+      const buffer = decodeBase64Workbook(latest.file.base64);
+      const wb = XLSX.read(new Uint8Array(buffer), { type: "array" });
+      const imported = parseSheet(wb);
+      if (imported.length === 0) {
+        toast.error("일일출역집계 엑셀에서 가져올 행이 없습니다.");
+        return;
+      }
+
+      uploadedTemplateBuffersRef.current[uploadDate] = buffer.slice(0);
+      const nextMap = { ...dateMap, [uploadDate]: imported };
+      setDateMap(nextMap);
+      syncXerpFS(nextMap);
+      setSelectedDate(uploadDate);
+      toast.success(`${latest.file.fileName}에서 ${imported.length.toLocaleString()}건을 가져왔습니다.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "XERP 일일출역집계 가져오기에 실패했습니다.");
+    } finally {
+      setXerpImporting(false);
     }
   };
 
@@ -1565,6 +1638,17 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
               <Upload className="h-3.5 w-3.5" />
               업로드
             </button>
+            {canUseXerpDailyImport && (
+              <button
+                type="button"
+                onClick={handleXerpDailyImport}
+                disabled={xerpImporting}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-sky-600 text-white text-xs font-semibold hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {xerpImporting ? "가져오는 중" : "XERP 가져오기"}
+              </button>
+            )}
             <button
               onClick={handleFolderUpload}
               title="폴더를 선택하면 안에 있는 모든 Excel 파일을 날짜별로 자동 업로드"
