@@ -3,7 +3,7 @@ import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, S
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, loadXerpWorkDateMapAllSitesFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 import {
@@ -194,9 +194,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const fileRef    = useRef<HTMLInputElement>(null);
   const newEmpRef  = useRef<HTMLInputElement>(null);
 
-  // 저장된 날짜 목록 로드 헬퍼
+  // 저장된 날짜 목록 로드 헬퍼 (사이트별로 분리되어 있음)
   const refreshWorkDates = async () => {
-    const dm = await loadXerpWorkDateMapFS();
+    const dm = await loadXerpWorkDateMapFS(syncSite);
     if (dm) {
       const dates = Object.keys(dm).sort().reverse();
       setWorkDates(dates);
@@ -206,13 +206,19 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     return { dm: null, dates: [] };
   };
 
+  // 사이트가 바뀌면(업로드한 파일에서 자동 감지) 해당 사이트의 저장된 날짜 목록을 다시 불러옴
+  useEffect(() => {
+    refreshWorkDates();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncSite]);
+
   // F팀(팀명에 "F" 포함, "기술인" 포함 팀은 제외) — 이번 달 저장된 날짜 전체에서 XERP 출근/퇴근 미타각 현황 집계 (서지 출근확인서 작성 대상)
   const isFTeam = (팀명: string) => 팀명.includes("F") && !팀명.includes("기술인");
 
   const loadFTeamReport = async () => {
     setIsLoadingFTeamReport(true);
     try {
-      const dm = await loadXerpWorkDateMapFS();
+      const dm = await loadXerpWorkDateMapAllSitesFS();
       const monthPrefix = today().slice(0, 7);
       const byPerson = new Map<string, { team: string; missingDates: { date: string; missing: "출근" | "퇴근" | "출퇴근" }[] }>();
 
@@ -803,7 +809,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const handleSave = async () => {
     if (!rows.length || !fileName) return;
     setIsSaving(true);
-    const ok = await saveXerpWorkDateFS(workDate, fileName, rows, rawExcelRows);
+    const ok = await saveXerpWorkDateFS(syncSite, workDate, fileName, rows, rawExcelRows);
     if (ok && originalBuffer) {
       saveOriginalWorkbookBuffer(workDate, originalBuffer).catch((err) => {
         console.warn("[saveOriginalWorkbookBuffer]", err);
@@ -824,7 +830,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     if (!date) return;
     setIsLoadingDate(true);
     const [dm, empData, savedOriginalBuffer] = await Promise.all([
-      loadXerpWorkDateMapFS(),
+      loadXerpWorkDateMapFS(syncSite),
       loadNewEmpForDate(date),
       loadOriginalWorkbookBuffer(date),
     ]);
@@ -850,7 +856,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   // 날짜 삭제
   const handleDeleteWorkDate = async (date: string) => {
     if (!confirm(`${date} 데이터를 삭제하시겠습니까?`)) return;
-    const ok = await deleteXerpWorkDateFS(date);
+    const ok = await deleteXerpWorkDateFS(syncSite, date);
     if (ok) {
       deleteOriginalWorkbookBuffer(date).catch((err) => {
         console.warn("[deleteOriginalWorkbookBuffer]", err);

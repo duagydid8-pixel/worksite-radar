@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { loadXerpWorkDateMapFS, subscribeScheduleFS } from "@/lib/firestoreService";
+import { loadXerpWorkDateMapAllSitesFS, subscribeScheduleFS } from "@/lib/firestoreService";
 import { buildRecentHomeActivities } from "@/lib/recentHomeActivity";
 import type { LeaveDetail } from "@/lib/parseExcel";
 import {
@@ -504,7 +504,7 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
   const [xerpLoaded,  setXerpLoaded]  = useState(false);
 
   useEffect(() => {
-    loadXerpWorkDateMapFS().then(dm => {
+    loadXerpWorkDateMapAllSitesFS().then(dm => {
       if (dm && typeof dm === "object") {
         // xerp_work_dates 각 날짜 entry의 rows 추출
         const mapped: Record<string, WorkRow[]> = {};

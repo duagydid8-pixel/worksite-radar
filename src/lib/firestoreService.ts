@@ -228,48 +228,70 @@ export async function loadXerpDateFS(site: string, date: string): Promise<unknow
   return legacy?.dateMap?.[date] ?? null;
 }
 
-// ── XERP 공수 반영 저장 (날짜별) ─────────────────────
+// ── XERP 공수 반영 저장 (사이트별 · 날짜별) ───────────
 // 과거에는 모든 날짜를 문서 하나("xerp_work_dates"/dateMap)에 몰아 저장했는데,
 // 날짜가 쌓이면서 Firestore 문서 크기 제한(1MB)을 넘어 이후 저장이 전부 조용히 실패했다.
-// 이제는 날짜별로 별도 문서에 저장하고, 인덱스 문서에는 파일명/저장시각만 가볍게 보관한다.
+// 또한 사이트 구분 없이 날짜 하나당 문서 하나였어서, 같은 날짜에 다른 사이트(PH4/PH2/P5PH1)
+// 파일을 저장하면 서로 덮어쓰는 문제도 있었다.
+// 이제는 사이트+날짜별로 별도 문서에 저장하고, 사이트별 인덱스 문서에는 파일명/저장시각만 가볍게 보관한다.
 interface XerpWorkEntry { fileName: string; savedAt: string; rows: unknown[]; rawExcelRows?: unknown[] }
 type XerpWorkDateMap = Record<string, XerpWorkEntry>;
 type XerpWorkDateIndex = Record<string, { fileName: string; savedAt: string }>;
 
-function xerpWorkDateDocId(date: string): string {
-  return `xerp_work_date_${date}`;
+function xerpWorkDatesIndexDocId(site: string): string {
+  return `xerp_work_dates_${site}`;
+}
+function xerpWorkDateDocId(site: string, date: string): string {
+  return `xerp_work_date_${site}_${date}`;
 }
 
-export async function loadXerpWorkDateMapFS(): Promise<XerpWorkDateMap | null> {
-  const index = await fsGet<{ dates?: XerpWorkDateIndex }>("xerp_work_dates");
+export async function loadXerpWorkDateMapFS(site: string): Promise<XerpWorkDateMap | null> {
+  const index = await fsGet<{ dates?: XerpWorkDateIndex }>(xerpWorkDatesIndexDocId(site));
   const dates = Object.keys(index?.dates ?? {});
   if (dates.length === 0) return null;
 
   const entries = await Promise.all(
-    dates.map(async (date) => [date, await fsGet<XerpWorkEntry>(xerpWorkDateDocId(date))] as const),
+    dates.map(async (date) => [date, await fsGet<XerpWorkEntry>(xerpWorkDateDocId(site, date))] as const),
   );
   const map: XerpWorkDateMap = {};
   for (const [date, entry] of entries) if (entry) map[date] = entry;
   return Object.keys(map).length > 0 ? map : null;
 }
 export async function saveXerpWorkDateFS(
-  date: string, fileName: string, rows: unknown[], rawExcelRows?: unknown[]
+  site: string, date: string, fileName: string, rows: unknown[], rawExcelRows?: unknown[]
 ): Promise<boolean> {
   const savedAt = new Date().toISOString();
-  const entryOk = await fsSet(xerpWorkDateDocId(date), { fileName, savedAt, rows, rawExcelRows: rawExcelRows ?? [] });
+  const entryOk = await fsSet(xerpWorkDateDocId(site, date), { fileName, savedAt, rows, rawExcelRows: rawExcelRows ?? [] });
   if (!entryOk) return false;
 
-  const index = await fsGet<{ dates?: XerpWorkDateIndex }>("xerp_work_dates");
+  const index = await fsGet<{ dates?: XerpWorkDateIndex }>(xerpWorkDatesIndexDocId(site));
   const updatedDates: XerpWorkDateIndex = { ...(index?.dates ?? {}), [date]: { fileName, savedAt } };
-  return fsSet("xerp_work_dates", { dates: updatedDates });
+  return fsSet(xerpWorkDatesIndexDocId(site), { dates: updatedDates });
 }
-export async function deleteXerpWorkDateFS(date: string): Promise<boolean> {
-  const index = await fsGet<{ dates?: XerpWorkDateIndex }>("xerp_work_dates");
+export async function deleteXerpWorkDateFS(site: string, date: string): Promise<boolean> {
+  const index = await fsGet<{ dates?: XerpWorkDateIndex }>(xerpWorkDatesIndexDocId(site));
   const updatedDates = { ...(index?.dates ?? {}) };
   delete updatedDates[date];
-  const indexOk = await fsSet("xerp_work_dates", { dates: updatedDates });
+  const indexOk = await fsSet(xerpWorkDatesIndexDocId(site), { dates: updatedDates });
   if (!indexOk) return false;
-  return fsSet(xerpWorkDateDocId(date), { fileName: "", savedAt: new Date().toISOString(), rows: [], rawExcelRows: [] });
+  return fsSet(xerpWorkDateDocId(site, date), { fileName: "", savedAt: new Date().toISOString(), rows: [], rawExcelRows: [] });
+}
+
+const XERP_WORK_DATE_SITES = ["PH4", "PH2", "P5PH1"];
+
+/** 사이트 구분 없이 전체(모든 사이트) 날짜별 데이터를 합쳐서 조회 — 월별 현황 등 사이트 무관 집계용 */
+export async function loadXerpWorkDateMapAllSitesFS(): Promise<XerpWorkDateMap | null> {
+  const perSite = await Promise.all(XERP_WORK_DATE_SITES.map((site) => loadXerpWorkDateMapFS(site)));
+  const merged: XerpWorkDateMap = {};
+  for (const dm of perSite) {
+    if (!dm) continue;
+    for (const [date, entry] of Object.entries(dm)) {
+      // 같은 날짜에 여러 사이트가 저장돼 있으면 rows를 합쳐서 반환
+      if (merged[date]) merged[date] = { ...merged[date], rows: [...merged[date].rows, ...entry.rows] };
+      else merged[date] = entry;
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : null;
 }
 // 레거시 단일 저장 (하위 호환)
 export async function loadXerpWorkFS() {
