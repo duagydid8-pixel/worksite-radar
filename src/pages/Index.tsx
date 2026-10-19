@@ -17,11 +17,9 @@ import type { ParsedData } from "@/lib/parseExcel";
 import type { ParsedPmisData } from "@/components/PmisInOutLogTab";
 import { fetchAttendanceFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreService";
-import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
-import { fetchXerpLoginStatus, requestXerpLoginWindowOpen } from "@/lib/localXerpWorkerRegistrationClient";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { Loader2, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power, FilePenLine, BellRing, MessageSquare } from "lucide-react";
+import { Loader2, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, Calculator, Scissors, Mail, ListChecks, Trash2, ChevronDown, BarChart2, LogIn, BellRing, MessageSquare } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -35,7 +33,6 @@ const LazyXerpPmisTable = lazy(() => import("@/components/XerpPmisTable"));
 const LazyXerpWorkReflection = lazy(() => import("@/components/XerpWorkReflection"));
 const LazyPmisInOutLogTab = lazy(() => import("@/components/PmisInOutLogTab"));
 const LazyFinalWorkUnitsCheck = lazy(() => import("@/components/FinalWorkUnitsCheck"));
-const LazyWeeklySchedule = lazy(() => import("@/components/WeeklySchedule").then((module) => ({ default: module.WeeklySchedule })));
 const LazyPdfSplitter = lazy(() => import("@/components/tabs/PdfSplitter"));
 const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMailRequest"));
 
@@ -49,7 +46,6 @@ function LazyPanel({ children }: { children: ReactNode }) {
 
 type XerpSiteKey = "PH4" | "PH2" | "P5PH1";
 type XerpSubPage = "xerp" | "inout" | "final";
-type XerpLoginUiStatus = "idle" | "checking" | "login-required" | "logged-in" | "unavailable";
 
 const XERP_SITES = [
   { value: "PH4" as XerpSiteKey, label: "P4-PH4" },
@@ -177,7 +173,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
     </div>
   );
 }
-const ACTIVE_TABS = ["홈", "신규자명단", "근속알림", "카톡정리", "본사송부용", "조직도송부", "XERP&PMIS", "오늘할일관리", "주간일정", "XERP공수반영", "PDF분리", "본사메일송부"] as const;
+const ACTIVE_TABS = ["홈", "신규자명단", "근속알림", "카톡정리", "본사송부용", "조직도송부", "XERP&PMIS", "XERP공수반영", "PDF분리", "본사메일송부"] as const;
 type ActiveTab = (typeof ACTIVE_TABS)[number];
 
 // 주소 끝(#XERP공수반영)에 지금 메뉴를 남겨 두면 새로고침·탭 복제 시 같은 화면이 열린다
@@ -212,8 +208,6 @@ const NAV_PUBLIC: NavItem[] = [
 ];
 
 const NAV_ADMIN: NavItem[] = [
-  { key: "오늘할일관리", label: "오늘 할 일 관리", icon: <ListChecks className="h-4 w-4" />, adminOnly: true },
-  { key: "주간일정", label: "작업일정", icon: <CalendarRange className="h-4 w-4" />, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
   { key: "근속알림", label: "근속 1년 도래 알림", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
   { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
@@ -228,40 +222,11 @@ const HEAD_OFFICE_NAV: NavItem[] = [
   { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: false },
 ];
 const ADMIN_TOP_NAV_KEY = "__admin";
-const ADMIN_TODO_HIDE_PREFIX = "admin_todo_hidden_";
-const ADMIN_DAILY_TASKS_PREFIX = "admin_daily_tasks_";
 const MANUAL_ATTENDANCE_OVERRIDES_KEY = "attendance_manual_overrides";
 const ATTENDANCE_ROSTER_KEY = "attendance_roster";
 const ATTENDANCE_ROSTER_FILE_NAME_KEY = "attendance_roster_file_name";
 const LOCAL_ATTENDANCE_WATCH_ENABLED_KEY = "attendance_local_watch_enabled";
 const MANUAL_ATTENDANCE_STATUSES: ManualAttendanceStatus[] = ["연차", "오전반차", "오후반차", "결근", "입사일", "현장휴무"];
-
-interface AdminDailyTask {
-  id: string;
-  text: string;
-  done: boolean;
-  createdAt: string;
-}
-
-function readAdminDailyTasks(dateKey: string): AdminDailyTask[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(`${ADMIN_DAILY_TASKS_PREFIX}${dateKey}`) || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item) => {
-      if (!item || typeof item !== "object") return [];
-      const record = item as Partial<AdminDailyTask>;
-      if (typeof record.id !== "string" || typeof record.text !== "string") return [];
-      return [{
-        id: record.id,
-        text: record.text,
-        done: record.done === true,
-        createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
-      }];
-    });
-  } catch {
-    return [];
-  }
-}
 
 function readManualAttendanceOverrides(): ManualAttendanceOverride[] {
   try {
@@ -351,7 +316,6 @@ function applyAttendancePresentationRules(data: ParsedData, roster: AttendanceRo
 
 const Index = () => {
   const topbarRef = useRef<HTMLElement | null>(null);
-  const adminTodoShownRef = useRef(false);
   const localWatchVersionRef = useRef<string | null>(null);
   const [data, setData] = useState<ParsedData | null>(null);
   const [, setFileName] = useState<string | null>(null);
@@ -387,7 +351,6 @@ const Index = () => {
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
   const [rememberLogin, setRememberLogin] = useState(true);
-  const [adminTodoDialogOpen, setAdminTodoDialogOpen] = useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] = useState(false);
   const [manualAttendanceOverrides, setManualAttendanceOverrides] = useState<ManualAttendanceOverride[]>(() => readManualAttendanceOverrides());
   const [manualAttendanceDate, setManualAttendanceDate] = useState(() => getLocalDateKey());
@@ -396,16 +359,8 @@ const Index = () => {
   const [manualAttendanceNote, setManualAttendanceNote] = useState("");
   const [localWatchEnabled] = useState(() => localStorage.getItem(LOCAL_ATTENDANCE_WATCH_ENABLED_KEY) === "true");
   const [, setLocalWatchStatus] = useState("자동감시가 꺼져 있습니다.");
-  const [xerpLoginOpening, setXerpLoginOpening] = useState(false);
-  const [xerpLoginStatus, setXerpLoginStatus] = useState<XerpLoginUiStatus>("idle");
-  const [hideAdminTodoToday, setHideAdminTodoToday] = useState(false);
-  const [adminTodoDate, setAdminTodoDate] = useState(() => getLocalDateKey());
-  const [adminTodoDraft, setAdminTodoDraft] = useState("");
-  const [adminDailyTasks, setAdminDailyTasks] = useState<AdminDailyTask[]>([]);
   const [subnavOffsets, setSubnavOffsets] = useState({ primary: 18, admin: 18, nested: 18 });
 
-  const adminTodoTodayKey = useMemo(() => getLocalDateKey(), []);
-  const adminTodoHideStorageKey = `${ADMIN_TODO_HIDE_PREFIX}${adminTodoTodayKey}`;
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -423,86 +378,6 @@ const Index = () => {
     }
   };
 
-  const handleAdminTodoDialogChange = (open: boolean) => {
-    if (!open && hideAdminTodoToday) {
-      localStorage.setItem(adminTodoHideStorageKey, "true");
-    }
-    setAdminTodoDialogOpen(open);
-  };
-
-  const checkXerpLoginStatus = useCallback(async () => {
-    try {
-      const status = await fetchXerpLoginStatus();
-      if (status.loggedIn) {
-        setXerpLoginStatus("logged-in");
-      } else if (status.status === "login-required") {
-        setXerpLoginStatus("login-required");
-      } else if (status.status === "no-window") {
-        setXerpLoginStatus("idle");
-      } else {
-        setXerpLoginStatus("checking");
-      }
-      return status;
-    } catch {
-      setXerpLoginStatus("unavailable");
-      return null;
-    }
-  }, []);
-
-  const handleXerpLoginOpen = async () => {
-    setXerpLoginOpening(true);
-    setXerpLoginStatus("checking");
-    try {
-      const result = await requestXerpLoginWindowOpen();
-      toast.success(result.message || "XERP 전용 창(Chrome for Testing)을 열었습니다. 일반 Chrome이 아니라 이 창에서 로그인한 뒤 XERP 가져오기를 눌러주세요.");
-      void checkXerpLoginStatus();
-    } catch (error) {
-      setXerpLoginStatus("unavailable");
-      toast.error(error instanceof Error ? error.message : "XERP 로그인 창을 열지 못했습니다.");
-    } finally {
-      setXerpLoginOpening(false);
-    }
-  };
-
-  useEffect(() => {
-    if (xerpLoginStatus !== "checking" && xerpLoginStatus !== "login-required") return;
-    const timer = window.setInterval(() => {
-      void checkXerpLoginStatus();
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [checkXerpLoginStatus, xerpLoginStatus]);
-
-  const saveAdminDailyTasks = useCallback((nextTasks: AdminDailyTask[]) => {
-    setAdminDailyTasks(nextTasks);
-    localStorage.setItem(`${ADMIN_DAILY_TASKS_PREFIX}${adminTodoDate}`, JSON.stringify(nextTasks));
-  }, [adminTodoDate]);
-
-  const handleAddAdminDailyTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = adminTodoDraft.trim();
-    if (!text) return;
-
-    saveAdminDailyTasks([
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        text,
-        done: false,
-        createdAt: new Date().toISOString(),
-      },
-      ...adminDailyTasks,
-    ]);
-    setAdminTodoDraft("");
-  };
-
-  const handleToggleAdminDailyTask = (id: string) => {
-    saveAdminDailyTasks(
-      adminDailyTasks.map((task) => task.id === id ? { ...task, done: !task.done } : task)
-    );
-  };
-
-  const handleDeleteAdminDailyTask = (id: string) => {
-    saveAdminDailyTasks(adminDailyTasks.filter((task) => task.id !== id));
-  };
 
   useEffect(() => {
     const timeout = setTimeout(() => setIsLoading(false), 8000);
@@ -533,10 +408,6 @@ const Index = () => {
       }
     })();
   }, []);
-
-  useEffect(() => {
-    setAdminDailyTasks(readAdminDailyTasks(adminTodoDate));
-  }, [adminTodoDate]);
 
   const monday = useMemo(() => getMonday(new Date(selectedDate)), [selectedDate]);
 
@@ -676,11 +547,6 @@ const Index = () => {
     setSearchQuery("");
   };
 
-  const handleAdminTodoMove = (key: ActiveTab) => {
-    handleNavClick(key, true);
-    setAdminTodoDialogOpen(false);
-  };
-
   const manualAttendanceEmployeeNames = useMemo(() => {
     const names = new Set<string>();
     if (attendanceRoster.length > 0) {
@@ -700,49 +566,6 @@ const Index = () => {
     }
   }, [manualAttendanceEmployeeNames, manualAttendanceName]);
 
-  const adminTodoItems = useMemo(() => [
-    {
-      title: "월간 작업일정 점검",
-      description: "월 기준 구역별 조출·연장·야간 일정을 확인하세요.",
-      badge: "일정",
-      tone: "base",
-      icon: <CalendarRange className="h-4 w-4" />,
-      target: "주간일정" as ActiveTab,
-    },
-    {
-      title: "본사 메일 송부",
-      description: "증명서, 퇴직공제, 산재 개시·종료 요청 건을 확인하세요.",
-      badge: "메일",
-      tone: "base",
-      icon: <Mail className="h-4 w-4" />,
-      target: "본사메일송부" as ActiveTab,
-    },
-    {
-      title: "신규자 명단 정리",
-      description: "신규 기술인과 관리자 명단 변경 사항을 반영하세요.",
-      badge: "명단",
-      tone: "base",
-      icon: <Users className="h-4 w-4" />,
-      target: "신규자명단" as ActiveTab,
-    },
-  ], [lastUploadedAt, monday]);
-
-  useEffect(() => {
-    if (!isAdmin) {
-      adminTodoShownRef.current = false;
-      setAdminTodoDialogOpen(false);
-      return;
-    }
-
-    const hiddenToday = localStorage.getItem(adminTodoHideStorageKey) === "true";
-    setHideAdminTodoToday(hiddenToday);
-
-    if (!hiddenToday && !adminTodoShownRef.current) {
-      adminTodoShownRef.current = true;
-      setAdminTodoDate(adminTodoTodayKey);
-      setAdminTodoDialogOpen(true);
-    }
-  }, [adminTodoHideStorageKey, adminTodoTodayKey, isAdmin]);
 
   const primaryNavItems = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC];
   const isHeadOfficeSection = activeTab === "본사송부용" || HEAD_OFFICE_NAV.some((item) => item.key === activeTab);
@@ -962,112 +785,6 @@ const Index = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={adminTodoDialogOpen} onOpenChange={handleAdminTodoDialogChange}>
-        <DialogContent className="admin-todo-dialog sm:max-w-[620px]">
-          <DialogHeader>
-            <DialogTitle className="admin-todo-title">
-              <span className="admin-todo-title-icon">
-                <ListChecks className="h-5 w-5" />
-              </span>
-              <span>
-                오늘 할 일 캘린더
-                <small>{adminTodoDate.replaceAll("-", ".")} 기준</small>
-              </span>
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="admin-todo-greeting">
-            <strong>한성크린텍 P4 현장관리</strong>
-            <p>관리자님, 등록된 업무를 확인하고 완료 상태를 체크하세요.</p>
-          </div>
-
-          <div className="admin-task-calendar">
-            <div className="admin-task-calendar-head">
-              <div>
-                <strong>업무 확인</strong>
-                <span>할 일 작성은 관리자 메뉴의 오늘 할 일 관리에서 처리합니다.</span>
-              </div>
-              <input
-                type="date"
-                value={adminTodoDate}
-                onChange={(event) => setAdminTodoDate(event.target.value || adminTodoTodayKey)}
-              />
-            </div>
-
-            <div className="admin-task-list">
-              {adminDailyTasks.length > 0 ? (
-                adminDailyTasks.map((task) => (
-                  <div key={task.id} className={`admin-task-row ${task.done ? "is-done" : ""}`}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={task.done}
-                        onChange={() => handleToggleAdminDailyTask(task.id)}
-                      />
-                      <span>{task.text}</span>
-                    </label>
-                  </div>
-                ))
-              ) : (
-                <p className="admin-task-empty">선택한 날짜에 등록된 할 일이 없습니다.</p>
-              )}
-            </div>
-          </div>
-
-          <div className="admin-todo-section-title">추천 확인 업무</div>
-          <div className="admin-todo-list">
-            {adminTodoItems.map((item) => (
-              <button
-                key={item.title}
-                type="button"
-                onClick={() => handleAdminTodoMove(item.target)}
-                className="admin-todo-item"
-              >
-                <span className="admin-todo-item-icon">{item.icon}</span>
-                <span className="admin-todo-item-copy">
-                  <strong>{item.title}</strong>
-                  <small>{item.description}</small>
-                </span>
-                <span className={`admin-todo-badge is-${item.tone}`}>{item.badge}</span>
-                <ArrowRight className="admin-todo-arrow h-4 w-4" />
-              </button>
-            ))}
-          </div>
-
-          <div className="admin-todo-footer">
-            <label className="admin-todo-check">
-              <input
-                type="checkbox"
-                checked={hideAdminTodoToday}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  setHideAdminTodoToday(checked);
-                  if (checked) {
-                    localStorage.setItem(adminTodoHideStorageKey, "true");
-                  } else {
-                    localStorage.removeItem(adminTodoHideStorageKey);
-                  }
-                }}
-              />
-              <span>오늘 보지 않기</span>
-            </label>
-            <button
-              type="button"
-              onClick={() => handleAdminTodoMove("오늘할일관리")}
-              className="admin-todo-close"
-            >
-              관리 메뉴
-            </button>
-            <button
-              type="button"
-              onClick={() => handleAdminTodoDialogChange(false)}
-              className="admin-todo-close"
-            >
-              닫기
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <header
         ref={topbarRef}
@@ -1118,51 +835,6 @@ const Index = () => {
           </nav>
 
           <div className="ops-topmeta">
-            <button
-              type="button"
-              onClick={() => {
-                openLocalServicesLauncher();
-                toast.info("로컬 서비스 실행 요청을 보냈습니다. 처음 사용 시 등록 파일을 먼저 실행해야 합니다.");
-              }}
-              className="ops-todo-button"
-              title="로컬 서비스 켜기"
-            >
-              <Power className="h-3.5 w-3.5" />
-              로컬서비스
-            </button>
-            <button
-              type="button"
-              onClick={handleXerpLoginOpen}
-              disabled={xerpLoginOpening}
-              className={`ops-todo-button ${xerpLoginStatus === "logged-in" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""}`}
-              title={xerpLoginStatus === "logged-in" ? "XERP 로그인됨" : "XERP 로그인 창 열기"}
-            >
-              {xerpLoginOpening || xerpLoginStatus === "checking" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <LogIn className="h-3.5 w-3.5" />
-              )}
-              {xerpLoginOpening
-                ? "여는 중"
-                : xerpLoginStatus === "logged-in"
-                  ? "XERP 로그인됨"
-                  : xerpLoginStatus === "checking"
-                    ? "확인 중"
-                    : "XERP 로그인"}
-            </button>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  setAdminTodoDate(adminTodoTodayKey);
-                  setAdminTodoDialogOpen(true);
-                }}
-                className="ops-todo-button"
-              >
-                <ListChecks className="h-3.5 w-3.5" />
-                오늘할일
-              </button>
-            )}
             <span className="ops-date">{selectedDate}</span>
             {isAdmin ? (
               <button
@@ -1386,84 +1058,7 @@ const Index = () => {
           </div>
         </KeepAlivePane>)}
 
-        {/* 작업일정 */}
-        {isTabMounted("주간일정") && (<KeepAlivePane active={activeTab === "주간일정"}>
-          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-            <LazyPanel>
-              <LazyWeeklySchedule />
-            </LazyPanel>
-          </div>
-        </KeepAlivePane>)}
 
-        {/* 오늘 할 일 관리 */}
-        {activeTab === "오늘할일관리" && isAdmin && (
-          <div className="mx-auto max-w-[980px] space-y-4 p-4 md:p-6">
-            <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-base font-extrabold text-slate-950">오늘 할 일 관리</h2>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">날짜별 업무를 작성하고 완료 상태를 관리합니다.</p>
-                </div>
-                <input
-                  type="date"
-                  value={adminTodoDate}
-                  onChange={(event) => setAdminTodoDate(event.target.value || adminTodoTodayKey)}
-                  className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-900 outline-none focus:border-slate-300 focus:bg-white"
-                />
-              </div>
-
-              <div className="space-y-4 p-4">
-                <form onSubmit={handleAddAdminDailyTask} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_112px]">
-                  <input
-                    value={adminTodoDraft}
-                    onChange={(event) => setAdminTodoDraft(event.target.value)}
-                    placeholder="처리할 업무를 입력하세요"
-                    className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-400"
-                  />
-                  <button
-                    type="submit"
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-extrabold text-white transition-colors hover:bg-slate-700"
-                  >
-                    <Plus className="h-4 w-4" />
-                    추가
-                  </button>
-                </form>
-
-                <div className="overflow-hidden rounded-lg border border-slate-200">
-                  {adminDailyTasks.length > 0 ? (
-                    <div className="divide-y divide-slate-100">
-                      {adminDailyTasks.map((task) => (
-                        <div key={task.id} className={`grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_44px] ${task.done ? "bg-slate-50" : "bg-white"}`}>
-                          <label className="flex min-w-0 items-center gap-3">
-                            <input
-                              type="checkbox"
-                              checked={task.done}
-                              onChange={() => handleToggleAdminDailyTask(task.id)}
-                              className="h-4 w-4 accent-slate-900"
-                            />
-                            <span className={`min-w-0 text-sm font-bold ${task.done ? "text-slate-400 line-through" : "text-slate-900"}`}>
-                              {task.text}
-                            </span>
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteAdminDailyTask(task.id)}
-                            aria-label="할 일 삭제"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-700"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="px-4 py-10 text-center text-sm font-semibold text-slate-400">선택한 날짜에 등록된 할 일이 없습니다.</div>
-                  )}
-                </div>
-              </div>
-            </section>
-          </div>
-        )}
 
         {/* XERP & PMIS */}
         {isTabMounted("XERP&PMIS") && isAdmin && (<KeepAlivePane active={activeTab === "XERP&PMIS"}>

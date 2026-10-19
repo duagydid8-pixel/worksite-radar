@@ -5,17 +5,15 @@
  *   - doc "new_employees_ph4"   : { rows }
  *   - doc "new_employees_ph2"   : { rows }
  *   - doc "xerp_pmis"           : { dateMap }
- *   - doc "work_schedule"       : ScheduleData
  *   - doc "tenure_workers"      : { rows } (근속 1년 도래 알림)
  *
  * Firestore 보안 규칙: 저장소 루트의 firestore.rules 참고 (firebase deploy --only firestore:rules)
  */
-import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "./firebase";
 import { notifyFirestoreError } from "./firestoreErrors";
 import { getOrgPhotoContentType, getOrgPhotoExtension, getOrgPhotoStoragePath, isInlineOrgPhoto } from "./orgPhotoStorage";
-import type { ScheduleData } from "./scheduleTypes";
 import type { TenureWorker } from "./tenureAlert";
 import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
 import {
@@ -528,15 +526,6 @@ export async function deleteContractFS(name: string): Promise<boolean> {
   }
 }
 
-// ── 작업 일정 ──────────────────────────────────────────
-export async function loadScheduleFS() {
-  return fsGet<ScheduleData>("work_schedule");
-}
-export async function saveScheduleFS(data: ScheduleData): Promise<void> {
-  if (!db) throw new Error("Firebase가 설정되지 않았습니다. 환경변수를 확인하세요.");
-  await setDoc(doc(db, COL, "work_schedule"), data as unknown as object);
-}
-
 // ── 정기안전교육 날짜 ────────────────────────────────────
 export async function loadSafetyEduDatesFS(): Promise<string[]> {
   const data = await fsGet<{ dates: string[] }>("safety_edu_dates");
@@ -654,17 +643,6 @@ export async function saveExpenseReportsFS(reports: ExpenseReport[]): Promise<bo
   return fsSet("expense_reports", { reports });
 }
 
-export function subscribeScheduleFS(
-  callback: (data: ScheduleData | null) => void,
-): () => void {
-  if (!db) { callback(null); return () => {}; }
-  return onSnapshot(
-    doc(db, COL, "work_schedule"),
-    (snap) => callback(snap.exists() ? (snap.data() as ScheduleData) : null),
-    () => callback(null),
-  );
-}
-
 // ── PMIS IN/OUT 로그 (일별, 사이트별) ────────────────
 const PMIS_LOG_PREFIX: Record<string, string> = {
   PH4: "pmis_log_ph4",
@@ -701,27 +679,6 @@ export async function deletePmisLogFS(site: string, date: string): Promise<boole
   return fsSet(`${prefix}_${date}`, { data: null, deleted: true });
 }
 
-// ── 전자카드 기록 (일별, 사이트별) 저장 ─────────────────────────────
-const ELECTRONIC_CARD_PREFIX: Record<string, string> = {
-  PH4: "electronic_card_ph4",
-  PH2: "electronic_card_ph2",
-  P5PH1: "electronic_card_p5ph1",
-};
-
-export function getElectronicCardDocIds(site: string, date: string): { prefix: string; dateDocId: string; indexDocId: string } {
-  const prefix = ELECTRONIC_CARD_PREFIX[site] ?? "electronic_card_ph4";
-  return {
-    prefix,
-    dateDocId: `${prefix}_${date}`,
-    indexDocId: `${prefix}_index`,
-  };
-}
-
-export async function loadElectronicCardFS(site: string, date: string): Promise<unknown | null> {
-  const { dateDocId } = getElectronicCardDocIds(site, date);
-  const doc = await fsGet<{ data: unknown }>(dateDocId);
-  return doc?.data ?? null;
-}
 
 // ── 카톡 근태 이벤트 (월별 문서) ─────────────────────────
 // 카톡 원문 전체가 아니라 근태 관련 이벤트(날짜·이름·사유·해당 메시지)만 저장한다.

@@ -8,8 +8,6 @@ export type FinalWorkUnitsStatus =
   | "gasan-review"
   | "pmis-review"
   | "pmis-not-uploaded"
-  | "electronic-card-reference"
-  | "electronic-card-not-saved"
   | "normal";
 
 export interface MonthlyXerpAttendanceRecord {
@@ -40,19 +38,6 @@ export interface FinalWorkUnitsPmisData {
   persons: FinalWorkUnitsPmisPerson[];
 }
 
-export interface FinalWorkUnitsElectronicCardPerson {
-  name: string;
-  birthDate?: string;
-  inTime: string;
-  outTime: string;
-  authMethod?: string;
-}
-
-export interface FinalWorkUnitsElectronicCardData {
-  dateLabel: string;
-  persons: FinalWorkUnitsElectronicCardPerson[];
-}
-
 export interface FinalWorkUnitsRow extends MonthlyXerpAttendanceRecord {
   id: string;
   status: FinalWorkUnitsStatus;
@@ -71,9 +56,6 @@ export interface FinalWorkUnitsRow extends MonthlyXerpAttendanceRecord {
   pmisOut: string;
   pmisEvents: number;
   pmisUploaded: boolean;
-  electronicCardIn: string;
-  electronicCardOut: string;
-  electronicCardSaved: boolean;
   checks: string[];
   message: string;
 }
@@ -86,7 +68,6 @@ export interface FinalWorkUnitsAnalysis {
 export interface AnalyzeFinalWorkUnitsInput {
   monthlyRecords: MonthlyXerpAttendanceRecord[];
   pmisByDate?: Record<string, FinalWorkUnitsPmisData | null | undefined>;
-  electronicCardByDate?: Record<string, FinalWorkUnitsElectronicCardData | null | undefined>;
   xerpPmisByDate?: Record<string, unknown[] | null | undefined>;
   startDate: string;
   endDate: string;
@@ -305,20 +286,6 @@ function findPmisPerson(data: FinalWorkUnitsPmisData | null | undefined, name: s
   return data.persons.find((person) => normalizeName(person.name) === key) ?? null;
 }
 
-function findElectronicCardPerson(
-  data: FinalWorkUnitsElectronicCardData | null | undefined,
-  record: MonthlyXerpAttendanceRecord
-): FinalWorkUnitsElectronicCardPerson | null {
-  if (!data) return null;
-  const nameKey = normalizeName(record.name);
-  const birthKey = record.birthDate.replace(/\D/g, "").slice(0, 6);
-  return (
-    data.persons.find((person) => normalizeName(person.name) === nameKey) ??
-    data.persons.find((person) => birthKey && person.birthDate?.replace(/\D/g, "").slice(0, 6) === birthKey) ??
-    null
-  );
-}
-
 function findXerpPmisEvidence(rows: unknown[] | null | undefined, record: MonthlyXerpAttendanceRecord) {
   const empty = {
     extraUnits: 0,
@@ -371,8 +338,7 @@ function hasTimes(record: MonthlyXerpAttendanceRecord): boolean {
 function chooseEvidenceTime(
   kind: "in" | "out",
   record: MonthlyXerpAttendanceRecord,
-  pmisPerson: FinalWorkUnitsPmisPerson | null,
-  electronicCardPerson: FinalWorkUnitsElectronicCardPerson | null
+  pmisPerson: FinalWorkUnitsPmisPerson | null
 ): { value: string; source: string; fromFallback: boolean } {
   const xerpValue = kind === "in" ? record.xerpIn : record.xerpOut;
   if (xerpValue) return { value: xerpValue, source: "XERP", fromFallback: false };
@@ -380,33 +346,25 @@ function chooseEvidenceTime(
   const pmisValue = kind === "in" ? pmisPerson?.firstIn : pmisPerson?.lastOut;
   if (pmisValue) return { value: pmisValue, source: "PMIS", fromFallback: true };
 
-  const electronicCardValue = kind === "in" ? electronicCardPerson?.inTime : electronicCardPerson?.outTime;
-  if (electronicCardValue) return { value: electronicCardValue, source: "전자카드", fromFallback: true };
-
   return { value: "", source: "", fromFallback: false };
 }
 
 function classifyRow(
   record: MonthlyXerpAttendanceRecord,
   pmisData: FinalWorkUnitsPmisData | null | undefined,
-  electronicCardData: FinalWorkUnitsElectronicCardData | null | undefined,
   xerpPmisRows: unknown[] | null | undefined
 ): Omit<FinalWorkUnitsRow, keyof MonthlyXerpAttendanceRecord | "id"> {
   const pmisPerson = findPmisPerson(pmisData, record.name);
-  const electronicCardPerson = findElectronicCardPerson(electronicCardData, record);
   const xerpPmisEvidence = findXerpPmisEvidence(xerpPmisRows, record);
   const pmisUploaded = Boolean(pmisData);
-  const electronicCardSaved = Boolean(electronicCardData);
   const pmisIn = pmisPerson?.firstIn ?? "";
   const pmisOut = pmisPerson?.lastOut ?? "";
-  const electronicCardIn = electronicCardPerson?.inTime ?? "";
-  const electronicCardOut = electronicCardPerson?.outTime ?? "";
   const checks: string[] = [];
 
   const units = record.systemWorkUnits;
   const outMinutes = parseTimeMinutes(record.xerpOut);
-  const selectedIn = chooseEvidenceTime("in", record, pmisPerson, electronicCardPerson);
-  const selectedOut = chooseEvidenceTime("out", record, pmisPerson, electronicCardPerson);
+  const selectedIn = chooseEvidenceTime("in", record, pmisPerson);
+  const selectedOut = chooseEvidenceTime("out", record, pmisPerson);
   const expectedWorkUnits = calculateExpectedWorkUnits(record.date, record.team, selectedIn.value, selectedOut.value, pmisOut);
   const xerpPmisExtraUnits = xerpPmisEvidence.extraUnits;
   const reflectedWorkUnits = units === null ? null : roundWorkUnits(units);
@@ -436,8 +394,6 @@ function classifyRow(
   }
   if (pmisIn) checks.push(`${selectedIn.source === "PMIS" ? "PMIS 출근 증빙" : "PMIS 출근"} ${pmisIn}`);
   if (pmisOut) checks.push(`${selectedOut.source === "PMIS" ? "PMIS 퇴근 증빙" : "PMIS 퇴근"} ${pmisOut}`);
-  if (electronicCardIn) checks.push(`${selectedIn.source === "전자카드" ? "전자카드 출근 증빙" : "전자카드 출근"} ${electronicCardIn}`);
-  if (electronicCardOut) checks.push(`${selectedOut.source === "전자카드" ? "전자카드 퇴근 증빙" : "전자카드 퇴근"} ${electronicCardOut}`);
   if (expectedWorkUnits !== null) checks.push(`예상공수 ${formatWorkUnits(expectedWorkUnits)}`);
   if (reflectedWorkUnits !== null) checks.push(`반영공수 ${formatWorkUnits(reflectedWorkUnits)}`);
   if (missingWorkUnits > 0) checks.push(`부족공수 ${formatWorkUnits(missingWorkUnits)}`);
@@ -459,9 +415,6 @@ function classifyRow(
     pmisOut,
     pmisEvents: pmisPerson?.totalEvents ?? 0,
     pmisUploaded,
-    electronicCardIn,
-    electronicCardOut,
-    electronicCardSaved,
     checks,
   };
 
@@ -512,13 +465,11 @@ function classifyRow(
 
   if (!pmisPerson && (units ?? 0) > 0) {
     return {
-      status: electronicCardPerson ? "electronic-card-reference" : "pmis-review",
-      statusLabel: electronicCardPerson ? "전자카드참고" : "PMIS확인",
-      statusTone: electronicCardPerson ? "info" : "warning",
+      status: "pmis-review",
+      statusLabel: "PMIS확인",
+      statusTone: "warning",
       ...baseDetails,
-      message: electronicCardPerson
-        ? "PMIS는 없지만 전자카드 출퇴근 시간이 있습니다."
-        : "시스템 공수는 있으나 PMIS 출퇴근 기록이 없습니다.",
+      message: "시스템 공수는 있으나 PMIS 출퇴근 기록이 없습니다.",
     };
   }
 
@@ -538,7 +489,6 @@ function inRange(date: string, start: string, end: string): boolean {
 export function analyzeFinalWorkUnits({
   monthlyRecords,
   pmisByDate = {},
-  electronicCardByDate = {},
   xerpPmisByDate = {},
   startDate,
   endDate,
@@ -554,7 +504,7 @@ export function analyzeFinalWorkUnits({
         record.birthDate.replace(/\D/g, ""),
         String(index),
       ].join("|"),
-      ...classifyRow(record, pmisByDate[record.date], electronicCardByDate[record.date], xerpPmisByDate[record.date]),
+      ...classifyRow(record, pmisByDate[record.date], xerpPmisByDate[record.date]),
     }));
 
   const gasanRows = rows.filter((row) => Boolean(row.gasanReason?.trim() || row.xerpPmisReason?.trim() || row.xerpPmisExtraUnits > 0));
@@ -567,8 +517,6 @@ export function analyzeFinalWorkUnits({
     "gasan-review": gasanRows.length,
     "pmis-review": rows.filter((row) => row.status === "pmis-review").length,
     "pmis-not-uploaded": rows.filter((row) => row.status === "pmis-not-uploaded").length,
-    "electronic-card-reference": rows.filter((row) => row.status === "electronic-card-reference").length,
-    "electronic-card-not-saved": rows.filter((row) => row.status === "electronic-card-not-saved").length,
     normal: rows.filter((row) => row.status === "normal").length,
   };
 
@@ -577,10 +525,8 @@ export function analyzeFinalWorkUnits({
     "gasan-review": 1,
     "overtime-review": 2,
     "pmis-review": 3,
-    "electronic-card-reference": 4,
-    "pmis-not-uploaded": 5,
-    "electronic-card-not-saved": 6,
-    normal: 7,
+    "pmis-not-uploaded": 4,
+    normal: 5,
   };
 
   rows.sort((a, b) => priority[a.status] - priority[b.status] || a.date.localeCompare(b.date) || a.name.localeCompare(b.name));

@@ -58,11 +58,21 @@ const FINAL_WORK_UNITS_STATUS_PRIORITY: Record<FinalWorkUnitsStatus, number> = {
   "gasan-review": 1,
   "overtime-review": 2,
   "pmis-review": 3,
-  "electronic-card-reference": 4,
-  "pmis-not-uploaded": 5,
-  "electronic-card-not-saved": 6,
-  normal: 7,
+  "pmis-not-uploaded": 4,
+  normal: 5,
 };
+
+// 전자카드 기능을 없애기 전에 저장한 월간 결과의 상태값을 지금 상태로 바꾼다
+const LEGACY_STATUS: Record<string, FinalWorkUnitsStatus> = {
+  "electronic-card-reference": "pmis-review",
+  "electronic-card-not-saved": "pmis-not-uploaded",
+};
+
+function upgradeLegacyRow(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const status = (value as { status?: unknown }).status;
+  return typeof status === "string" && status in LEGACY_STATUS ? { ...value, status: LEGACY_STATUS[status] } : value;
+}
 
 function isFinalWorkUnitsStatus(value: unknown): value is FinalWorkUnitsStatus {
   return typeof value === "string" && value in FINAL_WORK_UNITS_STATUS_PRIORITY;
@@ -85,8 +95,6 @@ function summarizeFinalWorkUnitsRows(rows: FinalWorkUnitsRow[]): FinalWorkUnitsA
     "gasan-review": gasanRows.length,
     "pmis-review": rows.filter((row) => row.status === "pmis-review").length,
     "pmis-not-uploaded": rows.filter((row) => row.status === "pmis-not-uploaded").length,
-    "electronic-card-reference": rows.filter((row) => row.status === "electronic-card-reference").length,
-    "electronic-card-not-saved": rows.filter((row) => row.status === "electronic-card-not-saved").length,
     normal: rows.filter((row) => row.status === "normal").length,
   };
 }
@@ -97,6 +105,7 @@ export function buildFinalWorkUnitsAnalysisFromSnapshot(
   endDate = snapshot.endDate,
 ): FinalWorkUnitsAnalysis {
   const rows = snapshot.rows
+    .map(upgradeLegacyRow)
     .filter(isSavedFinalWorkUnitsRow)
     .filter((row) => row.date >= startDate && row.date <= endDate)
     .sort((a, b) => FINAL_WORK_UNITS_STATUS_PRIORITY[a.status] - FINAL_WORK_UNITS_STATUS_PRIORITY[b.status] || a.date.localeCompare(b.date) || a.name.localeCompare(b.name));

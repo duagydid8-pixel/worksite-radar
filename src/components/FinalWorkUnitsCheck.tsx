@@ -10,9 +10,7 @@ import {
   type FinalWorkUnitsStatus,
   type MonthlyXerpAttendanceRecord,
 } from "@/lib/finalWorkUnitsCheck";
-import { coerceElectronicCardData, type ElectronicCardDateData } from "@/lib/electronicCardSync";
 import {
-  loadElectronicCardFS,
   listFinalWorkUnitsMonthsFS,
   loadFinalWorkUnitsMonthFS,
   loadFinalWorkUnitsReviewMemoryFS,
@@ -55,8 +53,6 @@ const STATUS_META: Record<FinalWorkUnitsStatus, { label: string; className: stri
   "gasan-review": { label: "가산사유", className: "bg-violet-100 text-violet-700 border-violet-200" },
   "pmis-review": { label: "PMIS", className: "bg-amber-100 text-amber-700 border-amber-200" },
   "pmis-not-uploaded": { label: "PMIS미업로드", className: "bg-slate-100 text-slate-600 border-slate-200" },
-  "electronic-card-reference": { label: "전자카드", className: "bg-sky-100 text-sky-700 border-sky-200" },
-  "electronic-card-not-saved": { label: "전자카드미저장", className: "bg-slate-100 text-slate-600 border-slate-200" },
   normal: { label: "정상", className: "bg-emerald-100 text-emerald-700 border-emerald-200" },
 };
 
@@ -66,7 +62,6 @@ const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: "overtime-review", label: "연장" },
   { value: "gasan-review", label: "가산사유" },
   { value: "pmis-review", label: "PMIS" },
-  { value: "electronic-card-reference", label: "전자카드" },
   { value: "normal", label: "정상" },
   { value: "all", label: "전체" },
 ];
@@ -151,7 +146,6 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   const [fileName, setFileName] = useState("");
   const [records, setRecords] = useState<MonthlyXerpAttendanceRecord[]>([]);
   const [savedPmisByDate, setSavedPmisByDate] = useState<Record<string, FinalWorkUnitsPmisData>>({});
-  const [savedElectronicCardByDate, setSavedElectronicCardByDate] = useState<Record<string, ElectronicCardDateData>>({});
   const [savedXerpPmisByDate, setSavedXerpPmisByDate] = useState<Record<string, unknown[]>>({});
   const [xerpPmisLoadStatusByDate, setXerpPmisLoadStatusByDate] = useState<Record<string, XerpPmisLoadStatus>>({});
   const [startDate, setStartDate] = useState("");
@@ -201,7 +195,6 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     setReviews(snapshotReviews);
     saveReviewState(snapshotReviews);
     setSavedPmisByDate({});
-    setSavedElectronicCardByDate({});
     setSavedXerpPmisByDate({});
     setXerpPmisLoadStatusByDate(Object.fromEntries(snapshotDates.map((date) => [date, "loaded" as const])));
   }
@@ -272,7 +265,6 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
   useEffect(() => {
     if (records.length === 0 && restoredSnapshot) {
       setSavedPmisByDate({});
-      setSavedElectronicCardByDate({});
       setSavedXerpPmisByDate({});
       setXerpPmisLoadStatusByDate(Object.fromEntries(requiredDates.map((date) => [date, "loaded" as const])));
       return;
@@ -280,7 +272,6 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
 
     if (requiredDates.length === 0) {
       setSavedPmisByDate({});
-      setSavedElectronicCardByDate({});
       setSavedXerpPmisByDate({});
       setXerpPmisLoadStatusByDate({});
       return;
@@ -290,22 +281,12 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     setXerpPmisLoadStatusByDate(Object.fromEntries(requiredDates.map((date) => [date, "loading" as const])));
     async function loadNeededEvidence() {
       try {
-        const [pmisEntries, electronicCardEntries, xerpPmisEntries] = await Promise.all([
+        const [pmisEntries, xerpPmisEntries] = await Promise.all([
           Promise.all(
             requiredDates.map(async (date) => {
               try {
                 const loaded = await loadPmisLogFS(site, date);
                 return [date, coercePmisData(loaded)] as const;
-              } catch {
-                return [date, null] as const;
-              }
-            })
-          ),
-          Promise.all(
-            requiredDates.map(async (date) => {
-              try {
-                const loaded = await loadElectronicCardFS(site, date);
-                return [date, coerceElectronicCardData(loaded)] as const;
               } catch {
                 return [date, null] as const;
               }
@@ -328,13 +309,11 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
         ]);
         if (!active) return;
         setSavedPmisByDate(Object.fromEntries(pmisEntries.filter((entry): entry is readonly [string, FinalWorkUnitsPmisData] => Boolean(entry[1]))));
-        setSavedElectronicCardByDate(Object.fromEntries(electronicCardEntries.filter((entry): entry is readonly [string, ElectronicCardDateData] => Boolean(entry[1]))));
         setSavedXerpPmisByDate(Object.fromEntries(xerpPmisEntries.filter((entry) => Array.isArray(entry.rows)).map((entry) => [entry.date, entry.rows as unknown[]])));
         setXerpPmisLoadStatusByDate(Object.fromEntries(xerpPmisEntries.map((entry) => [entry.date, entry.status])));
       } catch {
         if (!active) return;
         setSavedPmisByDate({});
-        setSavedElectronicCardByDate({});
         setSavedXerpPmisByDate({});
         setXerpPmisLoadStatusByDate(Object.fromEntries(requiredDates.map((date) => [date, "error" as const])));
       }
@@ -357,12 +336,11 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
     return analyzeFinalWorkUnits({
       monthlyRecords: records,
       pmisByDate,
-      electronicCardByDate: savedElectronicCardByDate,
       xerpPmisByDate: savedXerpPmisByDate,
       startDate,
       endDate,
     });
-  }, [records, pmisByDate, savedElectronicCardByDate, savedXerpPmisByDate, startDate, endDate]);
+  }, [records, pmisByDate, savedXerpPmisByDate, startDate, endDate]);
 
   const restoredAnalysis = useMemo(() => {
     if (!restoredSnapshot || !startDate || !endDate) return null;
@@ -592,8 +570,6 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
             <span className="text-slate-300">|</span>
             <span>PMIS 저장 날짜 {Object.keys(pmisByDate).length}개</span>
             <span className="text-slate-300">|</span>
-            <span>전자카드 저장 날짜 {Object.keys(savedElectronicCardByDate).length}개</span>
-            <span className="text-slate-300">|</span>
             <span>
               XERP&PMIS 로드 {xerpPmisLoadedDateCount}/{requiredDates.length}개
               {xerpPmisLoadingDateCount > 0 ? ` · 확인 중 ${xerpPmisLoadingDateCount}개` : ""}
@@ -770,8 +746,6 @@ export default function FinalWorkUnitsCheck({ site, pmisData }: Props) {
                     <th className="min-w-[320px] px-2 py-2">가산사유</th>
                     <th className="px-2 py-2">PMIS 출근</th>
                     <th className="px-2 py-2">PMIS 퇴근</th>
-                    <th className="px-2 py-2">전자카드 출근</th>
-                    <th className="px-2 py-2">전자카드 퇴근</th>
                     <th className="min-w-[320px] px-2 py-2">확인 내용</th>
                     <th className="min-w-[220px] px-2 py-2">검토</th>
                     <th className="px-2 py-2">메모</th>
@@ -872,7 +846,7 @@ function WorkUnitQuickReviewCard({
   onMemoChange: (memo: string) => void;
   onOpenTableRow: () => void;
 }) {
-  const meta = STATUS_META[row.status];
+  const meta = STATUS_META[row.status] ?? STATUS_META["pmis-review"];
   const gasanReason = displayGasanReason(row, xerpPmisLoadStatus);
   const reviewSuggestionLabel = reviewSuggestion ? reviewSuggestionMatchLabel(reviewSuggestion.matchType) : "";
   return (
@@ -976,7 +950,7 @@ function WorkUnitRow({
   onMemoChange: (memo: string) => void;
   onReturnToQuickReview: () => void;
 }) {
-  const meta = STATUS_META[row.status];
+  const meta = STATUS_META[row.status] ?? STATUS_META["pmis-review"];
   const gasanReason = displayGasanReason(row, xerpPmisLoadStatus);
   const gasanReasonIsWarning = !row.gasanReason?.trim() && !row.xerpPmisReason?.trim() && row.xerpPmisExtraUnits <= 0 && gasanReason !== "";
   const reviewSuggestionLabel = reviewSuggestion ? reviewSuggestionMatchLabel(reviewSuggestion.matchType) : "";
@@ -1023,8 +997,6 @@ function WorkUnitRow({
         </td>
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.pmisUploaded ? row.pmisIn || "없음" : "미업로드"}</td>
         <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.pmisUploaded ? row.pmisOut || "없음" : "미업로드"}</td>
-        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardIn || "없음" : "미저장"}</td>
-        <td className="whitespace-nowrap px-2 py-2 tabular-nums">{row.electronicCardSaved ? row.electronicCardOut || "없음" : "미저장"}</td>
         <td className="min-w-[320px] max-w-[520px] whitespace-pre-wrap break-words px-2 py-2 font-bold leading-5 text-slate-900">{row.message}</td>
         <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
           <div className="flex flex-wrap gap-1">
@@ -1091,8 +1063,6 @@ function WorkUnitRow({
                   ["PMIS 출근", row.pmisUploaded ? row.pmisIn || "없음" : "미업로드"],
                   ["PMIS 퇴근", row.pmisUploaded ? row.pmisOut || "없음" : "미업로드"],
                   ["PMIS 이벤트", row.pmisUploaded ? `${row.pmisEvents}회` : "-"],
-                  ["전자카드 출근", row.electronicCardSaved ? row.electronicCardIn || "없음" : "미저장"],
-                  ["전자카드 퇴근", row.electronicCardSaved ? row.electronicCardOut || "없음" : "미저장"],
                 ]}
               />
               <DetailBox

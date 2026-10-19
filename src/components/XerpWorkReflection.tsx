@@ -7,6 +7,7 @@ import { loadXerpWorkFS, loadXerpWorkDateMapFS, loadXerpWorkDateMapAllSitesFS, s
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 import KakaoDayEventsPanel from "@/components/KakaoDayEventsPanel";
+import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
 import { buildXerpPmisRowsFromReflection } from "@/lib/xerpPmisFromReflection";
 import { decodeBase64Workbook, requestXerpDailyAttendanceDownload, requestXerpDailyAttendanceExtraWorkUpload, waitForLatestXerpDailyAttendanceFile } from "@/lib/localXerpDailyAttendanceClient";
 import {
@@ -1013,7 +1014,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const buffer = decodeBase64Workbook(latest.file.base64);
       await processWorkbookBuffer(buffer, latest.file.fileName, workDate);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "XERP에서 가져오기에 실패했습니다.");
+      toast.error(error instanceof Error ? error.message : "XERP에서 가져오기에 실패했습니다.", {
+        description: "XERP 자동 가져오기는 이 PC의 로컬서비스가 켜져 있어야 합니다.",
+        action: { label: "로컬서비스 켜기", onClick: () => openLocalServicesLauncher() },
+      });
     } finally {
       setIsXerpImporting(false);
     }
@@ -1176,7 +1180,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       toast.success(`XERP 가산공수 업로드 완료 (${syncSite}, ${workDate})`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "XERP로 내보내기에 실패했습니다.");
+      toast.error(error instanceof Error ? error.message : "XERP로 내보내기에 실패했습니다.", {
+        description: "XERP 자동 가져오기는 이 PC의 로컬서비스가 켜져 있어야 합니다.",
+        action: { label: "로컬서비스 켜기", onClick: () => openLocalServicesLauncher() },
+      });
     } finally {
       setIsXerpExporting(false);
     }
