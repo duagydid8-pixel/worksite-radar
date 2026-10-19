@@ -69,7 +69,7 @@ export default function KakaoDayEventsPanel({ workDate, rows, onApplyReason }: P
         <ul className="mt-2 space-y-1.5 text-xs">
           {items.map(({ event: e, row, nextReason }) => (
             <li key={e.id} className="flex flex-wrap items-start gap-2">
-              <span className="w-14 shrink-0 font-bold text-slate-800">{e.name || "이름?"}</span>
+              <span className="w-20 shrink-0 font-bold text-slate-800">{e.room && <span className="mr-1 text-[10px] font-medium text-slate-400">{e.room}</span>}{e.name || "이름?"}</span>
               <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{EVENT_CATEGORY_LABELS[e.category] ?? e.category}</span>
               <span className="min-w-0 flex-1 text-slate-600">{e.text.replace(/\n/g, " ")}</span>
               {!row && e.name && <span className="text-[10px] text-slate-400">이 날짜 공수 데이터에 없음</span>}

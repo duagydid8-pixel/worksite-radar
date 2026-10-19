@@ -524,7 +524,7 @@ function KakaoTodayCard({ selectedDate, isAdmin }: { selectedDate: string; isAdm
         {events.length > 0 ? (
           events.map((e) => (
             <div key={e.id}>
-              <span>{e.name || "이름 미확인"}</span>
+              <span>{e.room ? `[${e.room}] ` : ""}{e.name || "이름 미확인"}</span>
               <small>{EVENT_CATEGORY_LABELS[e.category] ?? e.category}{e.cause ? ` · ${e.cause}` : ""}</small>
             </div>
           ))

@@ -15,6 +15,28 @@ export interface KakaoEvent {
   cause: string; // 타각 문제 원인: "안전교육" | "교육" | "xerp 오류" | "xerp 승인대기" | ""
   text: string;
   source: "rule" | "ai";
+  room?: string; // 어느 공지방에서 왔는지: "P4" | "P5" (예전 기록엔 없음)
+}
+
+export const KAKAO_ROOMS = [
+  { key: "P4", label: "P4 공지방", sites: ["PH4", "PH2"] },
+  { key: "P5", label: "P5 공지방", sites: ["P5PH1"] },
+] as const;
+export type KakaoRoomKey = (typeof KAKAO_ROOMS)[number]["key"];
+
+/** 대화방 이름/파일명으로 공지방을 추정한다. 모르면 null. */
+export function guessKakaoRoom(name: string): KakaoRoomKey | null {
+  const s = name.toUpperCase().replace(/\s+/g, "");
+  const p5 = /P-?5|5공장|5PH/.test(s);
+  const p4 = /P-?4|4공장|PH4|PH2/.test(s);
+  if (p5 && !p4) return "P5";
+  if (p4 && !p5) return "P4";
+  return null;
+}
+
+/** 메시지에 있는 달(YYYY-MM) 목록, 오래된 순. */
+export function messageMonths(messages: KakaoMessage[]): string[] {
+  return [...new Set(messages.map((m) => m.date.slice(0, 7)).filter(Boolean))].sort();
 }
 
 export const EVENT_CATEGORY_LABELS: Record<string, string> = Object.fromEntries(

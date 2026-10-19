@@ -5,8 +5,10 @@ import {
   crossCheckKakaoWithXerp,
   extractKakaoEvents,
   findRosterNames,
+  guessKakaoRoom,
   guessLeadingNames,
   mergeKakaoEvents,
+  messageMonths,
   resolveTargetDate,
   summarizeEventsByPerson,
 } from "./kakaoEvents";
@@ -82,6 +84,13 @@ describe("kakao events", () => {
       "2026-10-19 최지훈 conflict",
       "2026-10-20 정우성 conflict",
     ]);
+  });
+
+  it("guesses the room from the chat title", () => {
+    expect(guessKakaoRoom("P4 현장 공지방")).toBe("P4");
+    expect(guessKakaoRoom("KakaoTalk_P5PH1_공지.txt")).toBe("P5");
+    expect(guessKakaoRoom("현장 공지")).toBeNull();
+    expect(messageMonths(parseKakaoChat(CHAT).messages)).toEqual(["2026-10"]);
   });
 
   it("merges by id and summarizes per person", () => {

@@ -243,7 +243,7 @@ export default function KakaoChatOrganizer({ isAdmin = false }: { isAdmin?: bool
           </div>
           {tab === "근태" && (
             <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}>
-              <KakaoAttendancePanel messages={messages} isAdmin={isAdmin} />
+              <KakaoAttendancePanel key={fileName} messages={messages} isAdmin={isAdmin} chatName={`${parsed.chatTitle} ${fileName}`} />
             </Suspense>
           )}
           {tab === "메시지" && (
