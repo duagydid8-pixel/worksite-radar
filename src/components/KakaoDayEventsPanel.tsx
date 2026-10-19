@@ -32,10 +32,13 @@ export default function KakaoDayEventsPanel({ workDate, rows, onApplyReason }: P
   useEffect(() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) { setEvents([]); return; }
     let cancelled = false;
-    loadKakaoEventsFS<KakaoEvent>(workDate.slice(0, 7)).then((list) => {
+    const load = () => loadKakaoEventsFS<KakaoEvent>(workDate.slice(0, 7)).then((list) => {
       if (!cancelled) setEvents(list.filter((e) => e.date === workDate));
     });
-    return () => { cancelled = true; };
+    load();
+    // 카톡 정리 화면에서 새로 저장하면 다시 불러온다
+    window.addEventListener("kakao-events-updated", load);
+    return () => { cancelled = true; window.removeEventListener("kakao-events-updated", load); };
   }, [workDate]);
 
   const items = useMemo(() => events.map((e) => {

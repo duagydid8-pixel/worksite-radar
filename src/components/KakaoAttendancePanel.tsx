@@ -175,6 +175,7 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
       }
       if (ok) {
         writeStorage(roomSavedKey(room), new Date().toISOString());
+        window.dispatchEvent(new CustomEvent("kakao-events-updated"));
         toast.success(`${KAKAO_ROOMS.find((r) => r.key === room)!.label} ${events.length}건을 ${[...byMonth.keys()].join(", ")} 근태 기록에 저장했습니다.`);
       }
       else toast.error("일부 근태 기록을 저장하지 못했습니다.");

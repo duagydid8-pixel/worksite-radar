@@ -21,3 +21,4 @@
 - 2026-10-19 (4): XERP 대조 "사유 없음" 수정 — XERP·PMIS 둘 다 기록이 전혀 없는 사람(출근 안 함)은 제외, XERP 미타각이면 PMIS 시각을 함께 표시, 선택한 공지방 현장(P4=PH4+PH2, P5=P5PH1) 공수 데이터만 대조.
 - 2026-10-19 (5): XERP 공수 반영 — 가산B를 수기 입력/일괄 입력하면 계산공수도 공수A+가산B로 함께 바뀌도록 수정(`syncManualCalcGongsu`, 가산B를 지우면 공수A). 저장 후 다시 불러와도 수기 행은 같은 규칙 적용.
 - 2026-10-19 (6): XERP 공수 반영 "저장" 시 같은 현장·날짜의 XERP & PMIS 데이터도 자동 저장(`lib/xerpPmisFromReflection` — 원본 엑셀 열은 그대로, 가산신청·공수합계AB·가산사유만 공수 반영 결과로 덮어씀, `saveXerpDateFS`로 그 날짜 문서만 저장+인덱스에 날짜 추가). XERP & PMIS에 따로 업로드할 필요 없음.
+- 2026-10-19 (7): 화면 유지 — 한 번 연 메뉴는 다른 메뉴로 가도 지우지 않고 숨김(Index `KeepAlivePane`, 홈·오늘할일관리 제외), 주소 끝 #메뉴명으로 현재 메뉴 기록(새로고침·브라우저 탭 복제 시 같은 화면). 숨겨진 화면 갱신용 이벤트: 공수 반영 저장 → `xerp-pmis-updated`(XerpPmisTable 재로드), 카톡 근태 저장 → `kakao-events-updated`(KakaoDayEventsPanel 재로드).

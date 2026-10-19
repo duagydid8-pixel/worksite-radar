@@ -182,7 +182,24 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
     </div>
   );
 }
-type ActiveTab = "홈" | "신규자명단" | "근속알림" | "카톡정리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
+const ACTIVE_TABS = ["홈", "신규자명단", "근속알림", "카톡정리", "조직도", "본사송부용", "조직도송부", "XERP&PMIS", "전자카드 조회", "오늘할일관리", "주간일정", "XERP공수반영", "PDF분리", "본사메일송부", "급여대장", "RCM기안서송부"] as const;
+type ActiveTab = (typeof ACTIVE_TABS)[number];
+
+// 주소 끝(#XERP공수반영)에 지금 메뉴를 남겨 두면 새로고침·탭 복제 시 같은 화면이 열린다
+function readTabFromHash(): ActiveTab {
+  try {
+    const raw = decodeURIComponent(window.location.hash.slice(1));
+    if (raw === "본사송부용") return "조직도송부";
+    return (ACTIVE_TABS as readonly string[]).includes(raw) ? (raw as ActiveTab) : "홈";
+  } catch {
+    return "홈";
+  }
+}
+
+/** 한 번 연 화면은 다른 메뉴로 가도 지우지 않고 숨겨 둔다(업로드한 파일·입력값 유지). */
+function KeepAlivePane({ active, children }: { active: boolean; children: React.ReactNode }) {
+  return <div style={active ? undefined : { display: "none" }}>{children}</div>;
+}
 type PayrollSubTab = "급여대장보정" | "추가공수스캔" | "직종변경";
 const PAYROLL_SUB_TABS: { value: PayrollSubTab; label: string; icon: React.ReactNode }[] = [
   { value: "급여대장보정", label: "공수자동보정", icon: <BookText className="h-3.5 w-3.5" /> },
@@ -370,7 +387,14 @@ const Index = () => {
   const [, setPendingBuffer] = useState<ArrayBuffer | null>(null);
   const [, setFingerprintBuffer] = useState<ArrayBuffer | null>(null);
   const [, setXerpSourceBuffer] = useState<ArrayBuffer | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>("홈");
+  const [activeTab, setActiveTab] = useState<ActiveTab>(readTabFromHash);
+  const [visitedTabs, setVisitedTabs] = useState<Set<ActiveTab>>(() => new Set([activeTab]));
+  useEffect(() => {
+    setVisitedTabs((prev) => (prev.has(activeTab) ? prev : new Set(prev).add(activeTab)));
+    const hash = activeTab === "홈" ? "" : `#${encodeURIComponent(activeTab)}`;
+    if (window.location.hash !== hash) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash}`);
+  }, [activeTab]);
+  const isTabMounted = (tab: ActiveTab) => tab === activeTab || visitedTabs.has(tab);
   const [payrollSubTab, setPayrollSubTab] = useState<PayrollSubTab>("급여대장보정");
   const [mailSubTab, setMailSubTab] = useState<MailRequestMenu>("certificate");
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
@@ -1482,55 +1506,55 @@ const Index = () => {
           )}
 
         {/* 신규자 명단 (관리자 전용) */}
-        {activeTab === "신규자명단" && isAdmin && (
+        {isTabMounted("신규자명단") && isAdmin && (<KeepAlivePane active={activeTab === "신규자명단"}>
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
               <LazyNewEmployeeList />
             </LazyPanel>
           </div>
-        )}
+        </KeepAlivePane>)}
 
         {/* 근속 1년 도래 알림 (관리자 전용) */}
-        {activeTab === "근속알림" && isAdmin && (
+        {isTabMounted("근속알림") && isAdmin && (<KeepAlivePane active={activeTab === "근속알림"}>
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
               <LazyTenureAlert />
             </LazyPanel>
           </div>
-        )}
+        </KeepAlivePane>)}
 
         {/* 카톡 대화 정리 */}
-        {activeTab === "카톡정리" && (
+        {isTabMounted("카톡정리") && (<KeepAlivePane active={activeTab === "카톡정리"}>
           <LazyPanel>
             <LazyKakaoChatOrganizer isAdmin={isAdmin} />
           </LazyPanel>
-        )}
+        </KeepAlivePane>)}
 
         {/* 조직도 */}
-        {activeTab === "조직도" && (
+        {isTabMounted("조직도") && (<KeepAlivePane active={activeTab === "조직도"}>
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
               <OrgChart initialSiteKey="p4-ph4" />
             </LazyPanel>
           </div>
-        )}
+        </KeepAlivePane>)}
 
-        {activeTab === "조직도송부" && (
+        {isTabMounted("조직도송부") && (<KeepAlivePane active={activeTab === "조직도송부"}>
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
               <OrgChart initialSiteKey="head-office-p4-ph4" showSiteTabs={false} />
             </LazyPanel>
           </div>
-        )}
+        </KeepAlivePane>)}
 
         {/* 작업일정 */}
-        {activeTab === "주간일정" && (
+        {isTabMounted("주간일정") && (<KeepAlivePane active={activeTab === "주간일정"}>
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
             <LazyPanel>
               <LazyWeeklySchedule />
             </LazyPanel>
           </div>
-        )}
+        </KeepAlivePane>)}
 
         {/* 오늘 할 일 관리 */}
         {activeTab === "오늘할일관리" && isAdmin && (
@@ -1603,27 +1627,27 @@ const Index = () => {
         )}
 
         {/* XERP & PMIS */}
-        {activeTab === "XERP&PMIS" && (
+        {isTabMounted("XERP&PMIS") && (<KeepAlivePane active={activeTab === "XERP&PMIS"}>
           <XerpPmisPageWrapper isAdmin={isAdmin} />
-        )}
+        </KeepAlivePane>)}
 
-        {activeTab === "전자카드 조회" && (
+        {isTabMounted("전자카드 조회") && (<KeepAlivePane active={activeTab === "전자카드 조회"}>
           <LazyPanel>
             <LazyElcdComparePage isAdmin={isAdmin} />
           </LazyPanel>
-        )}
+        </KeepAlivePane>)}
 
           {/* XERP 공수 반영 */}
-          {activeTab === "XERP공수반영" && (
+          {isTabMounted("XERP공수반영") && (<KeepAlivePane active={activeTab === "XERP공수반영"}>
             <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
               <LazyPanel>
                 <LazyXerpWorkReflection isAdmin={isAdmin} />
               </LazyPanel>
             </div>
-          )}
+          </KeepAlivePane>)}
 
           {/* 본사 메일송부 */}
-          {activeTab === "본사메일송부" && (
+          {isTabMounted("본사메일송부") && (<KeepAlivePane active={activeTab === "본사메일송부"}>
             <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
               <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm md:hidden">
                 <div className="grid grid-cols-3 gap-1">
@@ -1646,24 +1670,24 @@ const Index = () => {
                 <LazyHeadOfficeMailRequest activeMenu={mailSubTab} onMenuChange={setMailSubTab} />
               </LazyPanel>
             </div>
-          )}
+          </KeepAlivePane>)}
 
           {/* PDF 분리 도구 */}
-          {activeTab === "PDF분리" && (
+          {isTabMounted("PDF분리") && (<KeepAlivePane active={activeTab === "PDF분리"}>
             <LazyPanel>
               <LazyPdfSplitter />
             </LazyPanel>
-          )}
+          </KeepAlivePane>)}
 
           {/* RCM 기안서 송부 */}
-          {activeTab === "RCM기안서송부" && (
+          {isTabMounted("RCM기안서송부") && (<KeepAlivePane active={activeTab === "RCM기안서송부"}>
             <LazyPanel>
               <LazyRcmDraftImageExport />
             </LazyPanel>
-          )}
+          </KeepAlivePane>)}
 
           {/* 급여대장 */}
-          {activeTab === "급여대장" && (
+          {isTabMounted("급여대장") && (<KeepAlivePane active={activeTab === "급여대장"}>
             <div>
               <div className="p-4 pb-0 md:hidden">
                 <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
@@ -1691,7 +1715,7 @@ const Index = () => {
                 {payrollSubTab === "직종변경" && <LazyPayrollJobTitleChangePage />}
               </LazyPanel>
             </div>
-          )}
+          </KeepAlivePane>)}
 
         </main>
       </div>

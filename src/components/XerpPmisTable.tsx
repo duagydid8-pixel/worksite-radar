@@ -1024,6 +1024,20 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
     });
   }, []);
 
+  // 공수 반영 화면에서 저장하면 이 화면이 열려 있어도 그 현장 데이터를 다시 불러온다
+  useEffect(() => {
+    const onUpdated = (e: Event) => {
+      const detail = (e as CustomEvent<{ site: string; date: string }>).detail;
+      if (detail?.site !== site) return;
+      loadXerp().then((fsMap) => {
+        if (fsMap && typeof fsMap === "object") setDateMap(fsMap as DateMap);
+      });
+    };
+    window.addEventListener("xerp-pmis-updated", onUpdated);
+    return () => window.removeEventListener("xerp-pmis-updated", onUpdated);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [site]);
+
   // 마운트 시 Firestore에서 로드
   useEffect(() => {
     // 퇴사자 명단 로드 (현재 선택한 현장만)

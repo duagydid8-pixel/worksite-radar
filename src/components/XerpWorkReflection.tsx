@@ -1040,6 +1040,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         }),
       );
       pmisOk = await saveXerpDateFS(syncSite, workDate, pmisRows);
+      // 열어 둔 XERP & PMIS 화면이 다시 불러오도록 알린다
+      if (pmisOk) window.dispatchEvent(new CustomEvent("xerp-pmis-updated", { detail: { site: syncSite, date: workDate } }));
     }
     setIsSaving(false);
     if (ok) {
