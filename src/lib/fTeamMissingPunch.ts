@@ -30,7 +30,12 @@ export function isFTeam(팀명: string): boolean {
   return 팀명.includes("F") && !팀명.includes("기술인");
 }
 
-const hasTime = (v?: string) => /\d{1,2}:\d{2}/.test(v ?? "");
+// XERP & PMIS 화면과 같은 기준: 칸에 값이 있으면 기록이 있는 것 (시각이 엑셀 숫자로 들어와도 기록으로 본다)
+const hasTime = (v?: unknown) => {
+  const text = String(v ?? "").trim();
+  return text !== "" && !/^[-—–]+$/.test(text) && text !== "0";
+};
+const normalizeName = (name: string) => name.replace(/\s+/g, "");
 
 /**
  * month(YYYY-MM)의 1일부터 upTo(YYYY-MM-DD, 포함)까지 F팀에서 XERP 출근 또는 퇴근이 비어 있는 날을 사람별로 모은다.
@@ -45,19 +50,26 @@ export function buildFTeamMissingPunchReport(
     .filter((d) => d.startsWith(month) && (!upTo || d <= upTo))
     .sort();
   for (const date of dates) {
+    // 같은 사람이 그날 여러 줄로 들어와 있으면 합쳐서 본다 (한 줄에라도 기록이 있으면 있는 것)
+    const day = new Map<string, { name: string; team: string; xIn: boolean; xOut: boolean; pmis: boolean }>();
     for (const r of dateMap[date] ?? []) {
-      const team = (r.팀명 ?? "").trim();
-      const name = (r.성명 ?? "").trim();
+      const team = String(r.팀명 ?? "").trim();
+      const name = String(r.성명 ?? "").trim();
       if (!name || !isFTeam(team)) continue;
-      const noIn = !hasTime(r.xerp출근);
-      const noOut = !hasTime(r.xerp퇴근);
-      if (!noIn && !noOut) continue;
-      const key = `${team}|${name}`;
-      if (!byPerson.has(key)) byPerson.set(key, { name, team, missingDates: [] });
+      const key = normalizeName(name);
+      const cur = day.get(key) ?? { name, team, xIn: false, xOut: false, pmis: false };
+      cur.xIn ||= hasTime(r.xerp출근);
+      cur.xOut ||= hasTime(r.xerp퇴근);
+      cur.pmis ||= hasTime(r.pmis출근) || hasTime(r.pmis퇴근);
+      day.set(key, cur);
+    }
+    for (const [key, p] of day) {
+      if (p.xIn && p.xOut) continue;
+      if (!byPerson.has(key)) byPerson.set(key, { name: p.name, team: p.team, missingDates: [] });
       byPerson.get(key)!.missingDates.push({
         date,
-        missing: noIn && noOut ? "출퇴근" : noIn ? "출근" : "퇴근",
-        noPmis: !hasTime(r.pmis출근) && !hasTime(r.pmis퇴근),
+        missing: !p.xIn && !p.xOut ? "출퇴근" : !p.xIn ? "출근" : "퇴근",
+        noPmis: !p.pmis,
       });
     }
   }

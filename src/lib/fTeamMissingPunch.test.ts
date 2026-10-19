@@ -30,6 +30,21 @@ describe("buildFTeamMissingPunchReport", () => {
     ]);
   });
 
+  it("counts any filled cell as a punch and merges duplicate rows for the same person", () => {
+    const report = buildFTeamMissingPunchReport(
+      {
+        "2026-10-05": [
+          row("한성F", "홍길동", "0.2916666666666667", "0.7118055555555556"),
+          row("한성F", "김철수", "", ""),
+          row("한성F", "김 철수", "07:01", "17:10"),
+          row("한성F", "이영희", "-", "17:00"),
+        ],
+      },
+      "2026-10",
+    );
+    expect(report.map((p) => `${p.name} ${p.missingDates.map((d) => d.missing).join(",")}`)).toEqual(["이영희 출근"]);
+  });
+
   it("treats only F teams without 기술인 as F teams", () => {
     expect(isFTeam("한성F")).toBe(true);
     expect(isFTeam("F기술인")).toBe(false);
