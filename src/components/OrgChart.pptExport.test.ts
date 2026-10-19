@@ -51,7 +51,8 @@ describe("OrgChart PPT export", () => {
 
     expect(source).toContain("const memberTableSlot = (member: OrgMember | undefined, picIndex: number)");
     expect(source).toContain("visible: Boolean(member)");
-    expect(source).toContain('return slot.visible === false ? "" : replaceTableCellTexts(tableXml, slot.cells);');
+    expect(source).toContain('if (slot.visible === false) return "";');
+    expect(source).toContain("return replaceTableCellTexts(source, slot.cells);");
     expect(source).not.toContain("{ cells: memberCells(design[0]) }");
   });
 

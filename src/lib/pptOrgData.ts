@@ -197,10 +197,9 @@ export const HEAD_OFFICE_ORG_DATA: PptOrgData = {
   },
   teams: [
     { id: "head-team-construction", name: "공사 팀", color: "#2B3A67", sort_order: 0 },
-    { id: "head-team-design", name: "설계 팀", color: "#2B3A67", sort_order: 1 },
-    { id: "head-team-office", name: "공무 팀", color: "#2B3A67", sort_order: 2 },
-    { id: "head-team-quality", name: "품질 팀", color: "#2B3A67", sort_order: 3 },
-    { id: "head-team-safety", name: "안전 팀", color: "#2B3A67", sort_order: 4 },
+    { id: "head-team-office", name: "공무 팀", color: "#2B3A67", sort_order: 1 },
+    { id: "head-team-quality", name: "품질 팀", color: "#2B3A67", sort_order: 2 },
+    { id: "head-team-safety", name: "안전 팀", color: "#2B3A67", sort_order: 3 },
   ],
   members: [
     headMember("head-construction-01", "head-team-construction", "전재현", "공사 팀장", "수석", "010-4542-8574", "jaehyun@hscleantech.com", headOfficePhoto("image5.jpg"), 0, "#00B050", true),
@@ -208,14 +207,6 @@ export const HEAD_OFFICE_ORG_DATA: PptOrgData = {
     headMember("head-construction-03", "head-team-construction", "엄태원", "공사 담당", "수석", "010-4044-3004", "utw3004@hscleantech.com", headOfficePhoto("image29.png"), 2, "#FF0000"),
     headMember("head-construction-04", "head-team-construction", "나경민", "공사 서류 및 공정", "책임", "010-4953-3359", "iosyhcc@hscleantech.com", headOfficePhoto("image30.png"), 3, "#FFFF00"),
     headMember("head-construction-05", "head-team-construction", "양선우", "공사 서류 및 공정/로스 관리", "선임", "010-4953-3359", "iosyhcc@hscleantech.com", headOfficePhoto("image27.png"), 4),
-
-    headMember("head-design-01", "head-team-design", "이대용", "설계 팀장", "수석", "010-6213-3902", "daeyong@hscleantech.com", headOfficePhoto("image6.jpeg"), 0, "#00B050", true),
-    headMember("head-design-02", "head-team-design", "박세일", "설계 담당", "수석", "010-9959-8992", "psw062@hscleantech.com", headOfficePhoto("image7.jpeg"), 1),
-    headMember("head-design-03", "head-team-design", "전종수", "설계 담당", "수석", "010-2840-7163", "jongsoo@hscleantech.com", headOfficePhoto("image8.jpeg"), 2, "#FFFF00"),
-    headMember("head-design-04", "head-team-design", "이호기", "설계 담당", "수석", "010-2840-7163", "jongsoo@hscleantech.com", photo("image30-ihogi.jpg"), 3),
-    headMember("head-design-05", "head-team-design", "소영성", "설계 담당", "책임", "010-8501-6881", "soyy99@hscleantech.com", headOfficePhoto("image10.png"), 4, "#FFFF00"),
-    headMember("head-design-06", "head-team-design", "박현아", "설계 담당", "선임", "010-3470-0145", "hyunah@hscleantech.com", headOfficePhoto("image31.png"), 5),
-    headMember("head-design-07", "head-team-design", "신동건", "설계 담당", "선임", "010-8747-6786", "donggeon@hscleantech.com", headOfficePhoto("image28.png"), 6, "#FFFF00"),
 
     headMember("head-office-01", "head-team-office", "정두용", "공무 팀장", "수석", "010-3499-5097", "dooyong@hscleantech.com", headOfficePhoto("image11.png"), 0, "#00B050", true),
     headMember("head-office-02", "head-team-office", "이재호", "공무 담당", "수석", "010-6566-4804", "hatbazi@hscleantech.com", headOfficePhoto("image12.jpg"), 1),

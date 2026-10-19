@@ -115,6 +115,23 @@ function compressImage(file: File, maxPx = 300, quality = 0.88): Promise<string>
   });
 }
 
+/** data URL 사진을 최대 300px JPEG로 줄인다 (PPT에서 불러온 큰 사진용) */
+function shrinkDataUrl(dataUrl: string, maxPx = 300, quality = 0.88): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = reject;
+    img.onload = () => {
+      const scale = Math.min(maxPx / img.width, maxPx / img.height, 1);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.src = dataUrl;
+  });
+}
+
 async function imageSrcToObjectUrl(src: string): Promise<{ url: string; revoke: () => void }> {
   if (src.startsWith("data:image/")) return { url: src, revoke: () => undefined };
   const response = await fetch(src);
@@ -200,7 +217,7 @@ function normalizeOrgDataForSeedCompare(data: OrgData) {
 }
 
 function isSavedHeadOfficeSeedData(data: OrgData) {
-  return JSON.stringify(normalizeOrgDataForSeedCompare(data)) === JSON.stringify(normalizeOrgDataForSeedCompare(createHeadOfficeOrgData()));
+  return JSON.stringify(normalizeOrgDataForSeedCompare(withoutHeadOfficeExcludedTeams(data))) === JSON.stringify(normalizeOrgDataForSeedCompare(createHeadOfficeOrgData()));
 }
 
 function hasFilledSiteManager(siteManager: SiteManagerInfo) {
@@ -343,7 +360,20 @@ async function loadOrgDataForSite(site: OrgSiteConfig) {
 }
 
 const REGULAR_MEMBER_COLOR = MEMBER_BORDER_COLORS.regular;
-const HEAD_OFFICE_TEAM_LABELS = ["공사", "설계", "공무", "품질", "안전"] as const;
+// 본사 송부용 조직도는 공사·공무·품질·안전 4개 팀 (설계 팀 제외)
+const HEAD_OFFICE_TEAM_LABELS = ["공사", "공무", "품질", "안전"] as const;
+const HEAD_OFFICE_EXCLUDED_TEAM = "설계팀";
+
+/** 본사 송부용: 설계 팀과 그 인원을 뺀다 */
+function withoutHeadOfficeExcludedTeams<T extends { teams: OrgTeam[]; members: OrgMember[] }>(data: T): T {
+  const removedIds = new Set(data.teams.filter((t) => normalizeTeamName(t.name) === HEAD_OFFICE_EXCLUDED_TEAM).map((t) => t.id));
+  if (!removedIds.size) return data;
+  return {
+    ...data,
+    teams: data.teams.filter((t) => !removedIds.has(t.id)),
+    members: data.members.filter((m) => !removedIds.has(m.team_id)),
+  };
+}
 
 function normalizeTeamName(name: string) {
   return name.replace(/\s+/g, "");
@@ -709,7 +739,8 @@ function buildHeadOfficeTemplateLayout() {
   const headerH = emu(0.21);
   const headerY = emu(2.78);
   const rowYs = [3.04, 3.68, 4.32, 4.96, 5.6, 6.24, 6.88].map(emu);
-  const columnXs = [0.1, 2.46, 4.82, 7.18, 9.54].map(emu);
+  // 공사·공무·품질·안전 4열을 슬라이드 폭에 고르게 배치 (설계 열 제외)
+  const columnXs = [0.1, 3.247, 6.393, 9.54].map(emu);
 
   const tableFrames = new Map<number, PptFrameRect>();
   const picTableIndexes = new Map<number, number>();
@@ -722,10 +753,9 @@ function buildHeadOfficeTemplateLayout() {
 
   [
     { col: 0, headerShapeIndex: 5, tableIndexes: [4, 8, 29, 26, 27], picIndexes: [1, 28, 25, 26, 23] },
-    { col: 1, headerShapeIndex: 1, tableIndexes: [1, 9, 10, 17, 18, 19, 28], picIndexes: [2, 3, 4, 5, 6, 27, 24] },
-    { col: 2, headerShapeIndex: 2, tableIndexes: [3, 11, 12, 20, 21], picIndexes: [7, 8, 9, 10, 11] },
-    { col: 3, headerShapeIndex: 6, tableIndexes: [5, 6, 7, 22, 23, 24], picIndexes: [12, 13, 14, 15, 16, 17] },
-    { col: 4, headerShapeIndex: 3, tableIndexes: [2, 13, 15, 16, 25], picIndexes: [18, 19, 20, 21, 22] },
+    { col: 1, headerShapeIndex: 2, tableIndexes: [3, 11, 12, 20, 21], picIndexes: [7, 8, 9, 10, 11] },
+    { col: 2, headerShapeIndex: 6, tableIndexes: [5, 6, 7, 22, 23, 24], picIndexes: [12, 13, 14, 15, 16, 17] },
+    { col: 3, headerShapeIndex: 3, tableIndexes: [2, 13, 15, 16, 25], picIndexes: [18, 19, 20, 21, 22] },
   ].forEach((team) => {
     const x = columnXs[team.col];
     shapeFrames.set(team.headerShapeIndex, {
@@ -748,9 +778,9 @@ function buildHeadOfficeTemplateLayout() {
   connectorFrames.set(0, { x: columnCenters[0], y: lineY, w: columnCenters[columnCenters.length - 1] - columnCenters[0], h: emu(0.01) });
   connectorFrames.set(1, { x: columnCenters[1], y: lineY, w: 1, h: headerConnectorH });
   connectorFrames.set(2, { x: managerFrame.x + managerFrame.w / 2, y: managerFrame.y + managerFrame.h, w: 1, h: lineY - (managerFrame.y + managerFrame.h) });
-  connectorFrames.set(3, { x: columnCenters[3], y: lineY, w: 1, h: headerConnectorH });
+  connectorFrames.set(3, { x: columnCenters[2], y: lineY, w: 1, h: headerConnectorH });
   connectorFrames.set(4, { x: columnCenters[0], y: lineY, w: 1, h: headerConnectorH });
-  connectorFrames.set(5, { x: columnCenters[4], y: lineY, w: 1, h: headerConnectorH });
+  connectorFrames.set(5, { x: columnCenters[3], y: lineY, w: 1, h: headerConnectorH });
 
   return { tableFrames, picTableIndexes, shapeFrames, connectorFrames };
 }
@@ -789,11 +819,31 @@ function replaceHeadOfficeTeamHeaderNames(xml: string, teams: OrgTeam[]) {
     const teamLabel = HEAD_OFFICE_HEADER_SHAPE_TEAM_MAP.get(shapeIndex);
     shapeIndex += 1;
     if (!teamLabel) return shapeXml;
+    if (teamLabel === "설계") return "";
     const team = teams.find(
       (t) => normalizeTeamName(t.name) === `${teamLabel}팀` || normalizeTeamName(t.name) === teamLabel,
     );
     return replaceTextRuns(shapeXml, [team?.name ?? ""]);
   });
+}
+
+/** 표에서 한 열을 지우고 그 폭을 나머지 열에 나눠 표 전체 폭을 유지한다 */
+function removeTableColumn(tableXml: string, colIndex: number) {
+  const widths = getTableGridColumns(tableXml);
+  if (colIndex >= widths.length) return tableXml;
+  const removedW = widths[colIndex];
+  const restTotal = widths.reduce((sum, w, i) => (i === colIndex ? sum : sum + w), 0) || 1;
+  let gridIndex = 0;
+  let next = tableXml.replace(/<a:gridCol w="(\d+)"(\s*\/>|>[\s\S]*?<\/a:gridCol>)/g, (match, w) => {
+    const i = gridIndex++;
+    if (i === colIndex) return "";
+    return match.replace(`w="${w}"`, `w="${Math.round(Number(w) + (removedW * Number(w)) / restTotal)}"`);
+  });
+  next = next.replace(/<a:tr\b[\s\S]*?<\/a:tr>/g, (rowXml) => {
+    let cellIndex = 0;
+    return rowXml.replace(/<a:tc\b[\s\S]*?<\/a:tc>/g, (cellXml) => (cellIndex++ === colIndex ? "" : cellXml));
+  });
+  return next;
 }
 
 function getMaxRelationshipId(relXml: string) {
@@ -848,7 +898,7 @@ async function exportHeadOfficeTemplatePpt({
   const originalPics = Array.from(slideXml.matchAll(picRegex), (match) => match[0]);
 
   const construction = getTeamMembers(teams, members, "공사팀");
-  const design = getTeamMembers(teams, members, "설계팀");
+  const design: OrgMember[] = []; // 본사 송부용에서는 설계 팀을 넣지 않는다
   const office = getTeamMembers(teams, members, "공무팀");
   const quality = getTeamMembers(teams, members, "품질팀");
   const safety = getTeamMembers(teams, members, "안전팀");
@@ -890,7 +940,7 @@ async function exportHeadOfficeTemplatePpt({
     hasSiteManager ? siteManager.phone : "",
   ];
   const statsCells = [
-    "총원", "현장 / 소장", "공사", "설계", "공무", "품질", "안전",
+    "총원", "현장 / 소장", ...HEAD_OFFICE_TEAM_LABELS,
     ...headOfficeStats.map(([, value]) => value),
   ];
 
@@ -943,7 +993,10 @@ async function exportHeadOfficeTemplatePpt({
     const slot = tableSlots[tableIndex];
     tableIndex += 1;
     if (!slot) return tableXml;
-    return slot.visible === false ? "" : replaceTableCellTexts(tableXml, slot.cells);
+    if (slot.visible === false) return "";
+    // 인원 집계표: 양식의 "설계" 열(4번째)을 지운 뒤 채운다
+    const source = slot.cells === statsCells ? removeTableColumn(tableXml, 3) : tableXml;
+    return replaceTableCellTexts(source, slot.cells);
   });
   slideXml = removeHeadOfficeMarkerShapes(slideXml);
 
@@ -1379,13 +1432,15 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         isSavedHeadOfficeSeedData(d),
       );
       if (hasSavedData && !shouldIgnoreSavedHeadOfficeSeed && d) {
-        setTeams(d.teams); setMembers(d.members);
+        const shown = isHeadOfficeTemplate ? withoutHeadOfficeExcludedTeams(d) : d;
+        setTeams(shown.teams); setMembers(shown.members);
         setBusinessManager(normalizeBusinessManagerForSite(activeSite.key, d.businessManager));
         setSiteManager(d.siteManager ?? DEFAULT_SM);
       } else {
-        const initial = activeSite.key === "p4-ph4"
+        const base = activeSite.key === "p4-ph4"
           ? createPptOrgData()
           : activeSite.key === "head-office-p4-ph4" ? createHeadOfficeOrgData() : createBlankOrgData();
+        const initial = isHeadOfficeTemplate ? withoutHeadOfficeExcludedTeams(base) : base;
         setBusinessManager(normalizeBusinessManagerForSite(activeSite.key, initial.businessManager));
         setSiteManager(initial.siteManager);
         setTeams(initial.teams);
@@ -1409,10 +1464,39 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
 
   const handleSaveAll = useCallback(async () => {
     setSaving(true);
-    const ok = await saveOrgFS({ teams, members, businessManager, siteManager, orgSourceVersion: expectedOrgSourceVersion }, activeSite.docId);
-    if (ok) { setDirty(false); toast.success("조직도가 저장되었습니다."); }
-    else toast.error("Firestore 저장 실패 (네트워크 확인)");
-    setSaving(false);
+    try {
+      // PPT에서 불러온 사진처럼 아직 화면에만 있는 사진(data:)은 먼저 클라우드에 올린다 (문서 1MB 한도 보호)
+      const upload = async (ownerId: string, url: string) => {
+        if (!url.startsWith("data:")) return url;
+        const uploaded = await Promise.race([
+          uploadOrgPhotoFS(activeSite.docId, ownerId, url),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 30000)),
+        ]);
+        if (!uploaded) throw new Error("photo");
+        return uploaded;
+      };
+      let savedMembers = members;
+      let savedSite = siteManager;
+      let savedBusiness = businessManager;
+      try {
+        savedMembers = await Promise.all(members.map(async (m) => ({ ...m, photo_url: await upload(m.id, m.photo_url) })));
+        savedSite = { ...siteManager, photo_url: await upload("site-manager", siteManager.photo_url) };
+        savedBusiness = { ...businessManager, photo_url: await upload("business-manager", businessManager.photo_url) };
+      } catch {
+        toast.error("사진을 클라우드에 올리지 못해 저장하지 않았습니다. 관리자 로그인 상태를 확인하세요.");
+        return;
+      }
+      const ok = await saveOrgFS({ teams, members: savedMembers, businessManager: savedBusiness, siteManager: savedSite, orgSourceVersion: expectedOrgSourceVersion }, activeSite.docId);
+      if (ok) {
+        setMembers(savedMembers);
+        setSiteManager(savedSite);
+        setBusinessManager(savedBusiness);
+        setDirty(false);
+        toast.success("조직도가 저장되었습니다.");
+      } else toast.error("Firestore 저장 실패 (네트워크 확인)");
+    } finally {
+      setSaving(false);
+    }
   }, [teams, members, businessManager, siteManager, activeSite.docId, expectedOrgSourceVersion]);
 
   const persistOrgPhotoUrl = useCallback(async (ownerId: string, photoUrl: string) => {
@@ -1442,8 +1526,35 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
     toast.success("본사 송부용 PPT 기준 조직도를 적용했습니다. 저장을 누르면 서버 데이터에 반영됩니다.");
   }, []);
 
+  // 직접 만든 본사 송부용 PPT를 읽어 화면 조직도를 채운다 (저장은 기존 저장 버튼으로)
+  const handleImportPpt = useCallback(async (file: File) => {
+    const { parseOrgPptx } = await import("@/lib/orgPptImport");
+    const raw = await parseOrgPptx(await file.arrayBuffer());
+    const parsed = { ...raw, ...withoutHeadOfficeExcludedTeams(raw) };
+    // PPT 사진은 작게 줄여 화면에 바로 쓰고(클라우드 업로드는 저장할 때), PPT에 사진이 없으면 같은 이름의 기존 사진을 쓴다
+    const existingPhoto = new Map<string, string>();
+    for (const m of members) if (m.photo_url) existingPhoto.set(m.name, m.photo_url);
+    if (siteManager.photo_url) existingPhoto.set(siteManager.name, siteManager.photo_url);
+    const resolvePhoto = async (ownerId: string, name: string) => {
+      const pptPhoto = parsed.photos[ownerId];
+      if (!pptPhoto) return existingPhoto.get(name) ?? "";
+      return shrinkDataUrl(pptPhoto).catch(() => pptPhoto);
+    };
+    const nextMembers = await Promise.all(parsed.members.map(async (m) => ({ ...m, photo_url: await resolvePhoto(m.id, m.name) })));
+    if (parsed.siteManager) {
+      setSiteManager({ ...parsed.siteManager, photo_url: await resolvePhoto("site-manager", parsed.siteManager.name) });
+    }
+    setTeams(parsed.teams);
+    setMembers(nextMembers);
+    setDirty(true);
+    toast.success(`PPT에서 ${parsed.teams.length}개 팀 ${nextMembers.length}명을 불러왔습니다. 확인 후 저장을 눌러 주세요.`, {
+      description: parsed.warnings.join(" ") || undefined,
+    });
+  }, [members, siteManager]);
+
   const handleApplyBlankOrg = useCallback(() => {
-    const blank = createBlankOrgData();
+    const blankBase = createBlankOrgData();
+    const blank = isHeadOfficeTemplate ? withoutHeadOfficeExcludedTeams(blankBase) : blankBase;
     setBusinessManager(normalizeBusinessManagerForSite(activeSite.key, blank.businessManager ?? DEFAULT_BM));
     setSiteManager(blank.siteManager ?? DEFAULT_SM);
     setTeams(blank.teams);
@@ -2033,7 +2144,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
         ))}
       </div>
 
-      {isHeadOfficeTemplate && <OrgPptUploadBar docId={activeSite.docId} siteLabel={activeSite.label} />}
+      {isHeadOfficeTemplate && <OrgPptUploadBar docId={activeSite.docId} siteLabel={activeSite.label} onImport={handleImportPpt} />}
 
       {isHeadOfficeTemplate && (
         <div className="rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-sm">
@@ -2059,7 +2170,7 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
           <div className="mb-3 flex items-start justify-between gap-4 border-b-2 border-slate-900 pb-2">
             <h3 className="min-w-0 flex-1 text-xl font-black tracking-tight">■ 조직도 _ 사업 1 팀 _{activeSite.title} _{titleDate}</h3>
             <div className="flex w-[420px] shrink-0 flex-col items-end gap-1.5">
-              <div className={`grid overflow-hidden border border-slate-900 text-center text-[11px] font-black ${isHeadOfficeTemplate ? "grid-cols-7" : "grid-cols-8"}`}>
+              <div className={`grid overflow-hidden border border-slate-900 text-center text-[11px] font-black ${isHeadOfficeTemplate ? "grid-cols-6" : "grid-cols-8"}`}>
                 {(isHeadOfficeTemplate ? headOfficeStats : [
                   ["총원", totalMembers],
                   ["팀장", businessManager.phone || businessManager.email || businessManager.photo_url ? 1 : 0],
