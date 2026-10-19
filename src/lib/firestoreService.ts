@@ -777,3 +777,57 @@ export async function loadXerpWorkRowsForDatesFS(dates: string[], sites?: readon
   );
   return result;
 }
+
+// ── 본사 송부용 조직도 PPT 파일 (현장별로 직접 올린 원본) ──
+// 파일은 Storage(org-ppt/{docId}/...)에, 메타정보는 worksite_data/org_ppt_files 에 둔다.
+export interface OrgPptFileMeta {
+  name: string;
+  storagePath: string;
+  downloadUrl: string;
+  uploadedAt: string;
+  size: number;
+}
+const ORG_PPT_META_DOC = "org_ppt_files";
+const PPTX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+export async function loadOrgPptFilesFS(): Promise<Record<string, OrgPptFileMeta>> {
+  const data = await fsGet<{ files?: Record<string, OrgPptFileMeta> }>(ORG_PPT_META_DOC);
+  return data?.files ?? {};
+}
+
+export async function uploadOrgPptFS(docId: string, file: File): Promise<OrgPptFileMeta | null> {
+  if (!storage) return null;
+  try {
+    const safeName = file.name.replace(/[\/#?[\]*]/g, "_");
+    const path = `org-ppt/${docId}/${Date.now()}_${safeName}`;
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, file, { contentType: PPTX_CONTENT_TYPE });
+    const meta: OrgPptFileMeta = {
+      name: file.name,
+      storagePath: path,
+      downloadUrl: await getDownloadURL(storageRef),
+      uploadedAt: new Date().toISOString(),
+      size: file.size,
+    };
+    const files = await loadOrgPptFilesFS();
+    const previous = files[docId];
+    if (!(await fsSet(ORG_PPT_META_DOC, { files: { ...files, [docId]: meta } }))) return null;
+    if (previous?.storagePath) deleteObject(ref(storage, previous.storagePath)).catch(() => {});
+    return meta;
+  } catch (e) {
+    console.error("[Storage] uploadOrgPptFS 실패:", e);
+    notifyFirestoreError(e, "PPT 업로드");
+    return null;
+  }
+}
+
+export async function deleteOrgPptFS(docId: string): Promise<boolean> {
+  const files = await loadOrgPptFilesFS();
+  const target = files[docId];
+  if (!target) return true;
+  const rest = { ...files };
+  delete rest[docId];
+  if (!(await fsSet(ORG_PPT_META_DOC, { files: rest }))) return false;
+  if (storage) deleteObject(ref(storage, target.storagePath)).catch(() => {});
+  return true;
+}

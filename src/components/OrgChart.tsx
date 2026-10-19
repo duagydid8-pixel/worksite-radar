@@ -6,6 +6,7 @@ import { createHeadOfficeOrgData, createPptOrgData, HEAD_OFFICE_ORG_DATA, HEAD_O
 import { Plus, Trash2, Search, X, Download, Save, Camera, Pencil, FileSpreadsheet, Loader2, RotateCw } from "lucide-react";
 import { toPng } from "html-to-image";
 import pptxgen from "pptxgenjs";
+import OrgPptUploadBar from "@/components/OrgPptUploadBar";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -2031,6 +2032,8 @@ export default function OrgChart({ initialSiteKey = "p4-ph4", showSiteTabs = tru
           </button>
         ))}
       </div>
+
+      {isHeadOfficeTemplate && <OrgPptUploadBar docId={activeSite.docId} siteLabel={activeSite.label} />}
 
       {isHeadOfficeTemplate && (
         <div className="rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-white shadow-sm">

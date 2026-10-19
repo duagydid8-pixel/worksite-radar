@@ -1,15 +1,13 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { loadKakaoEventsFS, loadXerpWorkDateMapAllSitesFS, subscribeScheduleFS } from "@/lib/firestoreService";
 import { EVENT_CATEGORY_LABELS, type KakaoEvent } from "@/lib/kakaoEvents";
-import { buildRecentHomeActivities } from "@/lib/recentHomeActivity";
-import type { LeaveDetail } from "@/lib/parseExcel";
 import {
   Loader2, CalendarDays,
   CheckCircle2, XCircle,
   ChevronLeft, ChevronRight,
-  CloudUpload, HardHat,
-  Wind, Droplets, Thermometer, TrendingDown, CalendarOff,
-  Activity, MessageSquare,
+  HardHat, ArrowRight, Lock,
+  Wind, Droplets, Thermometer, PlusCircle,
+  MessageSquare, Calculator, Database, CreditCard, Mail, Users,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -46,20 +44,31 @@ interface ScheduleData {
   uploadedAt?: string;
 }
 interface HomePageProps {
-  lastUploadedAt: string | null;
   selectedDate: string;
   isAdmin: boolean;
-  leaveDetails: LeaveDetail[];
+  /** 바로가기 카드 클릭 시 해당 메뉴로 이동 */
+  onNavigate: (key: string, adminOnly: boolean) => void;
 }
+
+// 홈 바로가기 — key는 Index의 메뉴 키
+const QUICK_LINKS = [
+  { key: "카톡정리", label: "카톡 대화 정리", desc: "공지방 파일로 조퇴·퇴사·타각 문제 정리", icon: MessageSquare, adminOnly: false },
+  { key: "XERP공수반영", label: "XERP 공수 반영", desc: "가산B·가산사유 계산 후 저장", icon: Calculator, adminOnly: true },
+  { key: "XERP&PMIS", label: "XERP & PMIS", desc: "날짜별 출퇴근·공수 기록과 월별 통계", icon: Database, adminOnly: false },
+  { key: "전자카드 조회", label: "전자카드 조회", desc: "전자카드 타각과 XERP 대조", icon: CreditCard, adminOnly: false },
+  { key: "신규자명단", label: "기술인 및 관리자 명단", desc: "입사·퇴사·이관 관리", icon: Users, adminOnly: true },
+  { key: "조직도송부", label: "본사 송부용", desc: "조직도 PPT·메일·급여대장", icon: Mail, adminOnly: false },
+] as const;
 
 const DAY_KO   = ["일","월","화","수","목","금","토"];
 const WEEK_DAY = ["일","월","화","수","목","금","토"];
 
-type WorkRow = { isNoRecord: boolean; isWaeju?: boolean; 성명: string };
+type WorkRow = { isNoRecord: boolean; isWaeju?: boolean; needsUpdate?: boolean; 성명: string };
 function calcStats(rows: WorkRow[]) {
   const total   = rows.length;
   const present = rows.filter(r => !r.isNoRecord).length;
-  return { total, present, absent: total - present };
+  const gasan   = rows.filter(r => r.needsUpdate && !r.isWaeju).length;
+  return { total, present, absent: total - present, gasan };
 }
 
 // ── 미니 달력 ─────────────────────────────────────────
@@ -536,7 +545,7 @@ function KakaoTodayCard({ selectedDate, isAdmin }: { selectedDate: string; isAdm
   );
 }
 
-export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveDetails }: HomePageProps) {
+export default function HomePage({ selectedDate, isAdmin, onNavigate }: HomePageProps) {
   const today = new Date();
   const dateLabel = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 ${DAY_KO[today.getDay()]}요일`;
 
@@ -564,52 +573,27 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
     return dates.length ? (xerpDateMap[dates[dates.length - 1]] ?? []) : [];
   }, [xerpDateMap]);
 
-  const prevXerpRows = useMemo(() => {
-    const dates = Object.keys(xerpDateMap).sort();
-    return dates.length >= 2 ? (xerpDateMap[dates[dates.length - 2]] ?? []) : null;
-  }, [xerpDateMap]);
-
   const stats = useMemo(() => calcStats(xerpRows), [xerpRows]);
-
-  const decreased = useMemo(() => {
-    if (!prevXerpRows) return null;
-    const diff = prevXerpRows.length - xerpRows.length;
-    return diff > 0 ? diff : 0;
-  }, [prevXerpRows, xerpRows]);
 
   const latestXerpDate = useMemo(() => {
     const dates = Object.keys(xerpDateMap).sort();
     return dates.length ? dates[dates.length - 1] : null;
   }, [xerpDateMap]);
 
-  // 선택일 기준 당일 연차자 필터링
-  const todayLeaveDetails = useMemo(() => {
-    const [y, m, d] = selectedDate.split("-").map(Number);
-    return leaveDetails.filter(
-      (item) => item.year === y && item.month === m && item.day === d
-    );
-  }, [leaveDetails, selectedDate]);
-
   const countTotal   = useCountUp(xerpLoaded ? stats.total   : 0, 330);
   const countPresent = useCountUp(xerpLoaded ? stats.present : 0, 450);
   const countAbsent  = useCountUp(xerpLoaded ? stats.absent  : 0, 570);
-  const countDec     = useCountUp(xerpLoaded ? (decreased ?? 0) : 0, 690);
+  const countGasan   = useCountUp(xerpLoaded ? stats.gasan   : 0, 690);
 
+  const hasXerp = xerpLoaded && xerpRows.length > 0;
+  const basisLabel = latestXerpDate ? `${latestXerpDate.slice(5).replace("-", "/")} 공수 반영 기준` : "";
   const KPI = [
-    { label:"총 기술인", value: countTotal,   sub:"공수반영 최근 기준",   icon:<HardHat className="h-5 w-5" />,      color:"text-slate-900",   iconBg:"bg-slate-100",   showDash: false },
-    { label:"정상 출근", value: countPresent,  sub:"출근 기록 있음",      icon:<CheckCircle2 className="h-5 w-5" />, color:"text-emerald-600", iconBg:"bg-emerald-50",  showDash: false },
-    { label:"결근",      value: countAbsent,   sub:"출근 기록 없음",      icon:<XCircle className="h-5 w-5" />,      color:"text-rose-500",    iconBg:"bg-rose-50",     showDash: false },
-    { label:"감소인원",  value: countDec,      sub:"전일 대비 인원 감소", icon:<TrendingDown className="h-5 w-5" />, color:"text-amber-600",   iconBg:"bg-amber-50",    showDash: decreased === null },
+    { label: "출력 인원", value: countTotal,   sub: basisLabel,              icon: <HardHat className="h-5 w-5" /> },
+    { label: "출근",      value: countPresent, sub: "출퇴근 기록 있음",       icon: <CheckCircle2 className="h-5 w-5" /> },
+    { label: "기록 없음", value: countAbsent,  sub: "XERP·PMIS 모두 없음",    icon: <XCircle className="h-5 w-5" /> },
+    { label: "가산 필요", value: countGasan,   sub: "가산B 신청 대상",        icon: <PlusCircle className="h-5 w-5" /> },
   ];
-
-  const recentActivities = useMemo(
-    () =>
-      buildRecentHomeActivities({
-        lastAttendanceUploadedAt: lastUploadedAt,
-        latestXerpDate,
-      }),
-    [lastUploadedAt, latestXerpDate]
-  );
+  const emptyKpiText = !xerpLoaded ? "불러오는 중" : isAdmin ? "공수 반영 저장 전" : "관리자 로그인 후 표시";
 
   return (
     <div className="ops-home p-4 md:p-5 max-w-[1500px] mx-auto min-h-full space-y-4">
@@ -625,38 +609,45 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
             <strong>{selectedDate.replaceAll("-", ".")}</strong>
           </div>
           <div>
-            <span>공수 기준일</span>
-            <strong>{latestXerpDate ? latestXerpDate.replaceAll("-", ".") : "미등록"}</strong>
+            <span>최근 공수 반영</span>
+            <strong>{latestXerpDate ? latestXerpDate.replaceAll("-", ".") : "—"}</strong>
           </div>
           <div>
-            <span>근태 업데이트</span>
-            <strong>{lastUploadedAt ?? "업로드 전"}</strong>
+            <span>접속 상태</span>
+            <strong>{isAdmin ? "관리자" : "열람 전용"}</strong>
           </div>
         </div>
       </section>
 
-      <section className="home-kpi-strip">
-        {KPI.map((k, i) => {
-          const showDash = !xerpLoaded || k.showDash;
+      <section className="home-quick-grid hp-anim-hero">
+        {QUICK_LINKS.map(({ key, label, desc, icon: Icon, adminOnly }) => {
+          const locked = adminOnly && !isAdmin;
           return (
-            <div
-              key={k.label}
-              className={`home-kpi-card hp-anim-kpi-${i + 1}`}
-            >
-              <div className={`home-kpi-icon ${k.iconBg} ${k.color}`}>
-                {k.icon}
-              </div>
-              <div>
-                <p className="home-kpi-label">{k.label}</p>
-                <p className={`home-kpi-value ${k.color}`}>
-                  {showDash ? <span className="text-gray-300">—</span> : k.value}
-                  {!showDash && <span>명</span>}
-                </p>
-                <p className="home-kpi-sub">{k.sub}</p>
-              </div>
-            </div>
+            <button key={key} type="button" onClick={() => onNavigate(key, adminOnly)} className={`home-quick-card${locked ? " is-locked" : ""}`}>
+              <span className="home-quick-icon"><Icon className="h-4 w-4" /></span>
+              <span className="home-quick-copy">
+                <strong>{label}{locked && <Lock className="ml-1 inline h-3 w-3 text-slate-400" />}</strong>
+                <small>{desc}</small>
+              </span>
+              <ArrowRight className="home-quick-arrow h-4 w-4" />
+            </button>
           );
         })}
+      </section>
+
+      <section className="home-kpi-strip">
+        {KPI.map((k, i) => (
+          <div key={k.label} className={`home-kpi-card hp-anim-kpi-${i + 1}`}>
+            <div className="home-kpi-icon">{k.icon}</div>
+            <div>
+              <p className="home-kpi-label">{k.label}</p>
+              <p className="home-kpi-value">
+                {hasXerp ? <>{k.value}<span>명</span></> : <span className="text-gray-300">—</span>}
+              </p>
+              <p className="home-kpi-sub">{hasXerp ? k.sub : emptyKpiText}</p>
+            </div>
+          </div>
+        ))}
       </section>
 
       <div className="home-board-grid">
@@ -671,95 +662,16 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
             ) : (
               <div className="home-empty-panel">
                 <HardHat className="h-5 w-5 text-slate-400" />
-                <span>출력인원 데이터가 아직 없습니다.</span>
+                <span>{isAdmin ? "XERP 공수 반영을 저장하면 날짜별 출력 인원이 표시됩니다." : "관리자 로그인 후 출력 인원 추이를 볼 수 있습니다."}</span>
               </div>
             )}
           </div>
         </main>
 
         <aside className="home-board-aside hp-anim-side">
-          <div className="home-side-panel">
-            <div className="home-side-heading">
-              <div className="home-side-icon">
-                <Activity className="h-4.5 w-4.5 text-slate-700" />
-              </div>
-              <div>
-                <p>최근 처리 이력</p>
-                <span>홈 기준 주요 업데이트</span>
-              </div>
-            </div>
-
-            <div className="home-activity-list">
-              {recentActivities.map((activity) => (
-                <div key={activity.title} className="home-activity-row">
-                  <span className="home-activity-dot" />
-                  <div>
-                    <strong>{activity.title}</strong>
-                    <small>{activity.detail}</small>
-                  </div>
-                  <em>{activity.status}</em>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="home-side-panel">
-            <div className="home-side-heading">
-              <div className="home-side-icon">
-                <CloudUpload className="h-4.5 w-4.5 text-slate-700" />
-              </div>
-              <div>
-                <p>데이터 현황</p>
-                <span>근태 파일 업로드 상태</span>
-              </div>
-            </div>
-
-            <div className="home-status-list">
-              <div>
-                <span>기술인 데이터</span>
-                <strong className={xerpLoaded && stats.total > 0 ? "is-ok" : ""}>
-                  {xerpLoaded && stats.total > 0 ? "로드됨" : "없음"}
-                </strong>
-              </div>
-              <div>
-                <span>최근 업데이트</span>
-                <strong>{lastUploadedAt ?? "—"}</strong>
-              </div>
-              <div>
-                <span>총 기술인</span>
-                <strong>{xerpLoaded ? `${stats.total}명` : "—"}</strong>
-              </div>
-            </div>
-          </div>
-
           <KakaoTodayCard selectedDate={selectedDate} isAdmin={isAdmin} />
 
           <WeatherCard />
-
-          <div className="home-side-panel">
-            <div className="home-side-heading">
-              <div className="home-side-icon home-side-icon-warn">
-                <CalendarOff className="h-4.5 w-4.5 text-amber-600" />
-              </div>
-              <div>
-                <p>당일 연차자</p>
-                <span>{selectedDate} 기준</span>
-              </div>
-              <strong className="home-side-count">{todayLeaveDetails.length}명</strong>
-            </div>
-            <div className="home-leave-list">
-              {todayLeaveDetails.length > 0 ? (
-                todayLeaveDetails.map((item, i) => (
-                  <div key={i}>
-                    <span>{item.name}</span>
-                    <small>{item.days !== 1 ? `${item.days}일` : "1일"}{item.reason ? ` · ${item.reason}` : ""}</small>
-                  </div>
-                ))
-              ) : (
-                <p>등록된 연차자가 없습니다.</p>
-              )}
-            </div>
-          </div>
 
           <MiniCalendar selectedDate={selectedDate} />
         </aside>

@@ -27,6 +27,16 @@ service firebase.storage {
         && request.resource.contentType.matches('image/(jpeg|png|gif|webp)');
     }
 
+    // 본사 송부용 조직도 원본 PPT (현장별)
+    match /org-ppt/{docId}/{fileName} {
+      allow read: if signedIn();
+      allow write: if isAdmin()
+        && request.resource != null
+        && request.resource.size < 50 * 1024 * 1024
+        && request.resource.contentType == 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      allow delete: if isAdmin();
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

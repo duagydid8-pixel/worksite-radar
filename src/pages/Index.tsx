@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOfficeMail";
-import { formatUploadTime, getLocalDateKey, getMonday } from "@/lib/attendanceDateUtils";
+import { getLocalDateKey, getMonday } from "@/lib/attendanceDateUtils";
 import type { AttendanceRosterEmployee } from "@/lib/attendanceSources";
 import {
   applyManualAttendanceOverrides,
@@ -182,14 +182,14 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
     </div>
   );
 }
-const ACTIVE_TABS = ["홈", "신규자명단", "근속알림", "카톡정리", "조직도", "본사송부용", "조직도송부", "XERP&PMIS", "전자카드 조회", "오늘할일관리", "주간일정", "XERP공수반영", "PDF분리", "본사메일송부", "급여대장", "RCM기안서송부"] as const;
+const ACTIVE_TABS = ["홈", "신규자명단", "근속알림", "카톡정리", "본사송부용", "조직도송부", "XERP&PMIS", "전자카드 조회", "오늘할일관리", "주간일정", "XERP공수반영", "PDF분리", "본사메일송부", "급여대장", "RCM기안서송부"] as const;
 type ActiveTab = (typeof ACTIVE_TABS)[number];
 
 // 주소 끝(#XERP공수반영)에 지금 메뉴를 남겨 두면 새로고침·탭 복제 시 같은 화면이 열린다
 function readTabFromHash(): ActiveTab {
   try {
     const raw = decodeURIComponent(window.location.hash.slice(1));
-    if (raw === "본사송부용") return "조직도송부";
+    if (raw === "본사송부용" || raw === "조직도") return "조직도송부";
     return (ACTIVE_TABS as readonly string[]).includes(raw) ? (raw as ActiveTab) : "홈";
   } catch {
     return "홈";
@@ -219,7 +219,6 @@ interface NavItem {
 const NAV_PUBLIC: NavItem[] = [
   { key: "홈", label: "홈", icon: <Home className="h-4 w-4" />, adminOnly: false },
   { key: "카톡정리", label: "카톡 대화 정리", icon: <MessageSquare className="h-4 w-4" />, adminOnly: false },
-  { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
   { key: "본사송부용", label: "본사 송부용", icon: <Mail className="h-4 w-4" />, adminOnly: false },
 ];
 
@@ -368,7 +367,6 @@ function applyAttendancePresentationRules(data: ParsedData, roster: AttendanceRo
 const Index = () => {
   const topbarRef = useRef<HTMLElement | null>(null);
   const adminTodoShownRef = useRef(false);
-  const publicGuideShownRef = useRef(false);
   const localWatchVersionRef = useRef<string | null>(null);
   const [data, setData] = useState<ParsedData | null>(null);
   const [, setFileName] = useState<string | null>(null);
@@ -405,7 +403,6 @@ const Index = () => {
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
   const [rememberLogin, setRememberLogin] = useState(true);
-  const [publicGuideDialogOpen, setPublicGuideDialogOpen] = useState(false);
   const [adminTodoDialogOpen, setAdminTodoDialogOpen] = useState(false);
   const [manualAttendanceDialogOpen, setManualAttendanceDialogOpen] = useState(false);
   const [manualAttendanceOverrides, setManualAttendanceOverrides] = useState<ManualAttendanceOverride[]>(() => readManualAttendanceOverrides());
@@ -703,11 +700,6 @@ const Index = () => {
     setAdminTodoDialogOpen(false);
   };
 
-  const handlePublicGuideMove = (key: "카톡정리" | "조직도" | "XERP&PMIS") => {
-    handleNavClick(key, false);
-    setPublicGuideDialogOpen(false);
-  };
-
   const manualAttendanceEmployeeNames = useMemo(() => {
     const names = new Set<string>();
     if (attendanceRoster.length > 0) {
@@ -779,17 +771,6 @@ const Index = () => {
       setAdminTodoDialogOpen(true);
     }
   }, [adminTodoHideStorageKey, adminTodoTodayKey, isAdmin]);
-
-  useEffect(() => {
-    if (isAdmin) {
-      setPublicGuideDialogOpen(false);
-      return;
-    }
-    if (!publicGuideShownRef.current) {
-      publicGuideShownRef.current = true;
-      setPublicGuideDialogOpen(true);
-    }
-  }, [isAdmin]);
 
   const primaryNavItems = [...NAV_PUBLIC, ...NAV_SEMI_PUBLIC];
   const isHeadOfficeSection = activeTab === "본사송부용" || HEAD_OFFICE_NAV.some((item) => item.key === activeTab);
@@ -1005,79 +986,6 @@ const Index = () => {
                 </div>
               ))
             )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={publicGuideDialogOpen} onOpenChange={setPublicGuideDialogOpen}>
-        <DialogContent className="admin-todo-dialog sm:max-w-[560px]">
-          <DialogHeader>
-            <DialogTitle className="admin-todo-title">
-              <span className="admin-todo-title-icon">
-                <ClipboardList className="h-5 w-5" />
-              </span>
-              <span>
-                현장 정보 바로가기
-                <small>로그인 없이 확인 가능</small>
-              </span>
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="admin-todo-greeting">
-            <strong>필요한 현장 정보를 바로 확인하세요</strong>
-            <p>카톡 대화 정리, 조직도, XERP & PMIS는 관리자 로그인 없이 열람할 수 있습니다.</p>
-          </div>
-
-          <div className="admin-todo-list">
-            <button
-              type="button"
-              onClick={() => handlePublicGuideMove("카톡정리")}
-              className="admin-todo-item"
-            >
-              <span className="admin-todo-item-icon"><ClipboardList className="h-4 w-4" /></span>
-              <span className="admin-todo-item-copy">
-                <strong>카톡 대화 정리하기</strong>
-                <small>카톡 대화 파일을 올려 날짜·사람별로 정리합니다.</small>
-              </span>
-              <span className="admin-todo-badge is-base">카톡</span>
-              <ArrowRight className="admin-todo-arrow h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePublicGuideMove("조직도")}
-              className="admin-todo-item"
-            >
-              <span className="admin-todo-item-icon"><GitBranch className="h-4 w-4" /></span>
-              <span className="admin-todo-item-copy">
-                <strong>조직도 확인하기</strong>
-                <small>현장 조직과 담당자 배치를 확인합니다.</small>
-              </span>
-              <span className="admin-todo-badge is-base">조직</span>
-              <ArrowRight className="admin-todo-arrow h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePublicGuideMove("XERP&PMIS")}
-              className="admin-todo-item"
-            >
-              <span className="admin-todo-item-icon"><Database className="h-4 w-4" /></span>
-              <span className="admin-todo-item-copy">
-                <strong>XERP & PMIS 확인하기</strong>
-                <small>공수 및 PMIS 반영 현황을 확인합니다.</small>
-              </span>
-              <span className="admin-todo-badge is-base">공수</span>
-              <ArrowRight className="admin-todo-arrow h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="admin-todo-footer" style={{ justifyContent: "flex-end" }}>
-            <button
-              type="button"
-              onClick={() => setPublicGuideDialogOpen(false)}
-              className="admin-todo-close"
-            >
-              닫기
-            </button>
           </div>
         </DialogContent>
       </Dialog>
@@ -1501,7 +1409,7 @@ const Index = () => {
           {/* 홈 */}
           {activeTab === "홈" && (
             <LazyPanel>
-              <LazyHomePage lastUploadedAt={lastUploadedAt ? formatUploadTime(lastUploadedAt) : null} selectedDate={selectedDate} isAdmin={isAdmin} leaveDetails={data?.leaveDetails ?? []} />
+              <LazyHomePage selectedDate={selectedDate} isAdmin={isAdmin} onNavigate={(key, adminOnly) => handleNavClick(key as ActiveTab, adminOnly)} />
             </LazyPanel>
           )}
 
@@ -1530,14 +1438,6 @@ const Index = () => {
           </LazyPanel>
         </KeepAlivePane>)}
 
-        {/* 조직도 */}
-        {isTabMounted("조직도") && (<KeepAlivePane active={activeTab === "조직도"}>
-          <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
-            <LazyPanel>
-              <OrgChart initialSiteKey="p4-ph4" />
-            </LazyPanel>
-          </div>
-        </KeepAlivePane>)}
 
         {isTabMounted("조직도송부") && (<KeepAlivePane active={activeTab === "조직도송부"}>
           <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
