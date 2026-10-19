@@ -19,6 +19,7 @@ import {
 } from "@/lib/kakaoChat";
 
 const KakaoAttendancePanel = lazy(() => import("./KakaoAttendancePanel"));
+const KakaoSavedHistoryLazy = lazy(() => import("./KakaoSavedHistory"));
 
 const EMPTY_FILTER: KakaoFilter = { sender: "", keyword: "", from: "", to: "", onlyLinks: false, onlyFiles: false, hideMedia: true };
 const PREF_KEY = "kakao_organizer_prefs";
@@ -229,6 +230,13 @@ export default function KakaoChatOrganizer({ isAdmin = false }: { isAdmin?: bool
         )}
       </div>
 
+      {/* 파일을 올리기 전: 지난 업로드 내역과 저장된 근태 기록 */}
+      {!parsed && (
+        <Suspense fallback={null}>
+          <KakaoSavedHistoryLazy isAdmin={isAdmin} />
+        </Suspense>
+      )}
+
       {parsed && (
         <>
           <div className="flex gap-1.5">
@@ -243,7 +251,7 @@ export default function KakaoChatOrganizer({ isAdmin = false }: { isAdmin?: bool
           </div>
           {tab === "근태" && (
             <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}>
-              <KakaoAttendancePanel key={fileName} messages={messages} isAdmin={isAdmin} chatName={`${parsed.chatTitle} ${fileName}`} />
+              <KakaoAttendancePanel key={fileName} messages={messages} isAdmin={isAdmin} chatName={`${parsed.chatTitle} ${fileName}`} fileName={fileName} chatTitle={parsed.chatTitle} />
             </Suspense>
           )}
           {tab === "메시지" && (

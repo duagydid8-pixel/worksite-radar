@@ -693,6 +693,32 @@ export async function saveKakaoEventsFS(month: string, events: unknown[]): Promi
   return fsSet(kakaoEventsDocId(month), removeUndefinedFields({ events, updatedAt: new Date().toISOString() }) as object);
 }
 
+// 카톡 파일 업로드(근태 기록 저장) 내역 — 원문 없이 파일명·기간·건수만 남긴다
+export interface KakaoUploadLogEntry {
+  id: string;
+  savedAt: string;
+  room: string;
+  fileName: string;
+  chatTitle: string;
+  period: string; // "전체 기간" 또는 "YYYY-MM"
+  firstDate: string;
+  lastDate: string;
+  messageCount: number;
+  eventCount: number;
+  months: string[];
+}
+const KAKAO_UPLOAD_LOG_DOC = "kakao_upload_log";
+const KAKAO_UPLOAD_LOG_LIMIT = 300;
+export async function loadKakaoUploadLogFS(): Promise<KakaoUploadLogEntry[]> {
+  const data = await fsGet<{ entries?: KakaoUploadLogEntry[] }>(KAKAO_UPLOAD_LOG_DOC);
+  return data?.entries ?? [];
+}
+export async function appendKakaoUploadLogFS(entry: KakaoUploadLogEntry): Promise<boolean> {
+  const entries = await loadKakaoUploadLogFS();
+  const next = [entry, ...entries.filter((e) => e.id !== entry.id)].slice(0, KAKAO_UPLOAD_LOG_LIMIT);
+  return fsSet(KAKAO_UPLOAD_LOG_DOC, { entries: next });
+}
+
 /** 지정한 날짜들의 XERP 공수반영 행만 읽는다(사이트 구분 없이 합침). 전체 날짜를 다 읽지 않기 위한 가벼운 조회. */
 export async function loadXerpWorkRowsForDatesFS(dates: string[], sites?: readonly string[]): Promise<Record<string, unknown[]>> {
   const wanted = new Set(dates);

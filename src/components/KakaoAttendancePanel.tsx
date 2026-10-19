@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarRange, Loader2, Save, Sparkles, Trash2, UserCheck } from "lucide-react";
+import { AlertTriangle, Loader2, Save, Sparkles, Trash2, UserCheck } from "lucide-react";
+import KakaoSavedHistory from "@/components/KakaoSavedHistory";
 import { toast } from "sonner";
 import type { KakaoMessage } from "@/lib/kakaoChat";
 import {
@@ -13,7 +14,6 @@ import {
   messageMonths,
   monthKeyOf,
   normalizeName,
-  summarizeEventsByPerson,
   type CrossCheckIssue,
   type KakaoEvent,
   type KakaoRoomKey,
@@ -23,6 +23,7 @@ import {
   loadEmployeesP5PH1FS,
   loadEmployeesPH2FS,
   loadEmployeesPH4FS,
+  appendKakaoUploadLogFS,
   loadKakaoEventsFS,
   loadXerpWorkRowsForDatesFS,
   saveEmployeesP5PH1FS,
@@ -65,9 +66,12 @@ interface Props {
   isAdmin: boolean;
   /** 대화방 이름 또는 파일명 — P4/P5 공지방 추정용 */
   chatName?: string;
+  /** 업로드 내역에 남길 파일명·대화방 이름 */
+  fileName?: string;
+  chatTitle?: string;
 }
 
-export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, chatName = "" }: Props) {
+export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, chatName = "", fileName = "", chatTitle = "" }: Props) {
   const months = useMemo(() => messageMonths(allMessages), [allMessages]);
   const [room, setRoom] = useState<KakaoRoomKey>(() => guessKakaoRoom(chatName) ?? "P4");
   const [period, setPeriod] = useState<"all" | "month">(() => (readStorage(roomSavedKey(guessKakaoRoom(chatName) ?? "P4")) ? "month" : "all"));
@@ -90,7 +94,6 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
   const [issues, setIssues] = useState<CrossCheckIssue[] | null>(null);
   const [checking, setChecking] = useState(false);
   const [historyMonth, setHistoryMonth] = useState("");
-  const [history, setHistory] = useState<KakaoEvent[] | null>(null);
   const [newbieSite, setNewbieSite] = useState<SiteKey>(roomSites[0]);
 
   // 방이나 기간을 바꾸면 이전 범위로 돌린 AI 결과·대조 결과는 버린다
@@ -175,11 +178,24 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
       }
       if (ok) {
         writeStorage(roomSavedKey(room), new Date().toISOString());
+        const dates = messages.map((m) => m.date).filter(Boolean).sort();
+        await appendKakaoUploadLogFS({
+          id: `${room}|${fileName}|${dates[0] ?? ""}|${dates[dates.length - 1] ?? ""}|${period === "month" ? month : "all"}`,
+          savedAt: new Date().toISOString(),
+          room,
+          fileName,
+          chatTitle,
+          period: period === "month" ? month : "전체 기간",
+          firstDate: dates[0] ?? "",
+          lastDate: dates[dates.length - 1] ?? "",
+          messageCount: messages.length,
+          eventCount: events.length,
+          months: [...byMonth.keys()].sort(),
+        });
         window.dispatchEvent(new CustomEvent("kakao-events-updated"));
         toast.success(`${KAKAO_ROOMS.find((r) => r.key === room)!.label} ${events.length}건을 ${[...byMonth.keys()].join(", ")} 근태 기록에 저장했습니다.`);
       }
       else toast.error("일부 근태 기록을 저장하지 못했습니다.");
-      if (historyMonth && byMonth.has(historyMonth)) setHistory(await loadKakaoEventsFS<KakaoEvent>(historyMonth));
     } finally {
       setSaving(false);
     }
@@ -201,12 +217,6 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
     } finally {
       setChecking(false);
     }
-  };
-
-  const loadHistory = async (month: string) => {
-    setHistoryMonth(month);
-    if (!month) return;
-    setHistory(await loadKakaoEventsFS<KakaoEvent>(month));
   };
 
   // ── 기술인 및 관리자 명단 반영 제안 ──
@@ -249,10 +259,6 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
   };
 
   const unnamed = events.filter((e) => !e.name).length;
-  // 방 구분이 없는 예전 기록은 어느 방에서나 보인다
-  const roomHistory = useMemo(() => (history ? history.filter((e) => !e.room || e.room === room) : null), [history, room]);
-  const historySummary = useMemo(() => (roomHistory ? summarizeEventsByPerson(roomHistory) : []), [roomHistory]);
-  const historyCategories = useMemo(() => [...new Set((roomHistory ?? []).map((e) => e.category))], [roomHistory]);
 
   return (
     <div className="space-y-4">
@@ -408,29 +414,8 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
         </div>
       )}
 
-      {/* 월간 이력 */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <p className="flex items-center gap-1.5 text-sm font-extrabold text-slate-700"><CalendarRange className="h-4 w-4" /> 저장된 월간 근태 이력 · {KAKAO_ROOMS.find((r) => r.key === room)!.label}</p>
-          <input type="month" value={historyMonth} onChange={(e) => loadHistory(e.target.value)} className="rounded-md border border-slate-200 px-2 py-1 text-sm" />
-          <button type="button" disabled={!isAdmin || !historyMonth} onClick={() => loadHistory(historyMonth)} className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40">불러오기</button>
-          {!isAdmin && <span className="text-[11px] text-slate-400">관리자 로그인 후 볼 수 있습니다.</span>}
-        </div>
-        {roomHistory && (roomHistory.length === 0 ? <p className="text-xs text-slate-400">이 달에 저장된 기록이 없습니다.</p> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-[11px] text-slate-500">
-                <tr><th className="px-3 py-2">이름</th>{historyCategories.map((c) => <th key={c} className="px-3 py-2">{EVENT_CATEGORY_LABELS[c] ?? c}</th>)}<th className="px-3 py-2">합계</th></tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {historySummary.map((r) => (
-                  <tr key={r.name}><td className="px-3 py-1.5 font-bold text-slate-700">{r.name}</td>{historyCategories.map((c) => <td key={c} className="px-3 py-1.5">{r.counts[c] ?? ""}</td>)}<td className="px-3 py-1.5 font-bold">{r.total}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
+      {/* 저장된 근태 기록 (이 공지방) */}
+      <KakaoSavedHistory isAdmin={isAdmin} room={room} defaultMonth={historyMonth} showUploads={false} />
     </div>
   );
 }
