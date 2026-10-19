@@ -44,3 +44,6 @@ dev-server.*.err
 .tmp-*/
 .tmp-*.zip
 .gstack/
+
+# Supabase CLI 로컬 임시 파일
+supabase/.temp/
