@@ -27,6 +27,7 @@ import {
   resolveEffInMin,
   resolveEffOutMin,
   resolveLoadedAdjustment,
+  syncManualCalcGongsu,
   resolveWritableGasanAdjustment,
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
@@ -352,7 +353,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isWaeju) return r;
       const isNew = empData.has(r.성명);
       if (isNew) {
-        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) };
+        return syncManualCalcGongsu({ ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) });
       }
       const cfg = getTeamConfig(r.팀명);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
@@ -362,7 +363,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const 가산사유 = needsUpdate ? inferGasanReason({ ...r, calcGongsuVal: calcVal, isLunchOt, isCheolya }) : "";
       const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
-      return { ...r, isNewEmployee: false, isLunchOt, calcGongsuVal: calcVal, ...adjustment };
+      return syncManualCalcGongsu({ ...r, isNewEmployee: false, isLunchOt, calcGongsuVal: calcVal, ...adjustment });
     });
 
   const deleteNewEmp = (name: string) => {
@@ -476,7 +477,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isWaeju) return r; // 외주는 항상 0 유지
       const isNew = newEmpData.has(r.성명);
       if (isNew) {
-        return { ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) };
+        return syncManualCalcGongsu({ ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) });
       }
       // 신규자 해제 시 원래 값으로 재계산
       if (r.isNewEmployee) {
@@ -491,7 +492,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const adjustment = r.manualAdjustment
           ? resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 })
           : { diff, needsUpdate, 가산사유, manualAdjustment: false };
-        return { ...r, isNewEmployee: false, calcGongsuVal: calcVal, ...adjustment };
+        return syncManualCalcGongsu({ ...r, isNewEmployee: false, calcGongsuVal: calcVal, ...adjustment });
       }
       return r;
     }));
@@ -623,7 +624,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         bulkGasanReason.trim() || inferGasanReason({ ...r, diff: num }),
         inferGasanReasonTags(r),
       );
-      return { ...r, diff: num, 가산사유: reason, needsUpdate: true, manualAdjustment: true };
+      return syncManualCalcGongsu({ ...r, diff: num, 가산사유: reason, needsUpdate: true, manualAdjustment: true });
     }));
     toast.success(`${selectedIdxes.size}명에게 가산 +${num}공 일괄 적용됨`);
     setBulkGasanVal("");
@@ -649,13 +650,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setRows((prev) => prev.map((r) => {
       if (r.rowIndex !== rowIndex) return r;
       if (isNaN(num) || num <= 0) {
-        return { ...r, diff: null, 가산사유: editingReason.trim(), needsUpdate: false, manualAdjustment: true };
+        return syncManualCalcGongsu({ ...r, diff: null, 가산사유: editingReason.trim(), needsUpdate: false, manualAdjustment: true });
       }
       const reason = normalizeGasanReasonParentheses(
         editingReason.trim() || inferGasanReason({ ...r, diff: num }),
         inferGasanReasonTags(r),
       );
-      return { ...r, diff: num, 가산사유: reason, needsUpdate: true, manualAdjustment: true };
+      return syncManualCalcGongsu({ ...r, diff: num, 가산사유: reason, needsUpdate: true, manualAdjustment: true });
     }));
     setEditingIdx(null);
   };

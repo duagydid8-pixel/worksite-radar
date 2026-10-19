@@ -523,3 +523,16 @@ export function resolveLoadedAdjustment(
     manualAdjustment: Boolean(saved.manualAdjustment),
   };
 }
+
+/**
+ * 가산B를 수기로 입력한 행은 계산공수도 공수A + 가산B로 맞춘다.
+ * (가산B를 지운 행은 공수A 그대로) 자동 계산 행은 손대지 않는다.
+ */
+export function syncManualCalcGongsu<T extends { manualAdjustment?: boolean; diff: number | null; xerpGongsuA: string; calcGongsuVal: number | null }>(row: T): T {
+  if (!row.manualAdjustment) return row;
+  const a = parseFloat(row.xerpGongsuA);
+  const base = isNaN(a) ? 0 : a;
+  if (isNaN(a) && (row.diff === null || row.diff <= 0)) return row;
+  const next = Math.round((base + (row.diff !== null && row.diff > 0 ? row.diff : 0)) * 1000) / 1000;
+  return next === row.calcGongsuVal ? row : { ...row, calcGongsuVal: next };
+}

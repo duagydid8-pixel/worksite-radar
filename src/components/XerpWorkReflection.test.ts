@@ -13,6 +13,7 @@ import {
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
+  syncManualCalcGongsu,
 } from "@/lib/xerpWorkReflectionEngine";
 
 const defaultTeamConfig = {
@@ -413,5 +414,18 @@ describe("신규자 가산사유", () => {
   it("신규자가 아니면 기존 사유 규칙을 그대로 쓴다", () => {
     expect(inferGasanReason({ ...newEmpRow, isNewEmployee: false }))
       .not.toContain("xerp 승인대기");
+  });
+});
+
+describe("syncManualCalcGongsu", () => {
+  it("makes 계산공수 = 공수A + 수기 가산B", () => {
+    expect(syncManualCalcGongsu({ manualAdjustment: true, diff: 0.5, xerpGongsuA: "1", calcGongsuVal: 1.25 }).calcGongsuVal).toBe(1.5);
+    expect(syncManualCalcGongsu({ manualAdjustment: true, diff: 1, xerpGongsuA: "", calcGongsuVal: 0.5 }).calcGongsuVal).toBe(1);
+  });
+  it("drops back to 공수A when 가산B is cleared", () => {
+    expect(syncManualCalcGongsu({ manualAdjustment: true, diff: null, xerpGongsuA: "0.75", calcGongsuVal: 1 }).calcGongsuVal).toBe(0.75);
+  });
+  it("leaves auto-calculated rows alone", () => {
+    expect(syncManualCalcGongsu({ manualAdjustment: false, diff: 0.25, xerpGongsuA: "1", calcGongsuVal: 1.5 }).calcGongsuVal).toBe(1.5);
   });
 });
