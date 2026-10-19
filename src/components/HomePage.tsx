@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight,
   HardHat, ArrowRight, Lock,
   Wind, Droplets, Thermometer, PlusCircle,
-  MessageSquare, Calculator, Database, CreditCard, Mail, Users,
+  MessageSquare, Calculator, Database, Mail, Users,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -54,10 +54,9 @@ interface HomePageProps {
 const QUICK_LINKS = [
   { key: "카톡정리", label: "카톡 대화 정리", desc: "공지방 파일로 조퇴·퇴사·타각 문제 정리", icon: MessageSquare, adminOnly: false },
   { key: "XERP공수반영", label: "XERP 공수 반영", desc: "가산B·가산사유 계산 후 저장", icon: Calculator, adminOnly: true },
-  { key: "XERP&PMIS", label: "XERP & PMIS", desc: "날짜별 출퇴근·공수 기록과 월별 통계", icon: Database, adminOnly: false },
-  { key: "전자카드 조회", label: "전자카드 조회", desc: "전자카드 타각과 XERP 대조", icon: CreditCard, adminOnly: false },
+  { key: "XERP&PMIS", label: "XERP & PMIS", desc: "날짜별 출퇴근·공수 기록과 월별 통계", icon: Database, adminOnly: true },
   { key: "신규자명단", label: "기술인 및 관리자 명단", desc: "입사·퇴사·이관 관리", icon: Users, adminOnly: true },
-  { key: "조직도송부", label: "본사 송부용", desc: "조직도 PPT·메일·급여대장", icon: Mail, adminOnly: false },
+  { key: "조직도송부", label: "본사 송부용", desc: "조직도 PPT·본사 메일·PDF 분리", icon: Mail, adminOnly: false },
 ] as const;
 
 const DAY_KO   = ["일","월","화","수","목","금","토"];

@@ -17,7 +17,6 @@ import { notifyFirestoreError } from "./firestoreErrors";
 import { getOrgPhotoContentType, getOrgPhotoExtension, getOrgPhotoStoragePath, isInlineOrgPhoto } from "./orgPhotoStorage";
 import type { ScheduleData } from "./scheduleTypes";
 import type { TenureWorker } from "./tenureAlert";
-import type { ManualAbsence } from "./manualAbsences";
 import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
 import {
   buildFinalWorkUnitsReviewMemoryEntries,
@@ -133,15 +132,6 @@ export async function loadTenureWorkersFS(): Promise<TenureWorker[] | null> {
 }
 export async function saveTenureWorkersFS(rows: TenureWorker[]): Promise<boolean> {
   return fsSet("tenure_workers", { rows });
-}
-
-// ── 급여대장 수동 결근 입력 ───────────────────────────
-export async function loadManualAbsencesFS(): Promise<ManualAbsence[]> {
-  const data = await fsGet<{ rows: ManualAbsence[] }>("payroll_manual_absences");
-  return data?.rows ?? [];
-}
-export async function saveManualAbsencesFS(rows: ManualAbsence[]): Promise<boolean> {
-  return fsSet("payroll_manual_absences", { rows });
 }
 
 // ── XERP & PMIS ──────────────────────────────────────
@@ -727,25 +717,10 @@ export function getElectronicCardDocIds(site: string, date: string): { prefix: s
   };
 }
 
-export async function saveElectronicCardFS(site: string, date: string, data: unknown): Promise<boolean> {
-  const { dateDocId, indexDocId } = getElectronicCardDocIds(site, date);
-  const ok = await fsSet(dateDocId, { data, savedAt: new Date().toISOString() });
-  if (!ok) return false;
-  const index = (await fsGet<{ dates: string[] }>(indexDocId)) ?? { dates: [] };
-  const dates = Array.from(new Set([...index.dates, date])).sort().reverse();
-  return fsSet(indexDocId, { dates, lastSyncedAt: new Date().toISOString() });
-}
-
 export async function loadElectronicCardFS(site: string, date: string): Promise<unknown | null> {
   const { dateDocId } = getElectronicCardDocIds(site, date);
   const doc = await fsGet<{ data: unknown }>(dateDocId);
   return doc?.data ?? null;
-}
-
-export async function listElectronicCardDatesFS(site: string): Promise<string[]> {
-  const { indexDocId } = getElectronicCardDocIds(site, "");
-  const index = await fsGet<{ dates: string[] }>(indexDocId);
-  return index?.dates ?? [];
 }
 
 // ── 카톡 근태 이벤트 (월별 문서) ─────────────────────────

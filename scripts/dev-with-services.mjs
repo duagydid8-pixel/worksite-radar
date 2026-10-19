@@ -53,13 +53,11 @@ process.on("exit", shutdown);
 
 if (networkMode) {
   console.log("[dev] 네트워크 모드 — 다른 PC에서도 접속 가능합니다");
-  start("rcm:image", ["run", "rcm:image:network"]);
   start("attendance:watch", ["run", "attendance:watch:network"]);
   start("xerp:worker", ["run", "xerp:worker"]);
   start("dev:vite", ["run", "dev:vite", "--", "--host", ...viteArgs]);
 } else {
-  console.log("[dev] starting Vite, RCM image server, attendance watcher, and XERP worker helper");
-  start("rcm:image", ["run", "rcm:image"]);
+  console.log("[dev] starting Vite, attendance watcher, and XERP worker helper");
   start("attendance:watch", ["run", "attendance:watch"]);
   start("xerp:worker", ["run", "xerp:worker"]);
   start("dev:vite", ["run", "dev:vite", "--", ...viteArgs]);

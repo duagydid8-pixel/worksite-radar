@@ -37,12 +37,7 @@ const LazyPmisInOutLogTab = lazy(() => import("@/components/PmisInOutLogTab"));
 const LazyFinalWorkUnitsCheck = lazy(() => import("@/components/FinalWorkUnitsCheck"));
 const LazyWeeklySchedule = lazy(() => import("@/components/WeeklySchedule").then((module) => ({ default: module.WeeklySchedule })));
 const LazyPdfSplitter = lazy(() => import("@/components/tabs/PdfSplitter"));
-const LazyElcdComparePage = lazy(() => import("@/components/ElcdComparePage"));
 const LazyHeadOfficeMailRequest = lazy(() => import("@/components/HeadOfficeMailRequest"));
-const LazyPayrollPage = lazy(() => import("@/components/PayrollPage"));
-const LazyAdditionalWorkScanPage = lazy(() => import("@/components/AdditionalWorkScanPage"));
-const LazyPayrollJobTitleChangePage = lazy(() => import("@/components/PayrollJobTitleChangePage"));
-const LazyRcmDraftImageExport = lazy(() => import("@/components/RcmDraftImageExport"));
 
 function LazyPanel({ children }: { children: ReactNode }) {
   return (
@@ -182,7 +177,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
     </div>
   );
 }
-const ACTIVE_TABS = ["홈", "신규자명단", "근속알림", "카톡정리", "본사송부용", "조직도송부", "XERP&PMIS", "전자카드 조회", "오늘할일관리", "주간일정", "XERP공수반영", "PDF분리", "본사메일송부", "급여대장", "RCM기안서송부"] as const;
+const ACTIVE_TABS = ["홈", "신규자명단", "근속알림", "카톡정리", "본사송부용", "조직도송부", "XERP&PMIS", "오늘할일관리", "주간일정", "XERP공수반영", "PDF분리", "본사메일송부"] as const;
 type ActiveTab = (typeof ACTIVE_TABS)[number];
 
 // 주소 끝(#XERP공수반영)에 지금 메뉴를 남겨 두면 새로고침·탭 복제 시 같은 화면이 열린다
@@ -200,12 +195,6 @@ function readTabFromHash(): ActiveTab {
 function KeepAlivePane({ active, children }: { active: boolean; children: React.ReactNode }) {
   return <div style={active ? undefined : { display: "none" }}>{children}</div>;
 }
-type PayrollSubTab = "급여대장보정" | "추가공수스캔" | "직종변경";
-const PAYROLL_SUB_TABS: { value: PayrollSubTab; label: string; icon: React.ReactNode }[] = [
-  { value: "급여대장보정", label: "공수자동보정", icon: <BookText className="h-3.5 w-3.5" /> },
-  { value: "추가공수스캔", label: "추가공수 스캔추출", icon: <ScanText className="h-3.5 w-3.5" /> },
-  { value: "직종변경", label: "직종변경", icon: <FilePenLine className="h-3.5 w-3.5" /> },
-];
 
 const ROW_ORDER_CONTEXTS = ["attendance_한성_F", "attendance_태화_F", "attendance_현채", "leave"];
 
@@ -228,19 +217,15 @@ const NAV_ADMIN: NavItem[] = [
   { key: "신규자명단", label: "기술인 및 관리자 명단", icon: <Users className="h-4 w-4" />, adminOnly: true },
   { key: "근속알림", label: "근속 1년 도래 알림", icon: <BellRing className="h-4 w-4" />, adminOnly: true },
   { key: "XERP공수반영", label: "XERP 공수 반영", icon: <Calculator className="h-4 w-4" />, adminOnly: true },
+  { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: true },
 ];
 
-const NAV_SEMI_PUBLIC: NavItem[] = [
-  { key: "XERP&PMIS", label: "XERP & PMIS", icon: <Database className="h-4 w-4" />, adminOnly: false },
-  { key: "전자카드 조회", label: "전자카드 조회", icon: <CreditCard className="h-4 w-4" />, adminOnly: false },
-];
+const NAV_SEMI_PUBLIC: NavItem[] = [];
 
 const HEAD_OFFICE_NAV: NavItem[] = [
   { key: "조직도송부", label: "조직도 송부 PPT", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
   { key: "본사메일송부", label: "본사 메일송부", icon: <Mail className="h-4 w-4" />, adminOnly: false },
-  { key: "급여대장", label: "급여대장", icon: <BookText className="h-4 w-4" />, adminOnly: false },
   { key: "PDF분리", label: "PDF 분리 도구", icon: <Scissors className="h-4 w-4" />, adminOnly: false },
-  { key: "RCM기안서송부", label: "RCM 기안서 송부", icon: <FileSpreadsheet className="h-4 w-4" />, adminOnly: false },
 ];
 const ADMIN_TOP_NAV_KEY = "__admin";
 const ADMIN_TODO_HIDE_PREFIX = "admin_todo_hidden_";
@@ -393,7 +378,6 @@ const Index = () => {
     if (window.location.hash !== hash) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash}`);
   }, [activeTab]);
   const isTabMounted = (tab: ActiveTab) => tab === activeTab || visitedTabs.has(tab);
-  const [payrollSubTab, setPayrollSubTab] = useState<PayrollSubTab>("급여대장보정");
   const [mailSubTab, setMailSubTab] = useState<MailRequestMenu>("certificate");
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [, setRowOrders] = useState<Record<string, string[]>>({});
@@ -692,10 +676,7 @@ const Index = () => {
     setSearchQuery("");
   };
 
-  const handleAdminTodoMove = (key: ActiveTab, payrollTab?: PayrollSubTab) => {
-    if (key === "급여대장" && payrollTab) {
-      setPayrollSubTab(payrollTab);
-    }
+  const handleAdminTodoMove = (key: ActiveTab) => {
     handleNavClick(key, true);
     setAdminTodoDialogOpen(false);
   };
@@ -727,15 +708,6 @@ const Index = () => {
       tone: "base",
       icon: <CalendarRange className="h-4 w-4" />,
       target: "주간일정" as ActiveTab,
-    },
-    {
-      title: "추가공수 스캔 추출",
-      description: "스캔본/PDF 요청서에서 이름과 공수를 추출해 급여대장에 반영하세요.",
-      badge: "스캔",
-      tone: "warn",
-      icon: <ScanText className="h-4 w-4" />,
-      target: "급여대장" as ActiveTab,
-      payrollTab: "추가공수스캔" as PayrollSubTab,
     },
     {
       title: "본사 메일 송부",
@@ -777,7 +749,7 @@ const Index = () => {
   const activeAdminItem = NAV_ADMIN.find((item) => item.key === activeTab);
   const isAdminSection = Boolean(activeAdminItem);
   const activePrimarySubnavKey = null;
-  const activeNestedSubnavKey = activeTab === "본사메일송부" || activeTab === "급여대장" ? activeTab : null;
+  const activeNestedSubnavKey = activeTab === "본사메일송부" ? activeTab : null;
 
   const updateSubnavOffsets = useCallback(() => {
     const topbar = topbarRef.current;
@@ -1048,7 +1020,7 @@ const Index = () => {
               <button
                 key={item.title}
                 type="button"
-                onClick={() => handleAdminTodoMove(item.target, item.payrollTab)}
+                onClick={() => handleAdminTodoMove(item.target)}
                 className="admin-todo-item"
               >
                 <span className="admin-todo-item-icon">{item.icon}</span>
@@ -1262,21 +1234,6 @@ const Index = () => {
           </div>
         )}
 
-        {activeTab === "급여대장" && (
-          <div className="ops-subbar ops-subbar-nested">
-            {PAYROLL_SUB_TABS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setPayrollSubTab(option.value)}
-                className={payrollSubTab === option.value ? "is-active" : ""}
-              >
-                {option.icon}
-                <span>{option.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
       </header>
 
       {/* ── 데스크탑 레이아웃 ────────────────────── */}
@@ -1354,24 +1311,6 @@ const Index = () => {
                           }`}
                         >
                           {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {key === "급여대장" && isActive && !locked && (
-                    <div className="ml-9 mt-1 space-y-1 border-l border-slate-200 pl-3">
-                      {PAYROLL_SUB_TABS.map((option) => (
-                        <button
-                          key={option.value}
-                          onClick={() => setPayrollSubTab(option.value)}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-extrabold transition-colors ${
-                            payrollSubTab === option.value
-                              ? "bg-slate-100 text-slate-950"
-                              : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                          }`}
-                        >
-                          {option.icon}
-                          <span>{option.label}</span>
                         </button>
                       ))}
                     </div>
@@ -1527,15 +1466,10 @@ const Index = () => {
         )}
 
         {/* XERP & PMIS */}
-        {isTabMounted("XERP&PMIS") && (<KeepAlivePane active={activeTab === "XERP&PMIS"}>
+        {isTabMounted("XERP&PMIS") && isAdmin && (<KeepAlivePane active={activeTab === "XERP&PMIS"}>
           <XerpPmisPageWrapper isAdmin={isAdmin} />
         </KeepAlivePane>)}
 
-        {isTabMounted("전자카드 조회") && (<KeepAlivePane active={activeTab === "전자카드 조회"}>
-          <LazyPanel>
-            <LazyElcdComparePage isAdmin={isAdmin} />
-          </LazyPanel>
-        </KeepAlivePane>)}
 
           {/* XERP 공수 반영 */}
           {isTabMounted("XERP공수반영") && (<KeepAlivePane active={activeTab === "XERP공수반영"}>
@@ -1579,43 +1513,7 @@ const Index = () => {
             </LazyPanel>
           </KeepAlivePane>)}
 
-          {/* RCM 기안서 송부 */}
-          {isTabMounted("RCM기안서송부") && (<KeepAlivePane active={activeTab === "RCM기안서송부"}>
-            <LazyPanel>
-              <LazyRcmDraftImageExport />
-            </LazyPanel>
-          </KeepAlivePane>)}
 
-          {/* 급여대장 */}
-          {isTabMounted("급여대장") && (<KeepAlivePane active={activeTab === "급여대장"}>
-            <div>
-              <div className="p-4 pb-0 md:hidden">
-                <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-                  <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
-                    {PAYROLL_SUB_TABS.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => setPayrollSubTab(option.value)}
-                        className={`flex h-10 items-center justify-center gap-1.5 rounded-lg text-sm font-extrabold transition-colors ${
-                          payrollSubTab === option.value
-                            ? "bg-slate-900 text-white shadow-sm"
-                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                        }`}
-                      >
-                        {option.icon}
-                        <span>{option.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <LazyPanel>
-                {payrollSubTab === "급여대장보정" && <LazyPayrollPage />}
-                {payrollSubTab === "추가공수스캔" && <LazyAdditionalWorkScanPage />}
-                {payrollSubTab === "직종변경" && <LazyPayrollJobTitleChangePage />}
-              </LazyPanel>
-            </div>
-          </KeepAlivePane>)}
 
         </main>
       </div>
