@@ -72,6 +72,8 @@ describe("kakao events", () => {
           { 성명: "홍길동", xerpIn: "07:00", xerpOut: "17:30" },
           { 성명: "김철수", xerpIn: "", xerpOut: "17:00" },
           { 성명: "강감찬", xerpIn: "07:00", xerpOut: "" },
+          { 성명: "을지문덕", xerpIn: "", xerpOut: "", pmisIn: "", pmisOut: "" },
+          { 성명: "이순신", xerpIn: "", xerpOut: "", pmisIn: "06:58", pmisOut: "17:10" },
         ],
         "2026-10-19": [{ 성명: "최지훈", xerpIn: "06:55", xerpOut: "17:05" }],
         "2026-10-20": [{ 성명: "정우성", xerpIn: "06:50", xerpOut: "" }],
@@ -80,6 +82,7 @@ describe("kakao events", () => {
     );
     expect(issues.map((i) => `${i.date} ${i.name} ${i.kind}`)).toEqual([
       "2026-10-18 강감찬 no-reason",
+      "2026-10-18 이순신 no-reason",
       "2026-10-18 홍길동 conflict",
       "2026-10-19 최지훈 conflict",
       "2026-10-20 정우성 conflict",

@@ -189,10 +189,10 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
     try {
       const chatDates = new Set(messages.map((m) => m.date));
       const dates = [...new Set([...chatDates, ...events.map((e) => e.date)])];
-      const raw = await loadXerpWorkRowsForDatesFS(dates);
+      const raw = await loadXerpWorkRowsForDatesFS(dates, roomSites);
       const xerpByDate = raw as Record<string, XerpRowLite[]>;
       if (!Object.keys(xerpByDate).length) {
-        toast.info("이 기간에 저장된 XERP 공수 반영 데이터가 없습니다.");
+        toast.info("이 기간·이 공지방 현장에 저장된 XERP 공수 반영 데이터가 없습니다.");
         setIssues([]);
         return;
       }

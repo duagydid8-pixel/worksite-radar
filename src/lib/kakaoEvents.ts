@@ -198,7 +198,7 @@ const toMin = (t?: string) => {
 
 /**
  * 카톡에서 말한 내용과 XERP 기록이 어긋나는 경우, 그리고 XERP에는 문제가 있는데
- * 카톡에 아무 사유가 없는 경우를 찾는다.
+ * 카톡에 아무 사유가 없는 경우를 찾는다. 시각은 XERP를 먼저 보고 없으면 PMIS를 본다.
  * @param chatDates 카톡 대화가 있었던 날짜(이 날짜만 "사유 없음"을 검사한다)
  */
 export function crossCheckKakaoWithXerp(
@@ -240,12 +240,15 @@ export function crossCheckKakaoWithXerp(
   for (const [date, rows] of Object.entries(xerpByDate)) {
     if (!chatDates.has(date)) continue;
     for (const r of rows) {
+      // XERP·PMIS 둘 다 기록이 전혀 없으면 출근 안 한 사람이라 사유를 따지지 않는다
+      if (r.isNoRecord || (!r.xerpIn && !r.xerpOut && !r.pmisIn && !r.pmisOut)) continue;
       const missingIn = !r.xerpIn;
       const missingOut = !r.xerpOut;
       if (!missingIn && !missingOut) continue;
       if (covered.has(`${date}|${normalizeName(r.성명)}`)) continue;
-      const what = r.isNoRecord || (missingIn && missingOut) ? "출퇴근 기록 없음" : missingIn ? "출근 미타각" : "퇴근 미타각";
-      issues.push({ date, name: r.성명, kind: "no-reason", message: `XERP ${what}인데 카톡에 사유가 없습니다.` });
+      const what = missingIn && missingOut ? "출퇴근 미타각" : missingIn ? "출근 미타각" : "퇴근 미타각";
+      const pmis = [r.pmisIn && `출근 ${r.pmisIn}`, r.pmisOut && `퇴근 ${r.pmisOut}`].filter(Boolean).join(", ");
+      issues.push({ date, name: r.성명, kind: "no-reason", message: `XERP ${what}${pmis ? ` (PMIS ${pmis})` : ""}인데 카톡에 사유가 없습니다.` });
     }
   }
   return issues.sort((a, b) => (a.date + a.name).localeCompare(b.date + b.name));
