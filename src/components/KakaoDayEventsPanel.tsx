@@ -49,19 +49,47 @@ export default function KakaoDayEventsPanel({ workDate, rows, search, onApplyRea
   }, [workDate]);
 
   const query = normalizeName(search);
-  const items = useMemo(() => {
-    if (!query) return [];
-    return monthEvents
-      .filter((e) => e.name && e.name.includes(query))
-      .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))
-      .map((e) => {
-        const row = e.date === workDate ? rows.find((r) => normalizeName(r.성명) === e.name) : undefined;
-        const next = row && e.category === "punch" && e.cause && row.needsUpdate ? applyCauseToGasanReason(row.가산사유, e.cause) : null;
-        return { event: e, row, nextReason: next && next !== row?.가산사유 ? next : null };
-      });
-  }, [monthEvents, query, rows, workDate]);
+  const withReason = useMemo(() => monthEvents.map((e) => {
+    const row = e.date === workDate && e.name ? rows.find((r) => normalizeName(r.성명) === e.name) : undefined;
+    const next = row && e.category === "punch" && e.cause && row.needsUpdate ? applyCauseToGasanReason(row.가산사유, e.cause) : null;
+    return { event: e, row, nextReason: next && next !== row?.가산사유 ? next : null };
+  }), [monthEvents, rows, workDate]);
+  const items = useMemo(
+    () => (query
+      ? withReason.filter(({ event: e }) => e.name && e.name.includes(query)).sort((a, b) => (b.event.date + b.event.time).localeCompare(a.event.date + a.event.time))
+      : []),
+    [withReason, query],
+  );
+  // 선택일에 가산사유로 바로 반영할 수 있는 건 (같은 행은 마지막 것 하나만)
+  const applicable = useMemo(() => {
+    const byRow = new Map<number, string>();
+    for (const i of withReason) if (i.row && i.nextReason) byRow.set(i.row.rowIndex, i.nextReason);
+    return [...byRow].map(([rowIndex, reason]) => ({ rowIndex, reason }));
+  }, [withReason]);
+  const dayCount = monthEvents.filter((e) => e.date === workDate).length;
 
-  if (!query || !monthEvents.length) return null;
+  if (!monthEvents.length) return null;
+
+  // 검색 전: 한 줄 요약 + 일괄 반영만
+  if (!query) {
+    if (!dayCount) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-yellow-200 bg-yellow-50/70 px-4 py-2 text-xs">
+        <MessageSquare className="h-3.5 w-3.5 text-yellow-600" />
+        <span className="font-bold text-slate-700">선택일 카톡 근태 공지 {dayCount}건</span>
+        <span className="text-slate-500">· 이름을 검색하면 내용이 보입니다</span>
+        {applicable.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onApplyReason(applicable)}
+            className="ml-auto rounded-md bg-slate-800 px-3 py-1 text-[11px] font-bold text-white hover:bg-slate-700"
+          >
+            가산사유에 카톡 원인 {applicable.length}명 모두 반영
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-yellow-200 bg-yellow-50/70 px-4 py-3">
