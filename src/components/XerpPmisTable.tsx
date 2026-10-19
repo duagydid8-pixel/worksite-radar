@@ -7,6 +7,7 @@ import { calculatePerfectAttendance } from "@/lib/perfectAttendance";
 import { loadXerpFS, saveXerpFS, loadXerpPH2FS, saveXerpPH2FS, loadXerpP5PH1FS, saveXerpP5PH1FS, loadEmployeesPH4FS, loadEmployeesPH2FS, loadEmployeesP5PH1FS, loadSafetyEduDatesFS, loadDateMemosFS, saveDateMemosFS, loadPerfectAttendanceSaturdaysFS, savePerfectAttendanceSaturdaysFS, loadPerfectAttendanceWeekdayHolidaysFS, savePerfectAttendanceWeekdayHolidaysFS } from "@/lib/firestoreService";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
+import { buildFTeamMissingPunchReport } from "@/lib/fTeamMissingPunch";
 import {
   decodeBase64Workbook,
   requestXerpDailyAttendanceDownload,
@@ -902,7 +903,8 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
   const [search, setSearch] = useState("");
   const [safetyEduDates, setSafetyEduDates] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<"daily" | "stats" | "perfect">("daily");
+  const [viewMode, setViewMode] = useState<"daily" | "stats" | "perfect" | "fteam">("daily");
+  const [fTeamMonth, setFTeamMonth] = useState(() => TODAY.slice(0, 7));
   const [dateMemos, setDateMemos] = useState<Record<string, string>>({});
   const [memoInput, setMemoInput] = useState("");
   const [isSavingMemo, setIsSavingMemo] = useState(false);
@@ -1008,6 +1010,13 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
       .filter((person) => person.예비군인정일수 > 0)
       .sort((a, b) => a.팀명.localeCompare(b.팀명) || a.성명.localeCompare(b.성명)),
     [filteredPerfectPeople, filteredFailedPeople]
+  );
+
+  // F팀(기술인 제외) XERP 미타각 — 그 달 1일부터 오늘까지 XERP 출근/퇴근이 빈 날 (출근확인서 작성 대상)
+  const fTeamReport = useMemo(
+    () => buildFTeamMissingPunchReport(dateMap, fTeamMonth, TODAY).filter((p) => matchesPersonSearch({ 성명: p.name })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateMap, fTeamMonth, search],
   );
 
   // 이상 근태: 지각 3회 이상 — 퇴사자 제외
@@ -1627,6 +1636,17 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
           <Award className="h-4 w-4" />
           만근 통계
         </button>
+        <button
+          onClick={() => setViewMode("fteam")}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+            viewMode === "fteam"
+              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+              : "bg-white text-muted-foreground border-border hover:bg-muted/50"
+          }`}
+        >
+          <AlertTriangle className="h-4 w-4" />
+          F팀 미타각
+        </button>
       </div>
 
       {/* ── 툴바 ── */}
@@ -2040,6 +2060,75 @@ export default function XerpPmisTable({ isAdmin, site = "PH4" }: Props) {
                 </table>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── F팀 XERP 미타각 (출근확인서 작성 대상) ── */}
+      {viewMode === "fteam" && (
+        <div className="rounded-xl border border-indigo-200 bg-white shadow-sm overflow-hidden shrink-0">
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-indigo-50 border-b border-indigo-200">
+            <span className="text-xs font-bold text-indigo-800 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-indigo-500" />
+              F팀 XERP 미타각 — 출근확인서(서지) 작성 대상
+            </span>
+            <input type="month" value={fTeamMonth} onChange={(e) => e.target.value && setFTeamMonth(e.target.value)} className="rounded-md border border-indigo-200 bg-white px-2 py-0.5 text-xs" />
+            <span className="text-[11px] text-indigo-500">
+              {fTeamMonth}-01 ~ {fTeamMonth === TODAY.slice(0, 7) ? TODAY : "말일"} · {fTeamReport.length}명 / 총 {fTeamReport.reduce((sum, p) => sum + p.missingDates.length, 0)}일
+            </span>
+            <span className="ml-auto text-[11px] text-slate-500">
+              <span className="mr-2"><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-rose-300" />출퇴근</span>
+              <span className="mr-2"><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-300" />출근 또는 퇴근</span>
+              <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-slate-300" />PMIS도 없음</span>
+            </span>
+          </div>
+          <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
+            {fTeamReport.length === 0 ? (
+              <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                {Object.keys(dateMap).some((d) => d.startsWith(fTeamMonth)) ? "이 달 F팀 미타각 기록이 없습니다." : "이 달에 올라온 XERP & PMIS 기록이 없습니다."}
+              </p>
+            ) : (
+              <table className="min-w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-indigo-100">
+                    <th className="px-2 py-2 text-[11px] font-semibold text-center bg-indigo-50 border-r border-indigo-100 sticky top-0 z-10 whitespace-nowrap">팀명</th>
+                    <th className="px-2 py-2 text-[11px] font-semibold text-center bg-indigo-50 border-r border-indigo-100 sticky top-0 z-10 whitespace-nowrap">성명</th>
+                    <th className="px-2 py-2 text-[11px] font-semibold text-center bg-indigo-50 border-r border-indigo-100 sticky top-0 z-10 whitespace-nowrap">일수</th>
+                    <th className="px-2 py-2 text-[11px] font-semibold text-left bg-indigo-50 sticky top-0 z-10">미타각 날짜</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fTeamReport.map((p) => (
+                    <tr key={`${p.team}|${p.name}`} className="border-b border-indigo-50 last:border-0 hover:bg-indigo-50/40">
+                      <td className="px-2 py-1.5 text-center whitespace-nowrap border-r border-indigo-50 text-muted-foreground">{p.team}</td>
+                      <td className="px-2 py-1.5 text-center whitespace-nowrap border-r border-indigo-50 font-medium">{p.name}</td>
+                      <td className="px-2 py-1.5 text-center whitespace-nowrap border-r border-indigo-50 font-bold">{p.missingDates.length}</td>
+                      <td className="px-2 py-1.5">
+                        <div className="flex flex-wrap gap-1">
+                          {p.missingDates.map(({ date, missing, noPmis }) => (
+                            <button
+                              key={date}
+                              type="button"
+                              onClick={() => { setSelectedDate(date); setViewMode("daily"); setSearch(p.name); }}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${
+                                noPmis
+                                  ? "bg-slate-50 border-slate-300 text-slate-500"
+                                  : missing === "출퇴근"
+                                    ? "bg-rose-50 border-rose-300 text-rose-700"
+                                    : "bg-amber-50 border-amber-300 text-amber-700"
+                              }`}
+                              title={`${date} XERP ${missing} 미타각${noPmis ? " · PMIS 기록도 없음" : ""} — 눌러서 그날 기록 보기`}
+                            >
+                              {date.slice(5)}({missing})
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}

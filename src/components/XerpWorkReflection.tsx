@@ -3,7 +3,7 @@ import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, S
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, loadXerpWorkDateMapAllSitesFS, saveXerpWorkDateFS, saveXerpDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, saveXerpDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 import KakaoDayEventsPanel from "@/components/KakaoDayEventsPanel";
@@ -179,15 +179,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const [isSavingNewEmp, setIsSavingNewEmp] = useState(false);
   const [newEmpSavedCount, setNewEmpSavedCount] = useState<number | null>(null);
 
-  // F팀(기술인 제외) XERP 미타각(출근확인서 서지 작성 대상) 월별 현황
-  const [showFTeamReport, setShowFTeamReport] = useState(false);
-  const [isLoadingFTeamReport, setIsLoadingFTeamReport] = useState(false);
-  const [fTeamReport, setFTeamReport] = useState<{
-    name: string;
-    team: string;
-    missingDates: { date: string; missing: "출근" | "퇴근" | "출퇴근" }[];
-  }[] | null>(null);
-
   // 공수반영 날짜 관리
   const [workDate, setWorkDate] = useState<string>(today());
   const [workDates, setWorkDates] = useState<string[]>([]);
@@ -234,46 +225,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     refreshWorkDates();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncSite]);
-
-  // F팀(팀명에 "F" 포함, "기술인" 포함 팀은 제외) — 이번 달 저장된 날짜 전체에서 XERP 출근/퇴근 미타각 현황 집계 (서지 출근확인서 작성 대상)
-  const isFTeam = (팀명: string) => 팀명.includes("F") && !팀명.includes("기술인");
-
-  const loadFTeamReport = async () => {
-    setIsLoadingFTeamReport(true);
-    try {
-      const dm = await loadXerpWorkDateMapAllSitesFS();
-      const monthPrefix = today().slice(0, 7);
-      const byPerson = new Map<string, { team: string; missingDates: { date: string; missing: "출근" | "퇴근" | "출퇴근" }[] }>();
-
-      if (dm) {
-        for (const [date, entry] of Object.entries(dm)) {
-          if (!date.startsWith(monthPrefix)) continue;
-          const dateRows = (entry?.rows ?? []) as ProcessedRow[];
-          for (const r of dateRows) {
-            if (r.isWaeju || !r.팀명 || !isFTeam(r.팀명)) continue;
-            const noIn = !r.xerpIn;
-            const noOut = !r.xerpOut;
-            if (!noIn && !noOut) continue;
-            const missing: "출근" | "퇴근" | "출퇴근" = noIn && noOut ? "출퇴근" : noIn ? "출근" : "퇴근";
-            if (!byPerson.has(r.성명)) byPerson.set(r.성명, { team: r.팀명, missingDates: [] });
-            byPerson.get(r.성명)!.missingDates.push({ date, missing });
-          }
-        }
-      }
-
-      const result = [...byPerson.entries()]
-        .map(([name, v]) => ({
-          name,
-          team: v.team,
-          missingDates: v.missingDates.sort((a, b) => a.date.localeCompare(b.date)),
-        }))
-        .sort((a, b) => a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
-
-      setFTeamReport(result);
-    } finally {
-      setIsLoadingFTeamReport(false);
-    }
-  };
 
   // 정기안전교육 날짜 로드
   useEffect(() => {
@@ -1564,83 +1515,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <span className="text-[11px] text-indigo-500">엑셀 업로드 후 저장하면 날짜별로 기록됩니다</span>
         )}
 
-        <span className="w-px h-5 bg-indigo-200 mx-1" />
-
-        <button
-          onClick={() => {
-            const next = !showFTeamReport;
-            setShowFTeamReport(next);
-            if (next && !fTeamReport) loadFTeamReport();
-          }}
-          disabled={isLoadingFTeamReport}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-300 bg-white text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors disabled:opacity-50"
-        >
-          <AlertTriangle className="h-3.5 w-3.5" />
-          {isLoadingFTeamReport ? "불러오는 중..." : showFTeamReport ? "F팀 미타각 현황 닫기" : "F팀 미타각 현황 (이번달)"}
-        </button>
       </div>
-
-      {/* F팀(기술인 제외) XERP 미타각 현황 — 출근확인서(서지) 작성 대상 */}
-      {showFTeamReport && (
-        <div className="rounded-xl border border-indigo-200 bg-white shadow-sm overflow-hidden shrink-0">
-          <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50 border-b border-indigo-200">
-            <span className="text-xs font-bold text-indigo-800 flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 text-indigo-500" />
-              F팀 XERP 미타각 현황 ({today().slice(0, 7)}) — 출근확인서(서지) 작성 대상
-              {fTeamReport && (
-                <span className="ml-1 text-[11px] font-normal text-indigo-500">
-                  {fTeamReport.length}명 / 총 {fTeamReport.reduce((sum, p) => sum + p.missingDates.length, 0)}일
-                </span>
-              )}
-            </span>
-            <button onClick={() => loadFTeamReport()} disabled={isLoadingFTeamReport} className="text-indigo-400 hover:text-indigo-700 disabled:opacity-50" title="새로고침">
-              <RefreshCw className={`h-3.5 w-3.5 ${isLoadingFTeamReport ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-          <div className="overflow-auto" style={{ maxHeight: "320px" }}>
-            {!fTeamReport || fTeamReport.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-                {isLoadingFTeamReport ? "불러오는 중..." : "이번 달 저장된 날짜 중 F팀 미타각 기록이 없습니다."}
-              </p>
-            ) : (
-              <table className="min-w-full text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-indigo-100">
-                    <th className="px-2 py-2 text-[11px] font-semibold text-center bg-indigo-50 border-r border-indigo-100 sticky top-0 z-10 whitespace-nowrap">팀명</th>
-                    <th className="px-2 py-2 text-[11px] font-semibold text-center bg-indigo-50 border-r border-indigo-100 sticky top-0 z-10 whitespace-nowrap">성명</th>
-                    <th className="px-2 py-2 text-[11px] font-semibold text-left bg-indigo-50 sticky top-0 z-10">미타각 날짜</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fTeamReport.map((p) => (
-                    <tr key={p.name} className="border-b border-indigo-50 last:border-0 hover:bg-indigo-50/40">
-                      <td className="px-2 py-1.5 text-center whitespace-nowrap border-r border-indigo-50 text-muted-foreground">{p.team}</td>
-                      <td className="px-2 py-1.5 text-center whitespace-nowrap border-r border-indigo-50 font-medium">{p.name}</td>
-                      <td className="px-2 py-1.5">
-                        <div className="flex flex-wrap gap-1">
-                          {p.missingDates.map(({ date, missing }) => (
-                            <span
-                              key={date}
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap ${
-                                missing === "출퇴근"
-                                  ? "bg-rose-50 border-rose-300 text-rose-700"
-                                  : "bg-amber-50 border-amber-300 text-amber-700"
-                              }`}
-                              title={`${date} ${missing} 미타각`}
-                            >
-                              {date.slice(5)}({missing})
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* 업로드 / 저장 / 다운로드 바 */}
       <div className="flex flex-wrap items-center gap-3 bg-white border border-border rounded-xl px-4 py-3 shadow-sm shrink-0">
