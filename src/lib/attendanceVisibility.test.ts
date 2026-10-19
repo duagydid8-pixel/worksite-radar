@@ -28,16 +28,17 @@ function data(employees: Employee[]): ParsedData {
 }
 
 describe("getVisibleAttendanceEmployees", () => {
-  it("hides roster-only employees that have no punch or manual attendance for the selected month", () => {
+  it("keeps roster-only employees with no records at all (4a4ea60), but hides ones whose records are all in other months", () => {
     const result = getVisibleAttendanceEmployees(
       data([
         employee("김기록", { "2026-5-8": { punchIn: "06:20", punchOut: "17:10" } }),
         employee("김명단", {}),
+        employee("김지난달", { "2026-4-28": { punchIn: "06:20", punchOut: "17:10" } }),
       ]),
       { selectedDate: "2026-05-08", monday: new Date(2026, 4, 4), manualAttendanceOverrides: [] }
     );
 
-    expect(result.map((item) => item.name)).toEqual(["김기록"]);
+    expect(result.map((item) => item.name)).toEqual(["김기록", "김명단"]);
   });
 
   it("shows a roster-only employee when a manual attendance override exists in the selected month", () => {

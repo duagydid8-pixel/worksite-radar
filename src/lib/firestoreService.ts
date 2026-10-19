@@ -8,17 +8,12 @@
  *   - doc "work_schedule"       : ScheduleData
  *   - doc "tenure_workers"      : { rows } (근속 1년 도래 알림)
  *
- * Firestore 보안 규칙 (Firebase Console → Firestore → 규칙):
- *   rules_version = '2';
- *   service cloud.firestore {
- *     match /databases/{database}/documents {
- *       match /{document=**} { allow read, write: if true; }
- *     }
- *   }
+ * Firestore 보안 규칙: 저장소 루트의 firestore.rules 참고 (firebase deploy --only firestore:rules)
  */
 import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
 import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "./firebase";
+import { notifyFirestoreError } from "./firestoreErrors";
 import { getOrgPhotoContentType, getOrgPhotoExtension, getOrgPhotoStoragePath, isInlineOrgPhoto } from "./orgPhotoStorage";
 import type { ScheduleData } from "./scheduleTypes";
 import type { TenureWorker } from "./tenureAlert";
@@ -38,7 +33,9 @@ async function fsGet<T>(docId: string): Promise<T | null> {
   try {
     const snap = await getDoc(doc(db, COL, docId));
     return snap.exists() ? (snap.data() as T) : null;
-  } catch {
+  } catch (e) {
+    console.error(`[Firestore] fsGet(${docId}) 실패:`, e);
+    notifyFirestoreError(e, "클라우드 데이터 불러오기", "read");
     return null;
   }
 }
@@ -50,6 +47,7 @@ async function fsSet(docId: string, data: object): Promise<boolean> {
     return true;
   } catch (e) {
     console.error(`[Firestore] fsSet(${docId}) 실패:`, e);
+    notifyFirestoreError(e, "클라우드 저장");
     return false;
   }
 }

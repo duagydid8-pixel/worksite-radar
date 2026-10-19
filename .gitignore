@@ -36,3 +36,11 @@ dist-ssr
 
 # 로컬 네트워크 HTTPS 인증서 (자동 생성, 커밋 불필요)
 scripts/.network-certs/
+
+# 로컬 dev 서버 로그 / 임시 작업 폴더
+*.log
+dev-server.*.out
+dev-server.*.err
+.tmp-*/
+.tmp-*.zip
+.gstack/

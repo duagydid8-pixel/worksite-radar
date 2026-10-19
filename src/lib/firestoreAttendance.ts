@@ -11,6 +11,7 @@
  */
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { notifyFirestoreError } from "./firestoreErrors";
 import type { ParsedData } from "./parseExcel";
 
 const COL = "attendance";
@@ -156,6 +157,7 @@ export async function saveRowOrderFS(context: string, names: string[]): Promise<
     );
   } catch (e) {
     console.warn("[Firestore] saveRowOrderFS failed:", e);
+    notifyFirestoreError(e, "행 순서 저장");
   }
 }
 

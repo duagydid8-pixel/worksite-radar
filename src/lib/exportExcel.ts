@@ -87,6 +87,7 @@ export function exportAttendanceExcel(
 
     // 이상사항 (이번주 지각 수)
     let lateCount = 0;
+    let absentCount = 0;
     weekDates.forEach((wd, i) => {
       if (i >= 6) return;
       const cellDate = new Date(wd);
@@ -103,7 +104,8 @@ export function exportAttendanceExcel(
       }
       if (rec?.punchIn && isLate(rec.punchIn)) lateCount++;
     });
-    cells.push(lateCount > 0 ? `지각 ${lateCount}` : "이상없음");
+    const issues = [lateCount > 0 ? `지각 ${lateCount}` : "", absentCount > 0 ? `결근 ${absentCount}` : ""].filter(Boolean);
+    cells.push(issues.length ? issues.join(", ") : "이상없음");
 
     rows.push(cells);
   });

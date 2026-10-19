@@ -1,8 +1,6 @@
 export interface RecentHomeActivityInput {
   lastAttendanceUploadedAt: string | null;
   latestXerpDate: string | null;
-  selectedDate: string;
-  leaveCount: number;
 }
 
 export interface RecentHomeActivity {
@@ -26,11 +24,6 @@ export function buildRecentHomeActivities(input: RecentHomeActivityInput): Recen
       title: "XERP 공수 기준",
       detail: input.latestXerpDate ? formatDateLabel(input.latestXerpDate) : "미등록",
       status: input.latestXerpDate ? "확인" : "대기",
-    },
-    {
-      title: "연차 현황 점검",
-      detail: `${formatDateLabel(input.selectedDate)} · ${input.leaveCount > 0 ? `${input.leaveCount}명` : "없음"}`,
-      status: "확인",
     },
   ];
 }

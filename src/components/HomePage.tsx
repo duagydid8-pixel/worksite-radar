@@ -567,10 +567,8 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
       buildRecentHomeActivities({
         lastAttendanceUploadedAt: lastUploadedAt,
         latestXerpDate,
-        selectedDate,
-        leaveCount: todayLeaveDetails.length,
       }),
-    [lastUploadedAt, latestXerpDate, selectedDate, todayLeaveDetails.length]
+    [lastUploadedAt, latestXerpDate]
   );
 
   return (
