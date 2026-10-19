@@ -23,7 +23,6 @@ import { getOrgPhotoContentType, getOrgPhotoExtension, getOrgPhotoStoragePath, i
 import type { ScheduleData } from "./scheduleTypes";
 import type { TenureWorker } from "./tenureAlert";
 import type { ManualAbsence } from "./manualAbsences";
-import type { LeaveManagedEmployee, LeaveUsage } from "./annualLeaveManagement";
 import { chunkFinalWorkUnitsRows, type FinalWorkUnitsMonthSnapshot } from "./finalWorkUnitsMonthlySave";
 import {
   buildFinalWorkUnitsReviewMemoryEntries,
@@ -71,48 +70,6 @@ function removeUndefinedFields(value: unknown): unknown {
     );
   }
   return value;
-}
-
-export interface AnnualLeaveManagementSnapshot {
-  employees: LeaveManagedEmployee[];
-  usages: LeaveUsage[];
-  uploadedAt: string;
-}
-
-export function prepareAnnualLeavePayload(snapshot: AnnualLeaveManagementSnapshot): {
-  roster: { employees: LeaveManagedEmployee[]; uploadedAt: string };
-  usages: { items: LeaveUsage[]; updatedAt: string };
-} {
-  return removeUndefinedFields({
-    roster: {
-      employees: snapshot.employees,
-      uploadedAt: snapshot.uploadedAt,
-    },
-    usages: {
-      items: snapshot.usages,
-      updatedAt: snapshot.uploadedAt,
-    },
-  }) as {
-    roster: { employees: LeaveManagedEmployee[]; uploadedAt: string };
-    usages: { items: LeaveUsage[]; updatedAt: string };
-  };
-}
-
-export async function saveAnnualLeaveManagementFS(snapshot: AnnualLeaveManagementSnapshot): Promise<boolean> {
-  const payload = prepareAnnualLeavePayload(snapshot);
-  const rosterOk = await fsSet("annual_leave_roster", payload.roster);
-  if (!rosterOk) return false;
-  return fsSet("annual_leave_usages", payload.usages);
-}
-
-export async function loadAnnualLeaveManagementFS(): Promise<AnnualLeaveManagementSnapshot> {
-  const roster = await fsGet<{ employees?: LeaveManagedEmployee[]; uploadedAt?: string }>("annual_leave_roster");
-  const usages = await fsGet<{ items?: LeaveUsage[]; updatedAt?: string }>("annual_leave_usages");
-  return {
-    employees: roster?.employees ?? [],
-    usages: usages?.items ?? [],
-    uploadedAt: usages?.updatedAt ?? roster?.uploadedAt ?? "",
-  };
 }
 
 // ── 조직도 ──────────────────────────────────────────

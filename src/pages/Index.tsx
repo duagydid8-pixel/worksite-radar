@@ -25,7 +25,7 @@ import { openLocalServicesLauncher } from "@/lib/localServicesLauncher";
 import { fetchXerpLoginStatus, requestXerpLoginWindowOpen } from "@/lib/localXerpWorkerRegistrationClient";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power, FilePenLine, BellRing } from "lucide-react";
+import { CloudUpload, Loader2, Search, X, Download, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, CalendarRange, Calculator, Scissors, Mail, BookText, ScanText, ListChecks, ArrowRight, Plus, Trash2, RefreshCw, ChevronDown, FileSpreadsheet, CreditCard, BarChart2, LogIn, Power, FilePenLine, BellRing, MessageSquare } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -35,7 +35,7 @@ const LazyHomePage = lazy(() => import("@/components/HomePage"));
 const LazyNewEmployeeList = lazy(() => import("@/components/NewEmployeeList"));
 const LazyTenureAlert = lazy(() => import("@/components/TenureAlert"));
 const LazyAnnualLeavePanel = lazy(() => import("@/components/AnnualLeavePanel"));
-const LazyAnnualLeaveManagementPage = lazy(() => import("@/components/AnnualLeaveManagementPage"));
+const LazyKakaoChatOrganizer = lazy(() => import("@/components/KakaoChatOrganizer"));
 const LazyXerpPmisTable = lazy(() => import("@/components/XerpPmisTable"));
 const LazyXerpWorkReflection = lazy(() => import("@/components/XerpWorkReflection"));
 const LazyPmisInOutLogTab = lazy(() => import("@/components/PmisInOutLogTab"));
@@ -189,7 +189,7 @@ function XerpPmisPageWrapper({ isAdmin }: { isAdmin: boolean }) {
 }
 
 type TeamFilter = "전체" | "한성" | "태화" | "현채";
-type ActiveTab = "홈" | "신규자명단" | "근속알림" | "연차관리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
+type ActiveTab = "홈" | "신규자명단" | "근속알림" | "카톡정리" | "조직도" | "본사송부용" | "조직도송부" | "XERP&PMIS" | "전자카드 조회" | "오늘할일관리" | "주간일정" | "XERP공수반영" | "PDF분리" | "본사메일송부" | "급여대장" | "RCM기안서송부";
 type AttendanceSubTab = "근태현황" | "연차현황";
 type PayrollSubTab = "급여대장보정" | "추가공수스캔" | "직종변경";
 
@@ -211,7 +211,7 @@ interface NavItem {
 
 const NAV_PUBLIC: NavItem[] = [
   { key: "홈", label: "홈", icon: <Home className="h-4 w-4" />, adminOnly: false },
-  { key: "연차관리", label: "연차관리", icon: <ClipboardList className="h-4 w-4" />, adminOnly: false },
+  { key: "카톡정리", label: "카톡 대화 정리", icon: <MessageSquare className="h-4 w-4" />, adminOnly: false },
   { key: "조직도", label: "조직도", icon: <GitBranch className="h-4 w-4" />, adminOnly: false },
   { key: "본사송부용", label: "본사 송부용", icon: <Mail className="h-4 w-4" />, adminOnly: false },
 ];
@@ -899,7 +899,7 @@ const Index = () => {
     setAdminTodoDialogOpen(false);
   };
 
-  const handlePublicGuideMove = (key: "연차관리" | "조직도" | "XERP&PMIS") => {
+  const handlePublicGuideMove = (key: "카톡정리" | "조직도" | "XERP&PMIS") => {
     handleNavClick(key, false);
     setPublicGuideDialogOpen(false);
   };
@@ -1010,14 +1010,6 @@ const Index = () => {
   }, [filteredEmployees, data, selectedDate]);
 
   const adminTodoItems = useMemo(() => [
-    {
-      title: "연차 현황 확인",
-      description: lastUploadedAt ? `최근 저장: ${formatUploadTime(lastUploadedAt)}` : "연차 명단과 사용내역 저장 상태를 확인하세요.",
-      badge: lastUploadedAt ? "확인" : "필요",
-      tone: lastUploadedAt ? "ok" : "warn",
-      icon: <ClipboardList className="h-4 w-4" />,
-      target: "연차관리" as ActiveTab,
-    },
     {
       title: "월간 작업일정 점검",
       description: "월 기준 구역별 조출·연장·야간 일정을 확인하세요.",
@@ -1315,21 +1307,21 @@ const Index = () => {
 
           <div className="admin-todo-greeting">
             <strong>필요한 현장 정보를 바로 확인하세요</strong>
-            <p>연차관리, 조직도, XERP & PMIS는 관리자 로그인 없이 열람할 수 있습니다.</p>
+            <p>카톡 대화 정리, 조직도, XERP & PMIS는 관리자 로그인 없이 열람할 수 있습니다.</p>
           </div>
 
           <div className="admin-todo-list">
             <button
               type="button"
-              onClick={() => handlePublicGuideMove("연차관리")}
+              onClick={() => handlePublicGuideMove("카톡정리")}
               className="admin-todo-item"
             >
               <span className="admin-todo-item-icon"><ClipboardList className="h-4 w-4" /></span>
               <span className="admin-todo-item-copy">
-                <strong>연차관리 확인하기</strong>
-                <small>직원별 발생·사용·잔여 연차를 확인합니다.</small>
+                <strong>카톡 대화 정리하기</strong>
+                <small>카톡 대화 파일을 올려 날짜·사람별로 정리합니다.</small>
               </span>
-              <span className="admin-todo-badge is-base">연차</span>
+              <span className="admin-todo-badge is-base">카톡</span>
               <ArrowRight className="admin-todo-arrow h-4 w-4" />
             </button>
             <button
@@ -1813,10 +1805,10 @@ const Index = () => {
           </div>
         )}
 
-        {/* 연차관리 */}
-        {activeTab === "연차관리" && (
+        {/* 카톡 대화 정리 */}
+        {activeTab === "카톡정리" && (
           <LazyPanel>
-            <LazyAnnualLeaveManagementPage isAdmin={isAdmin} />
+            <LazyKakaoChatOrganizer />
           </LazyPanel>
         )}
 
