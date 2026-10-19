@@ -737,3 +737,33 @@ export async function listElectronicCardDatesFS(site: string): Promise<string[]>
   const index = await fsGet<{ dates: string[] }>(indexDocId);
   return index?.dates ?? [];
 }
+
+// ── 카톡 근태 이벤트 (월별 문서) ─────────────────────────
+// 카톡 원문 전체가 아니라 근태 관련 이벤트(날짜·이름·사유·해당 메시지)만 저장한다.
+function kakaoEventsDocId(month: string): string {
+  return `kakao_events_${month}`;
+}
+export async function loadKakaoEventsFS<T = unknown>(month: string): Promise<T[]> {
+  const data = await fsGet<{ events?: T[] }>(kakaoEventsDocId(month));
+  return data?.events ?? [];
+}
+export async function saveKakaoEventsFS(month: string, events: unknown[]): Promise<boolean> {
+  return fsSet(kakaoEventsDocId(month), removeUndefinedFields({ events, updatedAt: new Date().toISOString() }) as object);
+}
+
+/** 지정한 날짜들의 XERP 공수반영 행만 읽는다(사이트 구분 없이 합침). 전체 날짜를 다 읽지 않기 위한 가벼운 조회. */
+export async function loadXerpWorkRowsForDatesFS(dates: string[]): Promise<Record<string, unknown[]>> {
+  const wanted = new Set(dates);
+  const result: Record<string, unknown[]> = {};
+  await Promise.all(
+    XERP_WORK_DATE_SITES.map(async (site) => {
+      const index = await fsGet<{ dates?: XerpWorkDateIndex }>(xerpWorkDatesIndexDocId(site));
+      const siteDates = Object.keys(index?.dates ?? {}).filter((d) => wanted.has(d));
+      const entries = await Promise.all(siteDates.map(async (d) => [d, await fsGet<XerpWorkEntry>(xerpWorkDateDocId(site, d))] as const));
+      for (const [d, entry] of entries) {
+        if (entry?.rows?.length) result[d] = [...(result[d] ?? []), ...entry.rows];
+      }
+    }),
+  );
+  return result;
+}

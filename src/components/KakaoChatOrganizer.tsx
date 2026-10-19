@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { Copy, Download, FileText, Link2, MessageSquare, Search, Trash2, Upload, Users } from "lucide-react";
+import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { Loader2, Copy, Download, FileText, Link2, MessageSquare, Search, Trash2, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { parseKakaoZip } from "@/lib/kakaoZip";
 import {
@@ -17,6 +17,8 @@ import {
   type KakaoMessage,
   type KakaoParseResult,
 } from "@/lib/kakaoChat";
+
+const KakaoAttendancePanel = lazy(() => import("./KakaoAttendancePanel"));
 
 const EMPTY_FILTER: KakaoFilter = { sender: "", keyword: "", from: "", to: "", onlyLinks: false, onlyFiles: false, hideMedia: true };
 const PREF_KEY = "kakao_organizer_prefs";
@@ -75,7 +77,7 @@ function MessageText({ text, keyword }: { text: string; keyword: string }) {
   );
 }
 
-export default function KakaoChatOrganizer() {
+export default function KakaoChatOrganizer({ isAdmin = false }: { isAdmin?: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [parsed, setParsed] = useState<KakaoParseResult | null>(null);
@@ -86,6 +88,7 @@ export default function KakaoChatOrganizer() {
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [mode, setMode] = useState<"중요" | "전체">("중요");
   const [view, setView] = useState<"대화" | "링크">("대화");
+  const [tab, setTab] = useState<"근태" | "메시지">("근태");
 
   const messages = useMemo(() => parsed?.messages ?? [], [parsed]);
   const summary = useMemo(() => summarizeKakao(messages), [messages]);
@@ -198,7 +201,7 @@ export default function KakaoChatOrganizer() {
               <MessageSquare className="h-5 w-5 text-yellow-500" /> 카톡 대화 정리
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              카카오톡 &gt; 채팅방 메뉴 &gt; 대화 내보내기(텍스트 .txt)로 저장한 파일을 올리세요. 파일은 브라우저 안에서만 처리되며 서버로 전송되지 않습니다.
+              카카오톡 &gt; 채팅방 메뉴 &gt; 대화 내보내기로 저장한 .txt(사진까지 보려면 사진 포함 .zip) 파일을 올리세요. 파일은 브라우저 안에서만 처리됩니다. "근태 기록 저장"을 누르면 근태 관련 건만 클라우드에 남고, AI 분석을 쓸 때만 텍스트가 Anthropic으로 전송됩니다.
             </p>
           </div>
           <div className="flex gap-2">
@@ -228,6 +231,23 @@ export default function KakaoChatOrganizer() {
 
       {parsed && (
         <>
+          <div className="flex gap-1.5">
+            {([
+              ["근태", "근태 정리 (추천)"],
+              ["메시지", "메시지 전체 보기"],
+            ] as const).map(([key, label]) => (
+              <button key={key} type="button" onClick={() => setTab(key)} className={`rounded-lg px-3.5 py-2 text-sm font-bold ${tab === key ? "bg-yellow-400 text-slate-900" : "border border-slate-200 bg-white text-slate-600"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {tab === "근태" && (
+            <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}>
+              <KakaoAttendancePanel messages={messages} isAdmin={isAdmin} />
+            </Suspense>
+          )}
+          {tab === "메시지" && (
+          <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             {[
               { label: "대화방", value: parsed.chatTitle || fileName },
@@ -382,6 +402,8 @@ export default function KakaoChatOrganizer() {
                 </div>
               ))}
             </div>
+          )}
+          </>
           )}
         </>
       )}

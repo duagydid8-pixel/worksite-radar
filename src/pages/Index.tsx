@@ -1502,7 +1502,7 @@ const Index = () => {
         {/* 카톡 대화 정리 */}
         {activeTab === "카톡정리" && (
           <LazyPanel>
-            <LazyKakaoChatOrganizer />
+            <LazyKakaoChatOrganizer isAdmin={isAdmin} />
           </LazyPanel>
         )}
 

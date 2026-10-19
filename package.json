@@ -23,6 +23,7 @@
     "dev:network": "node scripts/dev-with-services.mjs --network"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@e965/xlsx": "^0.20.3",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { loadXerpWorkFS, loadXerpWorkDateMapFS, loadXerpWorkDateMapAllSitesFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
+import KakaoDayEventsPanel from "@/components/KakaoDayEventsPanel";
 import { decodeBase64Workbook, requestXerpDailyAttendanceDownload, requestXerpDailyAttendanceExtraWorkUpload, waitForLatestXerpDailyAttendanceFile } from "@/lib/localXerpDailyAttendanceClient";
 import {
   calcDiff,
@@ -627,6 +628,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     toast.success(`${selectedIdxes.size}명에게 가산 +${num}공 일괄 적용됨`);
     setBulkGasanVal("");
     setBulkGasanReason("");
+  };
+
+  // 카톡 근태 이벤트의 원인(교육/xerp 오류 등)을 가산사유에 반영
+  const applyKakaoReasons = (changes: { rowIndex: number; reason: string }[]) => {
+    const byRow = new Map(changes.map((c) => [c.rowIndex, c.reason]));
+    setRows((prev) => prev.map((r) => (byRow.has(r.rowIndex) ? { ...r, 가산사유: byRow.get(r.rowIndex)!, manualAdjustment: true } : r)));
+    toast.success(`${changes.length}명의 가산사유에 카톡 원인을 반영했습니다. 저장을 눌러야 클라우드에 남습니다.`);
   };
 
   // 가산B 수기 편집
@@ -2051,6 +2059,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           </div>
         );
       })()}
+
+      {rows.length > 0 && (
+        <KakaoDayEventsPanel workDate={workDate} rows={rows} onApplyReason={applyKakaoReasons} />
+      )}
 
       {/* 검색창 + 정기안전교육 + 정렬 + 선택 행 액션 + 범례 (한 레이아웃) */}
       {rows.length > 0 && (

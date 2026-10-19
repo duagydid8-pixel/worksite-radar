@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
-import { loadXerpWorkDateMapAllSitesFS, subscribeScheduleFS } from "@/lib/firestoreService";
+import { loadKakaoEventsFS, loadXerpWorkDateMapAllSitesFS, subscribeScheduleFS } from "@/lib/firestoreService";
+import { EVENT_CATEGORY_LABELS, type KakaoEvent } from "@/lib/kakaoEvents";
 import { buildRecentHomeActivities } from "@/lib/recentHomeActivity";
 import type { LeaveDetail } from "@/lib/parseExcel";
 import {
@@ -8,7 +9,7 @@ import {
   ChevronLeft, ChevronRight,
   CloudUpload, HardHat,
   Wind, Droplets, Thermometer, TrendingDown, CalendarOff,
-  Activity,
+  Activity, MessageSquare,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -496,6 +497,45 @@ function DailyAttendanceChart({ dateMap }: { dateMap: Record<string, WorkRow[]> 
 }
 
 // ── 메인 ─────────────────────────────────────────────
+function KakaoTodayCard({ selectedDate, isAdmin }: { selectedDate: string; isAdmin: boolean }) {
+  const [events, setEvents] = useState<KakaoEvent[] | null>(null);
+  useEffect(() => {
+    if (!isAdmin || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) { setEvents(null); return; }
+    let cancelled = false;
+    loadKakaoEventsFS<KakaoEvent>(selectedDate.slice(0, 7)).then((list) => {
+      if (!cancelled) setEvents(list.filter((e) => e.date === selectedDate));
+    });
+    return () => { cancelled = true; };
+  }, [isAdmin, selectedDate]);
+  if (!isAdmin || events === null) return null;
+  return (
+    <div className="home-side-panel">
+      <div className="home-side-heading">
+        <div className="home-side-icon home-side-icon-warn">
+          <MessageSquare className="h-4.5 w-4.5 text-amber-600" />
+        </div>
+        <div>
+          <p>오늘 근태 특이사항</p>
+          <span>{selectedDate} · 카톡 공지 기준</span>
+        </div>
+        <strong className="home-side-count">{events.length}건</strong>
+      </div>
+      <div className="home-leave-list">
+        {events.length > 0 ? (
+          events.map((e) => (
+            <div key={e.id}>
+              <span>{e.name || "이름 미확인"}</span>
+              <small>{EVENT_CATEGORY_LABELS[e.category] ?? e.category}{e.cause ? ` · ${e.cause}` : ""}</small>
+            </div>
+          ))
+        ) : (
+          <p>저장된 카톡 근태 특이사항이 없습니다.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveDetails }: HomePageProps) {
   const today = new Date();
   const dateLabel = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 ${DAY_KO[today.getDay()]}요일`;
@@ -691,6 +731,8 @@ export default function HomePage({ lastUploadedAt, selectedDate, isAdmin, leaveD
               </div>
             </div>
           </div>
+
+          <KakaoTodayCard selectedDate={selectedDate} isAdmin={isAdmin} />
 
           <WeatherCard />
 
