@@ -20,20 +20,27 @@ interface RowLite {
 interface Props {
   workDate: string;
   rows: RowLite[];
+  /** 공수 반영 화면의 이름 검색어 — 입력했을 때만 그 사람의 카톡 근태를 보여준다 */
+  search: string;
   /** 해당 행의 가산사유를 바꾼다 */
   onApplyReason: (changes: { rowIndex: number; reason: string }[]) => void;
 }
 
-/** XERP 공수 반영 화면용: 선택한 날짜에 저장된 카톡 근태 이벤트를 보여주고 가산사유에 원인을 붙인다. */
-export default function KakaoDayEventsPanel({ workDate, rows, onApplyReason }: Props) {
-  const [events, setEvents] = useState<KakaoEvent[]>([]);
-  const [open, setOpen] = useState(true);
+const categoryTone = (c: string) =>
+  c === "punch" ? "bg-red-100 text-red-700" : c === "resign" || c === "newbie" ? "bg-violet-100 text-violet-700" : "bg-yellow-100 text-yellow-800";
+
+/**
+ * XERP 공수 반영 화면용: 이름을 검색하면 그 사람의 이번 달 카톡 근태 공지를 보여준다.
+ * 선택한 날짜의 타각 문제는 가산사유에 원인(안전교육/xerp 오류 등)을 붙이는 버튼을 단다.
+ */
+export default function KakaoDayEventsPanel({ workDate, rows, search, onApplyReason }: Props) {
+  const [monthEvents, setMonthEvents] = useState<KakaoEvent[]>([]);
 
   useEffect(() => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) { setEvents([]); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) { setMonthEvents([]); return; }
     let cancelled = false;
     const load = () => loadKakaoEventsFS<KakaoEvent>(workDate.slice(0, 7)).then((list) => {
-      if (!cancelled) setEvents(list.filter((e) => e.date === workDate));
+      if (!cancelled) setMonthEvents(list);
     });
     load();
     // 카톡 정리 화면에서 새로 저장하면 다시 불러온다
@@ -41,47 +48,40 @@ export default function KakaoDayEventsPanel({ workDate, rows, onApplyReason }: P
     return () => { cancelled = true; window.removeEventListener("kakao-events-updated", load); };
   }, [workDate]);
 
-  const items = useMemo(() => events.map((e) => {
-    const row = e.name ? rows.find((r) => normalizeName(r.성명) === e.name) : undefined;
-    const nextReason = row && e.category === "punch" && e.cause && row.needsUpdate
-      ? applyCauseToGasanReason(row.가산사유, e.cause)
-      : null;
-    return { event: e, row, nextReason: nextReason && nextReason !== row?.가산사유 ? nextReason : null };
-  }), [events, rows]);
+  const query = normalizeName(search);
+  const items = useMemo(() => {
+    if (!query) return [];
+    return monthEvents
+      .filter((e) => e.name && e.name.includes(query))
+      .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))
+      .map((e) => {
+        const row = e.date === workDate ? rows.find((r) => normalizeName(r.성명) === e.name) : undefined;
+        const next = row && e.category === "punch" && e.cause && row.needsUpdate ? applyCauseToGasanReason(row.가산사유, e.cause) : null;
+        return { event: e, row, nextReason: next && next !== row?.가산사유 ? next : null };
+      });
+  }, [monthEvents, query, rows, workDate]);
 
-  if (!events.length) return null;
-  const applicable = items.filter((i) => i.row && i.nextReason);
+  if (!query || !monthEvents.length) return null;
 
   return (
-    <div className="rounded-2xl border border-yellow-200 bg-yellow-50/70 p-4 shadow-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 text-sm font-extrabold text-slate-800">
-          <MessageSquare className="h-4 w-4 text-yellow-600" /> 카톡 근태 특이사항 {events.length}건 ({workDate})
-        </button>
-        {applicable.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onApplyReason(applicable.map((i) => ({ rowIndex: i.row!.rowIndex, reason: i.nextReason! })))}
-            className="ml-auto rounded-md bg-slate-800 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700"
-          >
-            가산사유에 카톡 원인 {applicable.length}건 모두 반영
-          </button>
-        )}
-      </div>
-      {open && (
-        <ul className="mt-2 space-y-1.5 text-xs">
+    <div className="rounded-xl border border-yellow-200 bg-yellow-50/70 px-4 py-3">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-slate-700">
+        <MessageSquare className="h-3.5 w-3.5 text-yellow-600" />
+        "{search.trim()}" 카톡 근태 공지 · {workDate.slice(0, 7)} {items.length ? `${items.length}건` : "없음"}
+      </p>
+      {items.length > 0 && (
+        <ul className="space-y-1.5 text-xs">
           {items.map(({ event: e, row, nextReason }) => (
-            <li key={e.id} className="flex flex-wrap items-start gap-2">
-              <span className="w-20 shrink-0 font-bold text-slate-800">{e.room && <span className="mr-1 text-[10px] font-medium text-slate-400">{e.room}</span>}{e.name || "이름?"}</span>
-              <span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-600">{EVENT_CATEGORY_LABELS[e.category] ?? e.category}</span>
+            <li key={e.id} className={`flex flex-wrap items-start gap-2 rounded-lg px-2 py-1.5 ${e.date === workDate ? "bg-white ring-1 ring-yellow-300" : ""}`}>
+              <span className={`w-20 shrink-0 tabular-nums ${e.date === workDate ? "font-extrabold text-slate-900" : "text-slate-500"}`}>{e.date.slice(5)}{e.date === workDate && " (선택일)"}</span>
+              <span className="w-14 shrink-0 font-bold text-slate-800">{e.name}</span>
+              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${categoryTone(e.category)}`}>{EVENT_CATEGORY_LABELS[e.category] ?? e.category}{e.cause ? ` · ${e.cause}` : ""}</span>
               <span className="min-w-0 flex-1 text-slate-600">{e.text.replace(/\n/g, " ")}</span>
-              {!row && e.name && <span className="text-[10px] text-slate-400">이 날짜 공수 데이터에 없음</span>}
-              {row && nextReason && (
-                <button type="button" onClick={() => onApplyReason([{ rowIndex: row.rowIndex, reason: nextReason }])} className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-bold text-slate-700 hover:bg-slate-100" title={nextReason}>
-                  → {nextReason}
+              {nextReason && row && (
+                <button type="button" onClick={() => onApplyReason([{ rowIndex: row.rowIndex, reason: nextReason }])} className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-bold text-slate-700 hover:bg-slate-100" title="가산사유에 반영">
+                  가산사유 → {nextReason}
                 </button>
               )}
-              {row && !nextReason && e.category === "punch" && <span className="text-[10px] text-slate-400">{row.needsUpdate ? "이미 반영됨" : "가산 대상 아님"}</span>}
             </li>
           ))}
         </ul>

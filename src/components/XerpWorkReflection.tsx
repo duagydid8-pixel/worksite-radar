@@ -2077,10 +2077,6 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         );
       })()}
 
-      {rows.length > 0 && (
-        <KakaoDayEventsPanel workDate={workDate} rows={rows} onApplyReason={applyKakaoReasons} />
-      )}
-
       {/* 검색창 + 정기안전교육 + 정렬 + 선택 행 액션 + 범례 (한 레이아웃) */}
       {rows.length > 0 && (
         <div className="flex flex-col gap-3 bg-white border border-border rounded-xl px-4 py-3.5 shrink-0">
@@ -2092,7 +2088,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="이름 / 팀명 검색..."
+                placeholder="이름 / 팀명 검색 (카톡 근태도 함께 표시)"
                 className="w-full pl-9 pr-9 py-2 text-sm border border-border rounded-lg bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               />
               {search && (
@@ -2289,6 +2285,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             <span className="text-[11px] text-muted-foreground">· 철야 체크 시 자정 넘긴 퇴근을 익일로 보정</span>
           </div>
         </div>
+      )}
+
+      {/* 이름 검색 시 그 사람의 카톡 근태 공지 */}
+      {rows.length > 0 && (
+        <KakaoDayEventsPanel workDate={workDate} rows={rows} search={search} onApplyReason={applyKakaoReasons} />
       )}
 
       {/* 계산 규칙 안내 */}
