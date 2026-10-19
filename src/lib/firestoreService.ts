@@ -235,6 +235,16 @@ export async function saveXerpP5PH1FS(dateMap: Record<string, unknown[]>): Promi
   return saveXerpByDates(XERP_P5_PH1_INDEX_DOC, "xerp_pmis_p5_ph1_date", dateMap);
 }
 
+/** XERP & PMIS 한 날짜만 저장한다(다른 날짜 문서는 건드리지 않고 인덱스에 날짜만 추가). */
+export async function saveXerpDateFS(site: string, date: string, rows: unknown[]): Promise<boolean> {
+  const { indexDocId, datePrefix } = getXerpDateDocIds(site);
+  if (!(await fsSet(`${datePrefix}_${date}`, { rows }))) return false;
+  const index = await fsGet<{ dates: string[] }>(indexDocId);
+  const dates = index?.dates ?? [];
+  if (dates.includes(date)) return true;
+  return fsSet(indexDocId, { dates: [...dates, date].sort() });
+}
+
 export async function loadXerpDateFS(site: string, date: string): Promise<unknown[] | null> {
   const { datePrefix, legacyDocId } = getXerpDateDocIds(site);
   const data = await fsGet<{ rows: unknown[] }>(`${datePrefix}_${date}`);

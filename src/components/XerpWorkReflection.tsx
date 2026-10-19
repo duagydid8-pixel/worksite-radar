@@ -3,10 +3,11 @@ import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, S
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, loadXerpWorkDateMapAllSitesFS, saveXerpWorkDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, loadXerpWorkDateMapAllSitesFS, saveXerpWorkDateFS, saveXerpDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 import KakaoDayEventsPanel from "@/components/KakaoDayEventsPanel";
+import { buildXerpPmisRowsFromReflection } from "@/lib/xerpPmisFromReflection";
 import { decodeBase64Workbook, requestXerpDailyAttendanceDownload, requestXerpDailyAttendanceExtraWorkUpload, waitForLatestXerpDailyAttendanceFile } from "@/lib/localXerpDailyAttendanceClient";
 import {
   calcDiff,
@@ -1028,9 +1029,22 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         console.warn("[saveOriginalWorkbookBuffer]", err);
       });
     }
+    // 같은 날짜를 XERP & PMIS 화면에도 반영(가산B·공수합계·가산사유는 공수 반영 결과로)
+    let pmisOk: boolean | null = null;
+    if (ok && rawExcelRows.length) {
+      const pmisRows = buildXerpPmisRowsFromReflection(
+        rawExcelRows,
+        rows.map((r) => {
+          const { diff, reason } = resolveWritableGasanAdjustment(r, isSafetyEduDate);
+          return { rowIndex: r.rowIndex, xerpGongsuA: r.xerpGongsuA, diff, reason };
+        }),
+      );
+      pmisOk = await saveXerpDateFS(syncSite, workDate, pmisRows);
+    }
     setIsSaving(false);
     if (ok) {
-      toast.success(`저장되었습니다. (${workDate})`);
+      if (pmisOk === false) toast.warning(`공수 반영은 저장했지만 XERP & PMIS 반영에 실패했습니다. (${workDate})`);
+      else toast.success(`저장되었습니다. (${workDate})${pmisOk ? " · XERP & PMIS에도 반영" : ""}`);
       await refreshWorkDates();
     } else {
       toast.error("저장 실패");
