@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarRange, History, Loader2 } from "lucide-react";
-import { loadKakaoEventsFS, loadKakaoUploadLogFS, type KakaoUploadLogEntry } from "@/lib/firestoreService";
-import { EVENT_CATEGORY_LABELS, KAKAO_ROOMS, summarizeEventsByPerson, type KakaoEvent } from "@/lib/kakaoEvents";
+import { CalendarRange, Copy, History, Loader2, UserMinus } from "lucide-react";
+import { toast } from "sonner";
+import {
+  loadKakaoEventsFS,
+  loadKakaoUploadLogFS,
+  loadEmployeesPH4FS, saveEmployeesPH4FS,
+  loadEmployeesPH2FS, saveEmployeesPH2FS,
+  loadEmployeesP5PH1FS, saveEmployeesP5PH1FS,
+  type KakaoUploadLogEntry,
+} from "@/lib/firestoreService";
+import { EVENT_CATEGORY_LABELS, KAKAO_ROOMS, normalizeName, summarizeEventsByPerson, type KakaoEvent } from "@/lib/kakaoEvents";
 
 interface Props {
   isAdmin: boolean;
@@ -19,6 +27,26 @@ const formatSavedAt = (iso: string) => {
 };
 const roomLabel = (key?: string) => KAKAO_ROOMS.find((r) => r.key === key)?.label ?? "방 구분 없음";
 
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+const dayLabel = (date: string) => {
+  const d = new Date(`${date}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? date : `${date} (${WEEKDAYS[d.getDay()]})`;
+};
+/** 24시간 "13:05" → "오후 1:05" */
+const kakaoTimeLabel = (time: string) => {
+  const [h, m] = time.split(":").map(Number);
+  if (Number.isNaN(h)) return time;
+  return `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}:${String(m ?? 0).padStart(2, "0")}`;
+};
+
+type RosterRow = Record<string, string> & { id: string; 이름: string; 퇴사일: string };
+const ROSTER_SITES = [
+  { key: "PH4", label: "P4-PH4", load: loadEmployeesPH4FS, save: saveEmployeesPH4FS },
+  { key: "PH2", label: "P4-PH2", load: loadEmployeesPH2FS, save: saveEmployeesPH2FS },
+  { key: "P5PH1", label: "P5-PH1", load: loadEmployeesP5PH1FS, save: saveEmployeesP5PH1FS },
+] as const;
+type RosterSiteKey = (typeof ROSTER_SITES)[number]["key"];
+
 function categoryBadge(category: string) {
   const tone = category === "punch" ? "bg-red-100 text-red-700"
     : category === "resign" || category === "newbie" ? "bg-violet-100 text-violet-700"
@@ -32,7 +60,10 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
   const [month, setMonth] = useState(defaultMonth || thisMonth());
   const [roomFilter, setRoomFilter] = useState<string>(room ?? "all");
   const [events, setEvents] = useState<KakaoEvent[] | null>(null);
-  const [view, setView] = useState<"list" | "person">("list");
+  const [view, setView] = useState<"list" | "person" | "resign">("list");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [roster, setRoster] = useState<Record<RosterSiteKey, RosterRow[]>>({ PH4: [], PH2: [], P5PH1: [] });
+  const [applying, setApplying] = useState("");
 
   useEffect(() => { if (defaultMonth) setMonth(defaultMonth); }, [defaultMonth]);
   useEffect(() => { if (room) setRoomFilter(room); }, [room]);
@@ -66,6 +97,88 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
   );
   const summary = useMemo(() => summarizeEventsByPerson(shownEvents), [shownEvents]);
   const categories = useMemo(() => [...new Set(shownEvents.map((e) => e.category))], [shownEvents]);
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of shownEvents) counts[e.category] = (counts[e.category] ?? 0) + 1;
+    return counts;
+  }, [shownEvents]);
+  const listEvents = useMemo(
+    () => (categoryFilter === "all" ? shownEvents : shownEvents.filter((e) => e.category === categoryFilter)),
+    [shownEvents, categoryFilter],
+  );
+
+  // 기술인 및 관리자 명단 — 퇴사일이 반영됐는지 보여주고, 여기서 바로 넣을 수 있게
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    const load = () => {
+      Promise.all(ROSTER_SITES.map((s) => s.load())).then((lists) => {
+        if (cancelled) return;
+        setRoster({
+          PH4: (lists[0] ?? []) as RosterRow[],
+          PH2: (lists[1] ?? []) as RosterRow[],
+          P5PH1: (lists[2] ?? []) as RosterRow[],
+        });
+      });
+    };
+    load();
+    window.addEventListener("employees-updated", load);
+    return () => { cancelled = true; window.removeEventListener("employees-updated", load); };
+  }, [isAdmin]);
+
+  const findRosterRow = (name: string) => {
+    for (const site of ROSTER_SITES) {
+      const row = roster[site.key].find((r) => normalizeName(r.이름 ?? "") === normalizeName(name));
+      if (row) return { site, row };
+    }
+    return null;
+  };
+
+  /** 그 달 퇴사 공지를 사람별로 묶는다 — 퇴사일은 가장 늦게 공지된 대상일로 본다 */
+  const resignPeople = useMemo(() => {
+    const map = new Map<string, { name: string; date: string; events: KakaoEvent[] }>();
+    for (const e of shownEvents.filter((e) => e.category === "resign" && e.name)) {
+      const key = normalizeName(e.name);
+      const prev = map.get(key);
+      if (prev) {
+        prev.events.push(e);
+        if (e.date > prev.date) prev.date = e.date;
+      } else {
+        map.set(key, { name: e.name, date: e.date, events: [e] });
+      }
+    }
+    return [...map.values()].sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  }, [shownEvents]);
+
+  const applyResignDate = async (name: string, date: string) => {
+    const hit = findRosterRow(name);
+    if (!hit) { toast.error(`${name} 은(는) 기술인 및 관리자 명단에 없습니다.`); return; }
+    setApplying(name);
+    try {
+      const next = roster[hit.site.key].map((r) => (r.id === hit.row.id ? { ...r, 퇴사일: date } : r));
+      if (!(await hit.site.save(next))) { toast.error("명단 저장에 실패했습니다."); return; }
+      setRoster((prev) => ({ ...prev, [hit.site.key]: next }));
+      window.dispatchEvent(new CustomEvent("employees-updated", { detail: { site: hit.site.key } }));
+      toast.success(date ? `${name} 퇴사일을 ${date}로 입력했습니다 (${hit.site.label}).` : `${name} 퇴사일을 지웠습니다 (${hit.site.label}).`);
+    } finally {
+      setApplying("");
+    }
+  };
+
+  const copyResignList = async () => {
+    const text = resignPeople
+      .map((p) => {
+        const hit = findRosterRow(p.name);
+        return [p.name, p.date, hit?.site.label ?? "명단없음", p.events[p.events.length - 1].text.replace(/\n/g, " ")].join("\t");
+      })
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(`이름\t퇴사일\t현장\t카톡 공지\n${text}`);
+      toast.success(`${resignPeople.length}명을 복사했습니다. 엑셀에 붙여넣으면 표로 들어갑니다.`);
+    } catch {
+      toast.error("복사에 실패했습니다.");
+    }
+  };
 
   if (!isAdmin) {
     return (
@@ -132,20 +245,99 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
           <div className="ml-auto flex overflow-hidden rounded-lg border border-slate-200 text-xs font-bold">
             <button type="button" onClick={() => setView("list")} className={`px-2.5 py-1 ${view === "list" ? "bg-slate-800 text-white" : "bg-white text-slate-500"}`}>목록</button>
             <button type="button" onClick={() => setView("person")} className={`px-2.5 py-1 ${view === "person" ? "bg-slate-800 text-white" : "bg-white text-slate-500"}`}>사람별</button>
+            <button type="button" onClick={() => setView("resign")} className={`inline-flex items-center gap-1 px-2.5 py-1 ${view === "resign" ? "bg-slate-800 text-white" : "bg-white text-slate-500"}`}>
+              <UserMinus className="h-3.5 w-3.5" /> 퇴사자 {categoryCounts.resign ? `(${resignPeople.length})` : ""}
+            </button>
           </div>
         </div>
+        {view === "list" && categories.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-4 py-2">
+            {[["all", `전체 ${shownEvents.length}`] as const, ...categories.map((c) => [c, `${EVENT_CATEGORY_LABELS[c] ?? c} ${categoryCounts[c]}`] as const)].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setCategoryFilter(key)}
+                className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${categoryFilter === key ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 bg-white text-slate-500"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="max-h-[480px] overflow-y-auto">
           {events === null ? (
             <p className="flex items-center justify-center gap-2 py-8 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 불러오는 중</p>
           ) : shownEvents.length === 0 ? (
-            <p className="py-8 text-center text-xs text-slate-400">{month} 에 저장된 근태 기록이 없습니다.</p>
+            <p className="py-8 text-center text-xs text-slate-400">
+              {month} 에 저장된 근태 기록이 없습니다.
+              <br />카톡 파일을 올려 "근태 기록 저장"을 누르면 그 달 기록이 여기 남아, 다음부터는 파일 없이도 볼 수 있습니다.
+            </p>
+          ) : view === "resign" ? (
+            <div className="p-3">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <p className="text-xs font-extrabold text-slate-700">{month} 퇴사 공지 {resignPeople.length}명</p>
+                <span className="text-[11px] text-slate-400">퇴사일은 가장 늦게 공지된 날짜입니다. 카톡 공지라 실제와 다를 수 있으니 근거를 보고 반영하세요.</span>
+                {resignPeople.length > 0 && (
+                  <button type="button" onClick={copyResignList} className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50">
+                    <Copy className="h-3 w-3" /> 복사 (엑셀 붙여넣기)
+                  </button>
+                )}
+              </div>
+              {resignPeople.length === 0 ? (
+                <p className="py-6 text-center text-xs text-slate-400">{month} 에 저장된 퇴사 공지가 없습니다.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {resignPeople.map((p) => {
+                    const hit = findRosterRow(p.name);
+                    const current = hit?.row.퇴사일 ?? "";
+                    return (
+                      <li key={p.name} className="rounded-xl border border-slate-200 p-2.5">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="text-sm font-extrabold text-slate-800">{p.name}</span>
+                          <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-bold text-violet-700">퇴사일 {p.date}</span>
+                          {hit ? <span className="text-slate-500">{hit.site.label}</span> : <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">명단에 없음</span>}
+                          {current === p.date ? (
+                            <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">명단 반영됨</span>
+                          ) : current ? (
+                            <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">명단 퇴사일 {current} (다름)</span>
+                          ) : (
+                            hit && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">명단 미반영</span>
+                          )}
+                          {isAdmin && hit && current !== p.date && (
+                            <button type="button" disabled={applying === p.name} onClick={() => applyResignDate(p.name, p.date)} className="rounded border border-violet-300 bg-violet-50 px-2 py-0.5 text-[11px] font-bold text-violet-700 hover:bg-violet-100 disabled:opacity-40">
+                              명단에 퇴사일 {p.date} {current ? "수정" : "입력"}
+                            </button>
+                          )}
+                          {isAdmin && hit && current && (
+                            <button type="button" disabled={applying === p.name} onClick={() => applyResignDate(p.name, "")} className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40">
+                              퇴사일 지우기
+                            </button>
+                          )}
+                        </div>
+                        {p.events.map((e) => (
+                          <div key={e.id} className="mt-1.5 rounded-md border border-slate-100 bg-slate-50 p-2">
+                            <p className="text-[10px] font-bold text-slate-500">
+                              카톡 근거 · {dayLabel(e.msgDate)} {kakaoTimeLabel(e.time)} · {e.sender}
+                              {e.chat && <span className="ml-1 text-slate-400">· {e.chat}</span>}
+                              {e.date !== e.msgDate && <span className="ml-1 text-violet-600">→ 대상일 {e.date}</span>}
+                            </p>
+                            <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-700">{e.text}</p>
+                          </div>
+                        ))}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           ) : view === "list" ? (
             <table className="w-full text-left text-xs">
               <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-500">
                 <tr><th className="px-3 py-2">대상일</th><th className="px-3 py-2">대화방</th><th className="px-3 py-2">이름</th><th className="px-3 py-2">구분</th><th className="px-3 py-2">카톡 원문</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {shownEvents.map((e) => (
+                {listEvents.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-xs text-slate-400">고른 구분에 해당하는 기록이 없습니다.</td></tr>}
+                {listEvents.map((e) => (
                   <tr key={e.id} className="align-top">
                     <td className="whitespace-nowrap px-3 py-2 font-bold text-slate-700">{e.date.slice(5)}</td>
                     <td className="max-w-[160px] truncate px-3 py-2 text-slate-500" title={e.chat ?? e.room ?? ""}>{e.chat ?? e.room ?? "-"}</td>
