@@ -320,21 +320,26 @@ function EmployeeTabContent({ loadFn, saveFn, xerpSite }: EmployeeTabContentProp
     });
   }, []);
 
-  // 마운트 시 Firestore에서 로드
+  // 마운트 시 Firestore에서 로드 (다른 화면에서 명단에 사람을 추가하면 다시 읽는다)
   useEffect(() => {
-    loadFn().then((fsRows) => {
-      if (Array.isArray(fsRows) && fsRows.length > 0) {
-        const rawRows = fsRows as Partial<NewEmployee>[];
-        const cleanedRows = sanitizeEmployeeRows(rawRows);
-        setRows(cleanedRows);
-        if (cleanedRows.length !== rawRows.length) {
-          saveFn(cleanedRows).then((ok) => {
-            if (!ok) toast.error("이름 없는 행 정리 저장 실패");
-          });
+    const load = () => {
+      loadFn().then((fsRows) => {
+        if (Array.isArray(fsRows) && fsRows.length > 0) {
+          const rawRows = fsRows as Partial<NewEmployee>[];
+          const cleanedRows = sanitizeEmployeeRows(rawRows);
+          setRows(cleanedRows);
+          if (cleanedRows.length !== rawRows.length) {
+            saveFn(cleanedRows).then((ok) => {
+              if (!ok) toast.error("이름 없는 행 정리 저장 실패");
+            });
+          }
         }
-      }
-      setLoading(false);
-    });
+        setLoading(false);
+      });
+    };
+    load();
+    window.addEventListener("employees-updated", load);
+    return () => window.removeEventListener("employees-updated", load);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

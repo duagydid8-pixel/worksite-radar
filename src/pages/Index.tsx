@@ -341,6 +341,12 @@ const Index = () => {
     const hash = activeTab === "홈" ? "" : `#${encodeURIComponent(activeTab)}`;
     if (window.location.hash !== hash) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash}`);
   }, [activeTab]);
+  // 다른 화면에서 #메뉴명으로 이동을 걸면 그 메뉴로 바꿔 준다
+  useEffect(() => {
+    const onHashChange = () => setActiveTab(readTabFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
   const isTabMounted = (tab: ActiveTab) => tab === activeTab || visitedTabs.has(tab);
   const [mailSubTab, setMailSubTab] = useState<MailRequestMenu>("certificate");
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);

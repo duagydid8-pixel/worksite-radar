@@ -1,9 +1,15 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, History, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, Download, AlertTriangle, CheckCircle, MinusCircle, Search, X, Save, Clock, UserX, UserPlus, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, History, ChevronDown, ChevronUp } from "lucide-react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
-import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, saveXerpDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import { loadXerpWorkFS, loadXerpWorkDateMapFS, saveXerpWorkDateFS, saveXerpDateFS, deleteXerpWorkDateFS, loadNewEmpDateMapFS, saveNewEmpDateFS, loadSafetyEduDatesFS, saveSafetyEduDatesFS, loadDownloadHistoryFS, addDownloadHistoryFS, loadPmisLogFS, loadEmployeesPH4FS, saveEmployeesPH4FS, loadEmployeesPH2FS, saveEmployeesPH2FS, loadEmployeesP5PH1FS, saveEmployeesP5PH1FS, type DownloadHistoryEntry } from "@/lib/firestoreService";
+import {
+  buildRosterRow,
+  findIncompletePersonalInfo,
+  findUnregistered,
+  type RosterPersonLite,
+} from "@/lib/rosterGap";
 import type { ParsedPmisData, LogRow } from "@/components/PmisInOutLogTab";
 import { extractXerpPmisDateFromFilename as extractDateFromFilename } from "@/lib/xerpPmisDates";
 import KakaoDayEventsPanel from "@/components/KakaoDayEventsPanel";
@@ -44,6 +50,13 @@ import {
 interface NewEmpInfo { 생년월일: string; 단가: string; }
 
 type XerpSyncSite = "PH4" | "PH2" | "P5PH1";
+
+// 현장별 "기술인 및 관리자 명단" (신규자명단 화면과 같은 데이터)
+const ROSTER_FS: Record<XerpSyncSite, { label: string; load: () => Promise<unknown[] | null>; save: (rows: unknown[]) => Promise<boolean> }> = {
+  PH4: { label: "P4-PH4", load: loadEmployeesPH4FS, save: saveEmployeesPH4FS },
+  PH2: { label: "P4-PH2", load: loadEmployeesPH2FS, save: saveEmployeesPH2FS },
+  P5PH1: { label: "P5-PH1", load: loadEmployeesP5PH1FS, save: saveEmployeesP5PH1FS },
+};
 
 function detectSite(filename: string): XerpSyncSite {
   const upper = filename.toUpperCase();
@@ -209,6 +222,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
   // XERP&PMIS 연동 설정 (사이트는 외출 명단 조회에도 쓰임)
   const [syncSite, setSyncSite] = useState<XerpSyncSite>("PH4");
+
+  // 기술인 및 관리자 명단 대조 (공수 반영에 새로 나타난 사람 / 개인정보 빈 사람)
+  const [rosterRows, setRosterRows] = useState<RosterPersonLite[]>([]);
+  const [rosterLoaded, setRosterLoaded] = useState(false);
+  const [isAddingRoster, setIsAddingRoster] = useState(false);
+  const [showRosterGap, setShowRosterGap] = useState(false);
+  const alertedGapKeyRef = useRef("");
 
   const fileRef    = useRef<HTMLInputElement>(null);
   const newEmpRef  = useRef<HTMLInputElement>(null);
@@ -460,6 +480,70 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newEmpData]);
+
+  // ── 기술인 및 관리자 명단 대조 ───────────────────────
+  // 현장(업로드 파일로 자동 감지)의 명단을 읽어 둔다. 명단 화면에서 고치면 다시 읽는다.
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      setRosterLoaded(false);
+      ROSTER_FS[syncSite].load()
+        .then((list) => {
+          if (cancelled) return;
+          setRosterRows(Array.isArray(list) ? (list as RosterPersonLite[]) : []);
+          setRosterLoaded(true);
+        })
+        .catch(() => { if (!cancelled) setRosterLoaded(true); });
+    };
+    load();
+    window.addEventListener("employees-updated", load);
+    return () => { cancelled = true; window.removeEventListener("employees-updated", load); };
+  }, [syncSite]);
+
+  // 공수 반영에는 있는데 명단에 없는 사람 / 명단에는 있지만 개인정보가 빈 사람
+  const unregistered = useMemo(() => (rosterLoaded ? findUnregistered(rows, rosterRows) : []), [rosterLoaded, rows, rosterRows]);
+  const incompleteInfo = useMemo(() => (rosterLoaded ? findIncompletePersonalInfo(rows, rosterRows) : []), [rosterLoaded, rows, rosterRows]);
+
+  // 업로드·날짜 변경으로 새로 생긴 건이 있으면 알림창을 한 번 띄운다
+  useEffect(() => {
+    if (!rosterLoaded || rows.length === 0) return;
+    if (unregistered.length === 0 && incompleteInfo.length === 0) return;
+    const key = `${syncSite}|${workDate}|${unregistered.map((p) => p.성명).join(",")}|${incompleteInfo.map((p) => p.이름).join(",")}`;
+    if (alertedGapKeyRef.current === key) return;
+    alertedGapKeyRef.current = key;
+    setShowRosterGap(true);
+  }, [rosterLoaded, rows.length, unregistered, incompleteInfo, syncSite, workDate]);
+
+  // 명단에 없는 사람을 그 현장 명단에 추가 (개인정보는 비워 두고 뒤에서 채운다)
+  const addUnregisteredToRoster = async () => {
+    if (!unregistered.length) return;
+    setIsAddingRoster(true);
+    try {
+      const added = unregistered.map((p) => buildRosterRow({
+        성명: p.성명,
+        팀명: p.팀명,
+        입사일: workDate,
+        생년월일: newEmpData.get(p.성명)?.생년월일,
+        단가: newEmpData.get(p.성명)?.단가,
+        메모: `XERP 공수 반영(${workDate})에서 추가 — 주민번호·연락처·계좌 확인 필요`,
+      }));
+      const next = [...rosterRows, ...(added as RosterPersonLite[])];
+      if (!(await ROSTER_FS[syncSite].save(next))) {
+        toast.error("명단 저장에 실패했습니다.");
+        return;
+      }
+      setRosterRows(next);
+      window.dispatchEvent(new CustomEvent("employees-updated", { detail: { site: syncSite } }));
+      toast.success(`${ROSTER_FS[syncSite].label} 기술인 및 관리자 명단에 ${added.length}명 추가 — 개인정보는 명단 화면에서 채워주세요`);
+    } finally {
+      setIsAddingRoster(false);
+    }
+  };
+
+  const openRosterPage = () => {
+    setShowRosterGap(false);
+    window.location.hash = `#${encodeURIComponent("신규자명단")}`;
+  };
 
   // 조출 토글
   const toggleJochul = (rowIndex: number) => {
@@ -1337,6 +1421,111 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-lg font-bold text-foreground shrink-0">XERP 공수 반영</h2>
+
+      {/* 기술인 및 관리자 명단 대조 바 */}
+      {rosterLoaded && rows.length > 0 && (unregistered.length > 0 || incompleteInfo.length > 0) && (
+        <div className="flex flex-wrap items-center gap-3 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 shrink-0">
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <span className="text-xs font-bold text-amber-800">기술인 및 관리자 명단 확인 ({ROSTER_FS[syncSite].label})</span>
+          {unregistered.length > 0 && (
+            <span className="text-xs font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-1 rounded-lg">
+              명단에 없는 인원 {unregistered.length}명
+            </span>
+          )}
+          {incompleteInfo.length > 0 && (
+            <span className="text-xs font-bold text-amber-900 bg-amber-100 border border-amber-300 px-2 py-1 rounded-lg">
+              개인정보 미입력 {incompleteInfo.length}명
+            </span>
+          )}
+          <button
+            onClick={() => setShowRosterGap(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700 transition-colors"
+          >
+            <UserPlus className="h-3.5 w-3.5" /> 자세히 보기
+          </button>
+        </div>
+      )}
+
+      {/* 명단 확인 알림창 */}
+      {showRosterGap && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowRosterGap(false)}>
+          <div className="max-h-[85vh] w-full max-w-[720px] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-1.5 text-base font-extrabold text-slate-800">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" /> 기술인 및 관리자 명단 확인
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {workDate} · {ROSTER_FS[syncSite].label} 공수 반영 기준입니다. 외주 팀은 대조에서 제외합니다.
+                </p>
+              </div>
+              <button onClick={() => setShowRosterGap(false)} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
+            </div>
+
+            {unregistered.length > 0 && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-extrabold text-amber-900">명단에 없는 인원 {unregistered.length}명</p>
+                  <button
+                    onClick={addUnregisteredToRoster}
+                    disabled={isAddingRoster}
+                    className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" /> {isAddingRoster ? "추가 중..." : `${ROSTER_FS[syncSite].label} 명단에 모두 추가`}
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] text-amber-800">
+                  입사일은 {workDate}로, 소속(현장구분)은 팀명으로 넣습니다. 신규자 명단을 올려 둔 사람은 생년월일·단가도 함께 들어갑니다.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {unregistered.map((p) => (
+                    <span key={p.성명} className="rounded-lg border border-amber-300 bg-white px-2 py-1 text-xs">
+                      <b className="text-slate-800">{p.성명}</b>
+                      {p.팀명 && <span className="ml-1 text-slate-500">{p.팀명}</span>}
+                      {newEmpData.has(p.성명) && <span className="ml-1 text-[10px] font-bold text-sky-700">신규자명단</span>}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {incompleteInfo.length > 0 && (
+              <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50/60 p-3">
+                <p className="text-sm font-extrabold text-rose-900">개인정보가 비어 있는 인원 {incompleteInfo.length}명</p>
+                <p className="mt-1 text-[11px] text-rose-800">
+                  주민번호·연락처·계좌·주소는 XERP 공수 자료로는 조회되지 않습니다. <b>기술인 및 관리자 명단 화면</b>에서 직접 채우거나,
+                  그 화면의 "XERP 가져오기"(근로자 등록) 또는 명단 엑셀 업로드로 넣어 주세요.
+                </p>
+                <div className="mt-2 max-h-[220px] overflow-y-auto rounded-lg border border-rose-100 bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="sticky top-0 bg-rose-50 text-[11px] text-rose-700">
+                      <tr><th className="px-3 py-1.5">이름</th><th className="px-3 py-1.5">팀</th><th className="px-3 py-1.5">빈 항목</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-rose-50">
+                      {incompleteInfo.map((p) => (
+                        <tr key={p.이름}>
+                          <td className="whitespace-nowrap px-3 py-1.5 font-bold text-slate-800">{p.이름}</td>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-slate-500">{p.팀명 || "-"}</td>
+                          <td className="px-3 py-1.5">
+                            <span className="flex flex-wrap gap-1">
+                              {p.missing.map((f) => <span key={f} className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">{f}</span>)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button onClick={() => setShowRosterGap(false)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">나중에</button>
+              <button onClick={openRosterPage} className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-700">기술인 및 관리자 명단 열기</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 신규자 명단 업로드 바 */}
       <div className="flex flex-wrap items-center gap-3 bg-sky-50 border border-sky-200 rounded-xl px-4 py-3 shrink-0">
