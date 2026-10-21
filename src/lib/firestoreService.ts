@@ -700,6 +700,8 @@ export interface KakaoUploadLogEntry {
   room: string;
   fileName: string;
   chatTitle: string;
+  /** 대화방 구분 키 (P4 공지방이 여러 개라 방마다 따로 셈. 예전 기록엔 없음) */
+  chat?: string;
   period: string; // "전체 기간" 또는 "YYYY-MM"
   firstDate: string;
   lastDate: string;

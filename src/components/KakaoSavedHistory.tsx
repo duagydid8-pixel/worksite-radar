@@ -142,13 +142,13 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
           ) : view === "list" ? (
             <table className="w-full text-left text-xs">
               <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-500">
-                <tr><th className="px-3 py-2">대상일</th>{!room && <th className="px-3 py-2">방</th>}<th className="px-3 py-2">이름</th><th className="px-3 py-2">구분</th><th className="px-3 py-2">카톡 원문</th></tr>
+                <tr><th className="px-3 py-2">대상일</th><th className="px-3 py-2">대화방</th><th className="px-3 py-2">이름</th><th className="px-3 py-2">구분</th><th className="px-3 py-2">카톡 원문</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {shownEvents.map((e) => (
                   <tr key={e.id} className="align-top">
                     <td className="whitespace-nowrap px-3 py-2 font-bold text-slate-700">{e.date.slice(5)}</td>
-                    {!room && <td className="whitespace-nowrap px-3 py-2 text-slate-500">{e.room ?? "-"}</td>}
+                    <td className="max-w-[160px] truncate px-3 py-2 text-slate-500" title={e.chat ?? e.room ?? ""}>{e.chat ?? e.room ?? "-"}</td>
                     <td className="whitespace-nowrap px-3 py-2 font-bold text-slate-800">{e.name || "이름?"}</td>
                     <td className="whitespace-nowrap px-3 py-2">{categoryBadge(e.category)}{e.cause && <span className="ml-1 text-[11px] text-slate-500">{e.cause}</span>}</td>
                     <td className="px-3 py-2 text-slate-600"><span className="mr-1 text-[10px] text-slate-400">{e.msgDate.slice(5)} {e.time} {e.sender}</span>{e.text.replace(/\n/g, " ")}</td>

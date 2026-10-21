@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Loader2, Save, Sparkles, Trash2, UserCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Loader2, Save, Sparkles, Trash2, UserCheck } from "lucide-react";
 import KakaoSavedHistory from "@/components/KakaoSavedHistory";
 import { toast } from "sonner";
 import type { KakaoMessage } from "@/lib/kakaoChat";
@@ -7,6 +7,7 @@ import {
   EVENT_CATEGORY_LABELS,
   KAKAO_ROOMS,
   causePrefix,
+  chatKeyOf,
   crossCheckKakaoWithXerp,
   extractKakaoEvents,
   guessKakaoRoom,
@@ -25,6 +26,8 @@ import {
   loadEmployeesPH4FS,
   appendKakaoUploadLogFS,
   loadKakaoEventsFS,
+  loadKakaoUploadLogFS,
+  type KakaoUploadLogEntry,
   loadXerpWorkRowsForDatesFS,
   saveEmployeesP5PH1FS,
   saveEmployeesPH2FS,
@@ -34,8 +37,6 @@ import {
 
 const AI_KEY_STORAGE = "kakao_ai_api_key";
 const AI_MODEL_STORAGE = "kakao_ai_model";
-// 공지방별로 한 번이라도 저장했으면 다음부터는 "해당 월만"을 기본으로 한다
-const roomSavedKey = (room: string) => `kakao_room_saved_${room}`;
 
 type EmployeeRow = Record<string, string> & { id: string; 이름: string; 입사일: string; 퇴사일: string };
 type SiteKey = "PH4" | "PH2" | "P5PH1";
@@ -46,6 +47,15 @@ const SITES: { key: SiteKey; label: string; load: () => Promise<unknown[] | null
 ];
 
 const EMPLOYEE_FIELDS = ["현장구분", "이름", "주민번호", "연락처", "남여", "입사일", "퇴사일", "이관처", "신청공종", "단가", "단가변동", "은행명", "계좌번호", "주소", "메모"];
+
+/** 분석 기간: 전체 / 해당 월 / 하루 / 마지막 저장 다음날부터 */
+type Period = "all" | "month" | "day" | "since";
+
+/** YYYY-MM-DD에 날짜를 더한다. "2026-02-31"처럼 넘치는 날짜도 다음 달로 굴려서 받아준다. */
+function addDays(date: string, delta: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
 
 function readStorage(key: string, fallback = ""): string {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -73,13 +83,58 @@ interface Props {
 
 export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, chatName = "", fileName = "", chatTitle = "" }: Props) {
   const months = useMemo(() => messageMonths(allMessages), [allMessages]);
+  const days = useMemo(() => [...new Set(allMessages.map((m) => m.date).filter(Boolean))].sort(), [allMessages]);
   const [room, setRoom] = useState<KakaoRoomKey>(() => guessKakaoRoom(chatName) ?? "P4");
-  const [period, setPeriod] = useState<"all" | "month">(() => (readStorage(roomSavedKey(guessKakaoRoom(chatName) ?? "P4")) ? "month" : "all"));
+  // 처음 올리는 방이면 전체 기간. 저장 기록이 있으면 아래 effect에서 "새로 올라온 날만"으로 바뀐다.
+  const [period, setPeriod] = useState<Period>("all");
+  const periodTouched = useRef(false);
   const [month, setMonth] = useState(() => months[months.length - 1] ?? "");
-  const messages = useMemo(
-    () => (period === "month" && month ? allMessages.filter((m) => m.date.startsWith(month)) : allMessages),
-    [allMessages, period, month],
+  const [day, setDay] = useState(() => days[days.length - 1] ?? "");
+  const [uploadLog, setUploadLog] = useState<KakaoUploadLogEntry[]>([]);
+  /** 이 파일이 어느 카톡 대화방인지 — P4 공지방이 여러 개라 방마다 따로 센다 */
+  const chatKey = useMemo(() => chatKeyOf(chatTitle, fileName), [chatTitle, fileName]);
+  const lastDateOf = (list: KakaoUploadLogEntry[]) => list.map((e) => e.lastDate).filter(Boolean).sort().pop() ?? "";
+  /** 이 대화방을 마지막으로 저장한 날 (대화방을 못 가리면 같은 현장 그룹 기준) */
+  const lastSaved = useMemo(
+    () => lastDateOf(uploadLog.filter((e) => (chatKey ? chatKeyOf(e.chat ?? e.chatTitle, e.fileName) === chatKey : e.room === room))),
+    [uploadLog, chatKey, room],
   );
+  /** 같은 현장 그룹(P4/P5)의 다른 방까지 포함한 마지막 저장일 — 이 방이 처음일 때 안내용 */
+  const groupLastSaved = useMemo(() => lastDateOf(uploadLog.filter((e) => e.room === room)), [uploadLog, room]);
+  const lastSavedFor = useCallback(
+    (nextRoom: string) =>
+      lastDateOf(uploadLog.filter((e) => (chatKey ? chatKeyOf(e.chat ?? e.chatTitle, e.fileName) === chatKey : e.room === nextRoom))),
+    [uploadLog, chatKey],
+  );
+  /** 분석할 날짜 범위(양 끝 포함). 전체 기간이면 null. */
+  const range = useMemo<{ from: string; to: string } | null>(() => {
+    const lastDay = days[days.length - 1] ?? "";
+    if (period === "month" && month) return { from: `${month}-01`, to: `${month}-31` };
+    if (period === "day" && day) return { from: day, to: day };
+    if (period === "since" && lastSaved) {
+      const from = addDays(lastSaved, 1);
+      return { from, to: lastDay > from ? lastDay : from };
+    }
+    return null;
+  }, [period, month, day, lastSaved, days]);
+  const messages = useMemo(
+    () => (range ? allMessages.filter((m) => m.date >= range.from && m.date <= range.to) : allMessages),
+    [allMessages, range],
+  );
+  /** 고른 기간 안에서 실제로 대화가 있는 날짜들 */
+  const windowDays = useMemo(() => (range ? days.filter((d) => d >= range.from && d <= range.to) : days), [days, range]);
+  /** 업로드 내역에 남길 기간 표기 */
+  const periodLabel = !range ? "전체 기간"
+    : period === "month" ? month
+    : range.from === range.to ? range.from
+    : `${range.from} ~ ${range.to}`;
+  // "내일 조퇴"처럼 범위 밖 공지가 범위 안 날짜를 가리킬 수 있어 앞뒤로 며칠 더 읽고, 결과만 범위로 추린다
+  const scanMessages = useMemo(() => {
+    if (!range) return allMessages;
+    const from = addDays(range.from, -2);
+    const to = addDays(range.to, 1);
+    return allMessages.filter((m) => m.date >= from && m.date <= to);
+  }, [allMessages, range]);
   const roomSites = KAKAO_ROOMS.find((r) => r.key === room)!.sites as readonly SiteKey[];
   const [employeesBySite, setEmployeesBySite] = useState<Record<SiteKey, EmployeeRow[]>>({ PH4: [], PH2: [], P5PH1: [] });
   const [method, setMethod] = useState<"rule" | "ai">("rule");
@@ -101,11 +156,38 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
     setAiEvents(null);
     setIssues(null);
     setNewbieSite(KAKAO_ROOMS.find((r) => r.key === room)!.sites[0]);
-  }, [room, period, month]);
+  }, [room, period, month, day]);
+
+  // 지난 업로드 내역 — "새 것만"(마지막 저장 다음날부터)의 기준 날짜
+  useEffect(() => {
+    if (!isAdmin) return;
+    loadKakaoUploadLogFS().then(setUploadLog).catch(() => { /* 읽기 실패는 무시 */ });
+  }, [isAdmin]);
+
+  // 이 방에 저장한 기록이 있으면 기본을 "새 것만"으로 (사용자가 직접 고른 뒤에는 건드리지 않음)
+  useEffect(() => {
+    if (!periodTouched.current && lastSaved) setPeriod("since");
+  }, [lastSaved]);
+
+  const changePeriod = (next: Period) => {
+    periodTouched.current = true;
+    setPeriod(next);
+  };
 
   const changeRoom = (next: KakaoRoomKey) => {
     setRoom(next);
-    setPeriod(readStorage(roomSavedKey(next)) ? "month" : "all");
+    setPeriod(lastSavedFor(next) ? "since" : "all");
+  };
+
+  /** 대화가 있는 날짜만 밟으며 하루씩 이동. 직접 적은 날짜에 대화가 없으면 가장 가까운 날로. */
+  const dayNeighbor = (delta: number) => {
+    const i = days.indexOf(day);
+    if (i !== -1) return days[i + delta];
+    return delta < 0 ? [...days].reverse().find((d) => d < day) : days.find((d) => d > day);
+  };
+  const stepDay = (delta: number) => {
+    const next = dayNeighbor(delta);
+    if (next) setDay(next);
   };
 
   useEffect(() => {
@@ -124,11 +206,16 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
     [employeesBySite, roomSites],
   );
 
-  const ruleEvents = useMemo(() => extractKakaoEvents(messages, roster), [messages, roster]);
+  const ruleEvents = useMemo(() => extractKakaoEvents(scanMessages, roster), [scanMessages, roster]);
   const baseEvents = method === "ai" && aiEvents ? aiEvents : ruleEvents;
   const events = useMemo(
-    () => baseEvents.filter((e) => !removed.has(e.id)).map((e) => ({ ...e, room, ...(e.id in edits ? { name: normalizeName(edits[e.id]) } : {}) })),
-    [baseEvents, edits, removed, room],
+    () =>
+      baseEvents
+        .filter((e) => !removed.has(e.id))
+        // 대상일이나 공지일 중 하나라도 고른 기간 안이면 남긴다
+        .filter((e) => !range || (e.date >= range.from && e.date <= range.to) || (e.msgDate >= range.from && e.msgDate <= range.to))
+        .map((e) => ({ ...e, room, ...(chatKey ? { chat: chatKey } : {}), ...(e.id in edits ? { name: normalizeName(edits[e.id]) } : {}) })),
+    [baseEvents, edits, removed, room, chatKey, range],
   );
 
   useEffect(() => {
@@ -142,7 +229,7 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
     setAiProgress("준비 중...");
     try {
       const { extractKakaoEventsWithAi } = await import("@/lib/kakaoAi");
-      const result = await extractKakaoEventsWithAi(messages, {
+      const result = await extractKakaoEventsWithAi(scanMessages, {
         apiKey: apiKey.trim(),
         model: aiModel as "claude-opus-5-5",
         roster,
@@ -177,21 +264,23 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
         ok = (await saveKakaoEventsFS(month, mergeKakaoEvents(existing, list))) && ok;
       }
       if (ok) {
-        writeStorage(roomSavedKey(room), new Date().toISOString());
         const dates = messages.map((m) => m.date).filter(Boolean).sort();
-        await appendKakaoUploadLogFS({
-          id: `${room}|${fileName}|${dates[0] ?? ""}|${dates[dates.length - 1] ?? ""}|${period === "month" ? month : "all"}`,
+        const entry: KakaoUploadLogEntry = {
+          id: `${room}|${chatKey || fileName}|${dates[0] ?? ""}|${dates[dates.length - 1] ?? ""}|${periodLabel}`,
           savedAt: new Date().toISOString(),
           room,
           fileName,
           chatTitle,
-          period: period === "month" ? month : "전체 기간",
+          chat: chatKey,
+          period: periodLabel,
           firstDate: dates[0] ?? "",
           lastDate: dates[dates.length - 1] ?? "",
           messageCount: messages.length,
           eventCount: events.length,
           months: [...byMonth.keys()].sort(),
-        });
+        };
+        await appendKakaoUploadLogFS(entry);
+        setUploadLog((prev) => [entry, ...prev.filter((e) => e.id !== entry.id)]);
         window.dispatchEvent(new CustomEvent("kakao-events-updated"));
         toast.success(`${KAKAO_ROOMS.find((r) => r.key === room)!.label} ${events.length}건을 ${[...byMonth.keys()].join(", ")} 근태 기록에 저장했습니다.`);
       }
@@ -273,21 +362,66 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
           </div>
           <span className="ml-2 text-sm font-extrabold text-slate-700">기간</span>
           <div className="flex overflow-hidden rounded-lg border border-slate-300 text-sm font-bold">
-            <button type="button" onClick={() => setPeriod("all")} className={`px-3 py-1.5 ${period === "all" ? "bg-slate-800 text-white" : "bg-white text-slate-500"}`}>전체 기간</button>
-            <button type="button" onClick={() => setPeriod("month")} className={`px-3 py-1.5 ${period === "month" ? "bg-slate-800 text-white" : "bg-white text-slate-500"}`}>해당 월만</button>
+            {([
+              ["all", "전체 기간", true, ""],
+              ["month", "해당 월만", months.length > 0, ""],
+              ["day", "하루만", days.length > 0, ""],
+              ["since", "저장 안 한 날만", !!lastSaved, lastSaved ? `이 대화방을 마지막으로 저장한 ${lastSaved} 다음날부터` : "이 대화방에 저장한 기록이 아직 없습니다. 먼저 전체 기간으로 저장하세요."],
+            ] as const).map(([key, label, usable, title]) => (
+              <button
+                key={key}
+                type="button"
+                disabled={!usable}
+                title={title || undefined}
+                onClick={() => changePeriod(key)}
+                className={`px-3 py-1.5 disabled:opacity-40 ${period === key ? "bg-slate-800 text-white" : "bg-white text-slate-500"}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           {period === "month" && (
             <select value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-md border border-slate-200 px-2 py-1.5 text-sm">
               {[...months].reverse().map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           )}
+          {period === "day" && (
+            <div className="flex items-center gap-1">
+              <button type="button" title="대화가 있는 이전 날" disabled={!dayNeighbor(-1)} onClick={() => stepDay(-1)} className="rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-30">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <input type="date" value={day} min={days[0]} max={days[days.length - 1]} onChange={(e) => setDay(e.target.value)} className="rounded-md border border-slate-200 px-2 py-1.5 text-sm" />
+              <button type="button" title="대화가 있는 다음 날" disabled={!dayNeighbor(1)} onClick={() => stepDay(1)} className="rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50 disabled:opacity-30">
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <span className="text-xs text-slate-500">
             메시지 {messages.length.toLocaleString()}개 분석
             {period === "all" && months.length > 1 && ` (${months[0]} ~ ${months[months.length - 1]})`}
+            {period === "day" && day && ` (${day}${messages.length ? "" : " — 이 날짜에는 대화가 없습니다"})`}
+            {period === "since" && (windowDays.length
+              ? ` (저장 안 한 ${windowDays.length}일: ${windowDays.slice(-6).map((d) => d.slice(5)).join(", ")}${windowDays.length > 6 ? " 등" : ""})`
+              : ` (${lastSaved}까지 이미 저장했습니다 — 새로 올라온 날이 없습니다)`)}
           </span>
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-bold text-slate-600">대화방</span>
+          <span className="font-bold text-slate-700">{chatKey || "이름을 못 읽음 (파일명으로 구분)"}</span>
+          {lastSaved ? (
+            <span className="text-slate-500">· 이 대화방 마지막 저장 {lastSaved}</span>
+          ) : (
+            <span className="text-amber-700">
+              · 이 대화방은 처음입니다 — 전체 기간으로 한 번 저장하세요
+              {groupLastSaved && ` (같은 ${KAKAO_ROOMS.find((r) => r.key === room)!.label} 다른 방은 ${groupLastSaved}까지 저장됨)`}
+            </span>
+          )}
+        </div>
         <p className="mt-2 text-[11px] text-slate-500">
-          처음 한 번은 전체 기간으로 정리해 저장하고, 그다음부터는 "해당 월만"으로 올리면 됩니다. 이 방을 한 번 저장하면 다음에는 자동으로 해당 월만 선택됩니다.
+          카톡은 하루 단위 내보내기가 없으니 <b>전체 파일을 그대로 올리고</b> 여기서 저장할 날짜만 고르면 됩니다.
+          날짜 셈은 <b>대화방마다 따로</b> 하니 P4 공지방이 여러 개여도 방별로 "저장 안 한 날"이 잡힙니다.
+          맨 처음 한 번만 "전체 기간"으로 저장하고, 그 뒤에 같은 파일을 다시 올리면 <b>저장 안 한 날만</b>이 자동으로 선택돼 마지막 저장일 다음날부터 — 매일 올리면 그날 하루분만 — 정리합니다.
+          특정 하루만 다시 보려면 "하루만"을 쓰세요. 같은 건을 두 번 저장해도 기존 기록과 합쳐지므로 중복되지 않습니다.
           원문 대화는 저장하지 않고 근태 건만 저장합니다.
         </p>
       </div>

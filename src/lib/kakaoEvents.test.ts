@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseKakaoChat } from "./kakaoChat";
 import {
   applyCauseToGasanReason,
+  chatKeyOf,
   crossCheckKakaoWithXerp,
   extractKakaoEvents,
   findRosterNames,
@@ -101,5 +102,15 @@ describe("kakao events", () => {
     expect(mergeKakaoEvents(events, events)).toHaveLength(events.length);
     const summary = summarizeEventsByPerson(events);
     expect(summary.find((s) => s.name === "홍길동")?.counts).toEqual({ early: 1 });
+  });
+
+  it("대화방 키는 방 이름을 쓰고, 이름이 없으면 파일명에서 꾸밈을 뗀다", () => {
+    expect(chatKeyOf("P4 PH4  공지방", "KakaoTalk_Chat_아무개.txt")).toBe("P4 PH4 공지방");
+    expect(chatKeyOf("", "KakaoTalk_Chat_P4 PH2 공지방.txt")).toBe("P4 PH2 공지방");
+    expect(chatKeyOf("", "KakaoTalkChats (1).txt")).toBe("");
+    // 같은 방을 날짜만 바꿔 내려받아도 같은 방으로 본다
+    expect(chatKeyOf("", "P4공지방_20261021.txt")).toBe(chatKeyOf("", "P4공지방_20261022.zip"));
+    // 서로 다른 P4 방은 다른 키
+    expect(chatKeyOf("P4 PH4 공지방")).not.toBe(chatKeyOf("P4 PH2 공지방"));
   });
 });

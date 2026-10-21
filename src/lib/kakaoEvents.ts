@@ -15,7 +15,24 @@ export interface KakaoEvent {
   cause: string; // 타각 문제 원인: "안전교육" | "교육" | "xerp 오류" | "xerp 승인대기" | ""
   text: string;
   source: "rule" | "ai";
-  room?: string; // 어느 공지방에서 왔는지: "P4" | "P5" (예전 기록엔 없음)
+  room?: string; // 어느 현장 그룹인지: "P4" | "P5" (예전 기록엔 없음)
+  chat?: string; // 어느 카톡 대화방에서 왔는지 (P4 공지방이 여러 개라 방마다 구분, 예전 기록엔 없음)
+}
+
+/**
+ * 카톡 대화방을 구분하는 키. 대화방 이름이 있으면 그대로, 없으면 파일명에서
+ * 내보내기가 붙이는 꾸밈("KakaoTalk_Chat_", "(1)", 끝에 붙은 날짜)을 떼고 쓴다.
+ */
+export function chatKeyOf(chatTitle?: string, fileName?: string): string {
+  const title = (chatTitle ?? "").replace(/\s+/g, " ").trim();
+  if (title) return title;
+  return (fileName ?? "")
+    .replace(/\.(txt|zip)$/i, "")
+    .replace(/^KakaoTalk[_ ]?Chats?[_ ]?/i, "")
+    .replace(/[_ ]?\(\d+\)$/, "")
+    .replace(/[_ ]?\d{4}[-_.]?\d{2}[-_.]?\d{2}$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export const KAKAO_ROOMS = [
