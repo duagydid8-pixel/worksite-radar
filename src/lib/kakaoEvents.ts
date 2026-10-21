@@ -103,6 +103,18 @@ export function detectPunchCause(text: string): string {
   return "";
 }
 
+// 명단(퇴사일·입사일)을 건드리는 분류는 말만 나와도 잡으면 안 되니,
+// 아니라고 하는 말·묻는 말·서류 이야기는 사람 변동으로 보지 않는다.
+const NOT_HAPPENING_RE = /(퇴사|퇴직|사직|입사|신규자|신입|투입)\s*(자|예정|처리|일)?\s*(는|은|가|이|도)?\s*(없|무|아님|아닙|아니|안\s*(함|합|해|했)|않)/;
+const ASKING_RE = /\?|어떻게|무엇|언제까지|방법|절차|문의|여쭤|되나요|될까요|인가요|있나요|없나요|맞나요|할까요|하나요|가능한가|알려\s*주/;
+const PAPERWORK_RE = /(퇴사|입사)\s*(자\s*)?(명단|서류|신고|관련\s*문의|처리\s*(방법|절차))|퇴사율|정산\s*방법/;
+
+/** 명단에 반영하는 분류(퇴사·입사)인데 실제 변동이 아닌 말인지 */
+export function isNotPersonnelChange(text: string, category: string): boolean {
+  if (category !== "resign" && category !== "newbie") return false;
+  return NOT_HAPPENING_RE.test(text) || ASKING_RE.test(text) || PAPERWORK_RE.test(text);
+}
+
 /** 문장 속에서 명단에 있는 이름을 찾는다(긴 이름 우선, 중복 제거). */
 export function findRosterNames(text: string, roster: string[]): string[] {
   const compact = normalizeName(text);
@@ -146,7 +158,9 @@ export function extractKakaoEvents(messages: KakaoMessage[], roster: string[]): 
   const enabled = CATEGORY_PRIORITY;
   const events: KakaoEvent[] = [];
   for (const m of pickImportant(messages, { enabled, extraKeywords: [] })) {
-    const category = CATEGORY_PRIORITY.find((k) => m.keys.includes(k));
+    // 퇴사·입사 말이 나왔지만 실제 변동이 아니면 그 분류는 건너뛰고 다음 분류로 본다
+    // (예: "조퇴합니다. 퇴사자는 없습니다" → 조퇴로만 잡는다)
+    const category = CATEGORY_PRIORITY.filter((k) => m.keys.includes(k)).find((k) => !isNotPersonnelChange(m.text, k));
     if (!category) continue;
     const rosterHits = findRosterNames(m.text, roster);
     const names = rosterHits.length ? rosterHits : guessLeadingNames(m.text);

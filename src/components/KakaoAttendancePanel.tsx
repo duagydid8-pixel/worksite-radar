@@ -64,6 +64,35 @@ function writeStorage(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* ignore */ }
 }
 
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** 24시간 "13:05" → "오후 1:05" (카톡에 보이는 모양) */
+function kakaoTimeLabel(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  if (Number.isNaN(h)) return time;
+  const half = h < 12 ? "오전" : "오후";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${half} ${hour12}:${String(m ?? 0).padStart(2, "0")}`;
+}
+
+function dayLabel(date: string): string {
+  const d = new Date(`${date}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? date : `${date} (${WEEKDAYS[d.getDay()]})`;
+}
+
+/** 이 제안이 나온 근거 — 카톡 날짜·시간·보낸사람·원문 그대로 */
+function EventEvidence({ event: e }: { event: KakaoEvent }) {
+  return (
+    <div className="mt-1.5 rounded-md border border-slate-200 bg-slate-50 p-2">
+      <p className="text-[10px] font-bold text-slate-500">
+        카톡 근거 · {dayLabel(e.msgDate)} {kakaoTimeLabel(e.time)} · {e.sender}
+        {e.date !== e.msgDate && <span className="ml-1 text-violet-600">→ 대상일 {e.date}</span>}
+      </p>
+      <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-700">{e.text}</p>
+    </div>
+  );
+}
+
 function categoryBadge(e: KakaoEvent) {
   const tone = e.category === "punch" ? "bg-red-100 text-red-700"
     : e.category === "resign" || e.category === "newbie" ? "bg-violet-100 text-violet-700"
@@ -150,6 +179,7 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
   const [checking, setChecking] = useState(false);
   const [historyMonth, setHistoryMonth] = useState("");
   const [newbieSite, setNewbieSite] = useState<SiteKey>(roomSites[0]);
+  const [resignDates, setResignDates] = useState<Record<string, string>>({}); // 이벤트 id → 고른 퇴사일
 
   // 방이나 기간을 바꾸면 이전 범위로 돌린 AI 결과·대조 결과는 버린다
   useEffect(() => {
@@ -316,10 +346,13 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
     }
     return null;
   };
+  // 퇴사일이 이미 들어간 사람도 보여 준다 — 잘못 넣은 날짜를 고치거나 지울 수 있게
   const resignSuggestions = events
     .filter((e) => e.category === "resign" && e.name)
-    .map((e) => ({ event: e, hit: findEmployee(e.name) }))
-    .filter((x) => x.hit && !x.hit.row.퇴사일);
+    .flatMap((e) => {
+      const hit = findEmployee(e.name);
+      return hit ? [{ event: e, hit }] : [];
+    });
   const newbieSuggestions = events.filter((e) => e.category === "newbie" && e.name && !findEmployee(e.name));
 
   const updateSiteRows = async (siteKey: SiteKey, next: EmployeeRow[], message: string) => {
@@ -331,11 +364,16 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
       toast.error("명단 저장에 실패했습니다.");
     }
   };
-  const applyResign = (e: KakaoEvent) => {
+  /** 퇴사일을 명단에 넣는다. date를 ""로 주면 지운다. */
+  const applyResign = (e: KakaoEvent, date: string) => {
     const hit = findEmployee(e.name);
     if (!hit) return;
-    const next = employeesBySite[hit.site.key].map((r) => (r.id === hit.row.id ? { ...r, 퇴사일: e.date } : r));
-    updateSiteRows(hit.site.key, next, `${e.name} 퇴사일을 ${e.date}로 입력했습니다 (${hit.site.label}).`);
+    const next = employeesBySite[hit.site.key].map((r) => (r.id === hit.row.id ? { ...r, 퇴사일: date } : r));
+    updateSiteRows(
+      hit.site.key,
+      next,
+      date ? `${e.name} 퇴사일을 ${date}로 입력했습니다 (${hit.site.label}).` : `${e.name} 퇴사일을 지웠습니다 (${hit.site.label}).`,
+    );
   };
   const applyNewbie = (e: KakaoEvent) => {
     const row = Object.fromEntries(EMPLOYEE_FIELDS.map((f) => [f, ""])) as EmployeeRow;
@@ -492,7 +530,7 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
                   </td>
                   <td className="px-3 py-2">{categoryBadge(e)}</td>
                   <td className="px-3 py-2 text-slate-600">{e.cause ? `${causePrefix(e.cause)}…` : "-"}</td>
-                  <td className="max-w-[420px] px-3 py-2 text-slate-700"><span className="text-[10px] text-slate-400">{e.time} {e.sender}</span><div className="whitespace-pre-wrap break-words">{e.text}</div></td>
+                  <td className="max-w-[420px] px-3 py-2 text-slate-700"><span className="text-[10px] text-slate-400">{dayLabel(e.msgDate)} {kakaoTimeLabel(e.time)} · {e.sender}</span><div className="whitespace-pre-wrap break-words">{e.text}</div></td>
                   <td className="px-2 py-2"><button type="button" title="이 건 제외" onClick={() => setRemoved((p) => new Set(p).add(e.id))} className="text-slate-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button></td>
                 </tr>
               ))}
@@ -523,14 +561,38 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
       {/* 기술인 및 관리자 명단 반영 */}
       {isAdmin && (resignSuggestions.length > 0 || newbieSuggestions.length > 0) && (
         <div className="rounded-2xl border border-violet-200 bg-violet-50/50 p-4 shadow-sm">
-          <p className="mb-2 flex items-center gap-1.5 text-sm font-extrabold text-violet-800"><UserCheck className="h-4 w-4" /> 기술인 및 관리자 명단 반영 제안</p>
+          <p className="mb-1 flex items-center gap-1.5 text-sm font-extrabold text-violet-800"><UserCheck className="h-4 w-4" /> 기술인 및 관리자 명단 반영 제안</p>
+          <p className="mb-2 text-[11px] text-violet-700">
+            카톡 공지에서 찾은 것이라 실제와 다를 수 있습니다. 아래 "카톡 근거"(날짜·시각·보낸사람·원문)를 보고 맞을 때만 반영하세요.
+            날짜는 직접 고칠 수 있고, 잘못 넣었으면 "퇴사일 지우기"로 되돌립니다. 잘못 잡힌 공지는 위 근태 정리 표에서 휴지통을 눌러 빼면 이 제안도 사라집니다.
+          </p>
           <ul className="space-y-1.5 text-xs">
-            {resignSuggestions.map(({ event: e, hit }) => (
-              <li key={e.id} className="flex flex-wrap items-center gap-2">
-                <span className="font-bold">{e.name}</span><span className="text-slate-500">{hit!.site.label} · 퇴사 공지 ({e.date})</span>
-                <button type="button" onClick={() => applyResign(e)} className="rounded border border-violet-300 bg-white px-2 py-0.5 font-bold text-violet-700 hover:bg-violet-100">퇴사일 {e.date} 입력</button>
-              </li>
-            ))}
+            {resignSuggestions.map(({ event: e, hit }) => {
+              const picked = resignDates[e.id] ?? e.date;
+              const current = hit.row.퇴사일;
+              return (
+                <li key={e.id} className="rounded-lg border border-violet-200 bg-white p-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold">{e.name}</span>
+                    <span className="text-slate-500">{hit.site.label}</span>
+                    {current && <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">명단 퇴사일 {current}</span>}
+                    <input
+                      type="date"
+                      value={picked}
+                      onChange={(ev) => setResignDates((p) => ({ ...p, [e.id]: ev.target.value }))}
+                      className="rounded border border-violet-200 bg-white px-1.5 py-0.5"
+                    />
+                    <button type="button" disabled={!picked || picked === current} onClick={() => applyResign(e, picked)} className="rounded border border-violet-300 bg-violet-50 px-2 py-0.5 font-bold text-violet-700 hover:bg-violet-100 disabled:opacity-40">
+                      {current ? "퇴사일 수정" : "퇴사일 입력"}
+                    </button>
+                    {current && (
+                      <button type="button" onClick={() => applyResign(e, "")} className="rounded border border-slate-300 bg-white px-2 py-0.5 font-bold text-slate-600 hover:bg-slate-100">퇴사일 지우기</button>
+                    )}
+                  </div>
+                  <EventEvidence event={e} />
+                </li>
+              );
+            })}
             {newbieSuggestions.length > 0 && (
               <li className="flex items-center gap-2 pt-1 text-slate-500">신규자 추가 현장:
                 <select value={newbieSite} onChange={(ev) => setNewbieSite(ev.target.value as SiteKey)} className="rounded border border-violet-200 bg-white px-1.5 py-0.5">
@@ -539,9 +601,13 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
               </li>
             )}
             {newbieSuggestions.map((e) => (
-              <li key={e.id} className="flex flex-wrap items-center gap-2">
-                <span className="font-bold">{e.name}</span><span className="text-slate-500">명단에 없음 · 입사/투입 공지 ({e.date})</span>
-                <button type="button" onClick={() => applyNewbie(e)} className="rounded border border-violet-300 bg-white px-2 py-0.5 font-bold text-violet-700 hover:bg-violet-100">명단에 추가</button>
+              <li key={e.id} className="rounded-lg border border-violet-200 bg-white p-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold">{e.name}</span>
+                  <span className="text-slate-500">명단에 없음 · 입사/투입 공지</span>
+                  <button type="button" onClick={() => applyNewbie(e)} className="rounded border border-violet-300 bg-violet-50 px-2 py-0.5 font-bold text-violet-700 hover:bg-violet-100">입사일 {e.date}로 명단에 추가</button>
+                </div>
+                <EventEvidence event={e} />
               </li>
             ))}
           </ul>

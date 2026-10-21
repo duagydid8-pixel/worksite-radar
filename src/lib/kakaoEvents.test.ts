@@ -8,6 +8,7 @@ import {
   findRosterNames,
   guessKakaoRoom,
   guessLeadingNames,
+  isNotPersonnelChange,
   mergeKakaoEvents,
   messageMonths,
   resolveTargetDate,
@@ -112,5 +113,35 @@ describe("kakao events", () => {
     expect(chatKeyOf("", "P4공지방_20261021.txt")).toBe(chatKeyOf("", "P4공지방_20261022.zip"));
     // 서로 다른 P4 방은 다른 키
     expect(chatKeyOf("P4 PH4 공지방")).not.toBe(chatKeyOf("P4 PH2 공지방"));
+  });
+
+  it("퇴사 말만 나온 공지는 퇴사로 잡지 않는다", () => {
+    const notResign = [
+      "금일 퇴사자는 없습니다",
+      "퇴사 안 합니다",
+      "퇴사자 명단 언제까지 제출하나요?",
+      "퇴사 처리 절차 문의드립니다",
+      "홍길동 퇴사 예정 아님",
+    ];
+    for (const text of notResign) expect(isNotPersonnelChange(text, "resign")).toBe(true);
+
+    const realResign = [
+      "홍길동 금일자로 퇴사합니다",
+      "김철수 10월 31일 퇴사 처리 부탁드립니다",
+      "이영희 계약 종료로 금일 퇴사",
+    ];
+    for (const text of realResign) expect(isNotPersonnelChange(text, "resign")).toBe(false);
+
+    // 퇴사·입사 외의 분류는 이 검사를 적용하지 않는다
+    expect(isNotPersonnelChange("조퇴 안 합니다", "early")).toBe(false);
+  });
+
+  it("퇴사 말이 섞여도 실제 사유는 그대로 잡는다", () => {
+    const chat = `--------------- 2026년 10월 20일 화요일 ---------------
+[반장] [오후 1:05] 홍길동 조퇴합니다. 금일 퇴사자는 없습니다
+[반장] [오후 1:06] 김철수 금일자로 퇴사합니다`;
+    const events = extractKakaoEvents(parseKakaoChat(chat).messages, ROSTER);
+    expect(events.find((e) => e.name === "홍길동")?.category).toBe("early");
+    expect(events.find((e) => e.name === "김철수")?.category).toBe("resign");
   });
 });
