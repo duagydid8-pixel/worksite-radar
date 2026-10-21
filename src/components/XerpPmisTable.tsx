@@ -348,12 +348,15 @@ function detectConsecutiveAbsences(dateMap: DateMap): XerpPmisRow[] {
   return result;
 }
 
-// ── 지각 판별 (7:10 이후 출근) ───────────────────────────
+// ── 지각 판별 (주간 7:10 / 철야 19:10 이후 출근) ────────────
+const CHEOLYA_IN_HOUR = 15;          // 15시 이후 출근은 야간 전담(철야) 교대
+const CHEOLYA_LATE_AFTER = 19 * 60 + 10; // 철야 기준 출근 19:00 + 유예 10분
 function isLateTime(timeStr: string): boolean {
   if (!timeStr) return false;
   const m = timeStr.match(/^(\d{1,2}):(\d{2})/);
   if (!m) return false;
   const h = parseInt(m[1]), min = parseInt(m[2]);
+  if (h >= CHEOLYA_IN_HOUR) return h * 60 + min > CHEOLYA_LATE_AFTER;
   return h > 7 || (h === 7 && min > 10);
 }
 

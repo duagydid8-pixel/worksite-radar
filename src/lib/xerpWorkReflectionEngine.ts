@@ -48,6 +48,10 @@ const NEW_EMP_REASON_PREFIX = "xerp 승인대기로 인한 ";
 const CHEOLYA_CROSS_MIDNIGHT_THRESHOLD = 12 * 60; // 철야 체크 시, 이 시각 이전 퇴근 기록은 익일로 간주
 const CHEOLYA_BREAK_MIN = 120; // 철야 고정 휴게(저녁·야식) 2시간
 const CHEOLYA_HOURLY_RATE = 0.25; // 19:00~05:00 철야: 실근무 1시간당 0.25공 (예: 8시간 근무 = 2.0공)
+const CHEOLYA_AUTO_IN_MIN = 15 * 60;  // 15:00 이후 출근 → 야간 전담(철야) 근무로 자동 판정
+const CHEOLYA_AUTO_OUT_MAX = 7 * 60;  // 출근 기록 없이 07:00 이전 퇴근 → 철야로 자동 판정
+export const CHEOLYA_START = 19 * 60; // 철야 기준 출근 19:00 (이보다 일찍 와도 기준은 19:00)
+const CHEOLYA_GRACE_CUTOFF = CHEOLYA_START + 10; // 19:10까지 출근은 정시 인정
 
 export type GasanReasonTag = typeof GASAN_REASON_TAG_ORDER[number];
 
@@ -60,6 +64,30 @@ function formatGasanReasonTags(tags: GasanReasonTag[]): string {
   return orderedTags[orderedTags.length - 1] ?? "";
 }
 
+/**
+ * 철야(야간 전담) 근무 자동 판정 — 저녁 출근은 주간 교대일 수 없다.
+ * ① 출근 기록이 15:00 이후 → 철야
+ * ② 출근 기록이 없고 퇴근이 07:00 이전(자정을 넘긴 새벽 퇴근) → 철야
+ * 주간에 출근해 자정을 넘겨 일한 경우는 철야가 아니라 연장이므로 제외한다.
+ */
+export function detectCheolya(rawInMin: number | null, rawOutMin: number | null): boolean {
+  if (rawInMin !== null) return rawInMin >= CHEOLYA_AUTO_IN_MIN;
+  return rawOutMin !== null && rawOutMin < CHEOLYA_AUTO_OUT_MAX;
+}
+
+/** 지각 판정 — 철야 근무자는 주간 기준(07:00)이 아니라 철야 기준 19:00과 비교한다 */
+export function resolveIsLate(row: {
+  effInMin: number | null;
+  standardStart: number;
+  isWaeju?: boolean;
+  isNoRecord?: boolean;
+  isCheolya?: boolean;
+}): boolean {
+  if (row.isWaeju || row.isNoRecord) return false;
+  const standardStart = row.isCheolya ? CHEOLYA_START : row.standardStart;
+  return row.effInMin !== null && row.effInMin > standardStart;
+}
+
 /** 철야 체크 시 자정을 넘긴 퇴근 기록(예: 01:00)을 익일 시각으로 보정 */
 export function resolveCheolyaEffOutMin(rawOutMin: number | null, isCheolya: boolean): number | null {
   if (rawOutMin === null) return null;
@@ -67,7 +95,10 @@ export function resolveCheolyaEffOutMin(rawOutMin: number | null, isCheolya: boo
   return rawOutMin;
 }
 
-/** 철야(19:00~05:00 야간 전담) 근무 공수 — 경과시간에서 고정 휴게 2시간을 뺀 실근무시간 × 0.25공/h */
+/**
+ * 철야(야간 전담) 근무 공수 — 경과시간에서 고정 휴게 2시간을 뺀 실근무시간 × 0.25공/h
+ * 기준 근무 19:00 출근 ~ 04:50 퇴근(50분 기준 반올림 → 05:00) = 경과 10h - 휴게 2h = 실근무 8h = 2.0공
+ */
 function calcCheolyaGongsu(effInMin: number | null, effOutMin: number | null): number | null {
   if (effInMin === null || effOutMin === null) return null;
   const adjustedOutMin = resolveCheolyaEffOutMin(effOutMin, true)!;
@@ -282,6 +313,10 @@ export function inferGasanReason(row: {
   if (row.isNewEmployee) return inferNewEmployeeGasanReason(row);
   if (row.isLunchOt) return LUNCH_OT_REASON;
   if (row.isCheolya) {
+    // XERP 타각이 빠진 날은 근무시간 문구가 아니라 빠진 타각을 사유로 쓴다
+    if (!row.xerpIn && !row.xerpOut) return "출퇴근미타각(철야)";
+    if (!row.xerpIn) return "출근미타각(철야)";
+    if (!row.xerpOut) return "퇴근미타각(철야)";
     const hours = row.calcGongsuVal !== undefined && row.calcGongsuVal !== null
       ? row.calcGongsuVal / CHEOLYA_HOURLY_RATE
       : null;
@@ -346,8 +381,20 @@ export function inferGasanReason(row: {
   return normalizeGasanReasonParentheses(reasons.join(" / "), reasonTags);
 }
 
-export function resolveEffInMin(rawInMin: number | null, isJochul: boolean, cfg: TeamConfig): number | null {
+/** 철야 적용 출근 — 19:10까지 출근은 기준 19:00으로 인정, 더 늦으면 실제 타각 시각(지각) */
+export function resolveCheolyaEffInMin(rawInMin: number | null): number | null {
   if (rawInMin === null) return null;
+  return rawInMin < CHEOLYA_GRACE_CUTOFF ? CHEOLYA_START : rawInMin;
+}
+
+/** 출근 기준 시각 — 철야는 팀 주간 기준(07:00·07:30)이 아니라 19:00 */
+export function resolveStandardStart(cfg: TeamConfig, isCheolya = false): number {
+  return isCheolya ? CHEOLYA_START : cfg.standardStart;
+}
+
+export function resolveEffInMin(rawInMin: number | null, isJochul: boolean, cfg: TeamConfig, isCheolya = false): number | null {
+  if (rawInMin === null) return null;
+  if (isCheolya) return resolveCheolyaEffInMin(rawInMin);
   if (!isJochul && rawInMin < cfg.jochulCutoff) return cfg.standardStart;
   return rawInMin;
 }
@@ -377,10 +424,13 @@ function calcGongsu(effInMin: number | null, effOutMin: number | null, isJochul:
   // 팀 기준 하루 실근무 = 오전(breakStart-standardStart) + 오후(STANDARD_END-breakEnd)
   const standardWorkMin = (breakStart - standardStart) + (STANDARD_END - breakEnd);
 
+  // 출근보다 이른 퇴근 기록은 자정을 넘긴 익일 퇴근(예: 출근 07:00 / 퇴근 01:00)으로 보정
+  const outMin = effOutMin < effInMin ? effOutMin + 24 * 60 : effOutMin;
+
   // standardStart 이전(조출 구간)은 jochulBonus에서 별도 가산하므로 표준/연장 집계에서는 제외
   const workStart = Math.max(effInMin, standardStart);
-  const lunchOverlap = Math.max(0, Math.min(effOutMin, breakEnd) - Math.max(workStart, breakStart));
-  const netWorkedMin = Math.max(0, effOutMin - workStart - lunchOverlap);
+  const lunchOverlap = Math.max(0, Math.min(outMin, breakEnd) - Math.max(workStart, breakStart));
+  const netWorkedMin = Math.max(0, outMin - workStart - lunchOverlap);
 
   // 표준 공수: 못 채운 만큼 비례 감산, 늦게까지 일해 채우면 1.0 전액 인정
   const stdWorkMin = Math.min(netWorkedMin, standardWorkMin);
@@ -455,10 +505,16 @@ export interface XerpSpecialListRow {
   isLate: boolean;
   needsUpdate: boolean;
   isNewEmployee?: boolean;
+  calcGongsuVal?: number | null;
+}
+
+/** 타각은 있는데 공수를 계산할 수 없는 행 — 한쪽 타각만 있어 손으로 확인해야 한다 */
+export function hasNoCalcGongsu(row: { isWaeju: boolean; isNoRecord: boolean; calcGongsuVal?: number | null }): boolean {
+  return !row.isWaeju && !row.isNoRecord && row.calcGongsuVal === null;
 }
 
 export function shouldShowInSpecialList(row: XerpSpecialListRow): boolean {
-  return !row.isWaeju && !row.isNoRecord && (row.isLate || row.needsUpdate);
+  return !row.isWaeju && !row.isNoRecord && (row.isLate || row.needsUpdate || hasNoCalcGongsu(row));
 }
 
 export function getSpecialListLabels(row: XerpSpecialListRow): string[] {
@@ -466,17 +522,24 @@ export function getSpecialListLabels(row: XerpSpecialListRow): string[] {
   if (row.isNewEmployee) labels.push("신규자");
   if (row.isLate) labels.push("지각");
   if (row.needsUpdate) labels.push("가산");
+  if (hasNoCalcGongsu(row)) labels.push("데이터없음");
   return labels;
 }
 
 export interface XerpEarlyLeaveRow {
   isWaeju: boolean;
   effOut: string;
+  effIn?: string;
+  isCheolya?: boolean;
 }
 
 export function shouldShowInEarlyLeaveList(row: XerpEarlyLeaveRow): boolean {
+  if (row.isWaeju || row.isCheolya) return false; // 철야는 새벽 퇴근이 정상이라 조퇴가 아니다
   const outMin = parseMin(row.effOut);
-  return !row.isWaeju && outMin !== null && outMin < 13 * 60;
+  if (outMin === null || outMin >= 13 * 60) return false;
+  // 출근보다 이른 퇴근은 자정을 넘긴 익일 퇴근이므로 조퇴가 아니다
+  const inMin = parseMin(row.effIn);
+  return inMin === null || outMin >= inMin;
 }
 
 export function shouldShowDownloadActions(rowCount: number): boolean {

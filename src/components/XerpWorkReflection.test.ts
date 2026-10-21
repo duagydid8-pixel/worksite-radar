@@ -6,7 +6,12 @@ import {
   inferNewEmployeeGasanReason,
   normalizeGasanReasonParentheses,
   canBuildDownloadWorkbook,
+  detectCheolya,
+  hasNoCalcGongsu,
   isWeekendWorkDate,
+  resolveEffInMin,
+  resolveEffOutMin,
+  resolveIsLate,
   resolveLoadedAdjustment,
   resolveSyncedGasanReason,
   resolveWritableGasanAdjustment,
@@ -205,6 +210,20 @@ describe("XERP work reflection special list", () => {
   it("shows a new employee label for new employee rows", () => {
     expect(getSpecialListLabels({ ...baseRow, isNewEmployee: true })).toContain("신규자");
   });
+
+  it("타각은 있는데 공수를 계산할 수 없는 행도 특이자 명단에 넣는다", () => {
+    const row = { ...baseRow, isLate: false, needsUpdate: false, calcGongsuVal: null };
+
+    expect(hasNoCalcGongsu(row)).toBe(true);
+    expect(shouldShowInSpecialList(row)).toBe(true);
+    expect(getSpecialListLabels(row)).toContain("데이터없음");
+  });
+
+  it("외주·기록없음 행은 데이터없음으로 보지 않는다", () => {
+    expect(hasNoCalcGongsu({ ...baseRow, isWaeju: true, calcGongsuVal: null })).toBe(false);
+    expect(hasNoCalcGongsu({ ...baseRow, isNoRecord: true, calcGongsuVal: null })).toBe(false);
+    expect(hasNoCalcGongsu({ ...baseRow, calcGongsuVal: 1 })).toBe(false);
+  });
 });
 
 describe("XERP work reflection early leave list", () => {
@@ -225,6 +244,164 @@ describe("XERP work reflection early leave list", () => {
   it("excludes outsourced rows and rows without an applied checkout", () => {
     expect(shouldShowInEarlyLeaveList({ ...baseRow, isWaeju: true, effOut: "12:30" })).toBe(false);
     expect(shouldShowInEarlyLeaveList({ ...baseRow, effOut: "" })).toBe(false);
+  });
+
+  it("excludes overnight shifts whose dawn checkout is not an early leave", () => {
+    expect(shouldShowInEarlyLeaveList({ isWaeju: false, effIn: "19:00", effOut: "05:00", isCheolya: true })).toBe(false);
+    expect(shouldShowInEarlyLeaveList({ isWaeju: false, effIn: "07:00", effOut: "01:00" })).toBe(false);
+  });
+});
+
+describe("철야(야간 전담) 자동 판정", () => {
+  it("저녁 출근 기록은 철야로 본다", () => {
+    expect(detectCheolya(19 * 60, 5 * 60)).toBe(true);
+    expect(detectCheolya(15 * 60, null)).toBe(true);
+  });
+
+  it("출근 기록이 없고 새벽에 퇴근한 기록도 철야로 본다", () => {
+    expect(detectCheolya(null, 5 * 60)).toBe(true);
+  });
+
+  it("주간 출근은 자정을 넘겨 퇴근해도 철야가 아니다", () => {
+    expect(detectCheolya(7 * 60, 1 * 60)).toBe(false);
+    expect(detectCheolya(8 * 60, 17 * 60)).toBe(false);
+    expect(detectCheolya(null, null)).toBe(false);
+  });
+
+  it("철야 지각은 주간 07:00이 아니라 철야 기준 19:00으로 판정한다", () => {
+    const base = { standardStart: 7 * 60, isCheolya: true };
+    expect(resolveIsLate({ ...base, effInMin: 19 * 60 })).toBe(false);
+    expect(resolveIsLate({ ...base, effInMin: 19 * 60 + 40 })).toBe(true);
+    // 같은 19:00 출근을 주간으로 보면 지각
+    expect(resolveIsLate({ effInMin: 19 * 60, standardStart: 7 * 60, isCheolya: false })).toBe(true);
+  });
+
+  it("19:10까지 출근은 기준 19:00으로 인정하고, 더 일찍 와도 기준은 19:00", () => {
+    expect(resolveEffInMin(19 * 60 + 9, false, defaultTeamConfig, true)).toBe(19 * 60);
+    expect(resolveEffInMin(18 * 60, false, defaultTeamConfig, true)).toBe(19 * 60);
+    expect(resolveEffInMin(19 * 60 + 40, false, defaultTeamConfig, true)).toBe(19 * 60 + 40);
+  });
+
+  it("외주·기록없음 행도 지각으로 보지 않는다", () => {
+    const base = { effInMin: 8 * 60, standardStart: 7 * 60 };
+    expect(resolveIsLate({ ...base, isWaeju: true })).toBe(false);
+    expect(resolveIsLate({ ...base, isNoRecord: true })).toBe(false);
+    expect(resolveIsLate({ effInMin: 7 * 60, standardStart: 7 * 60 })).toBe(false);
+  });
+
+  it("철야 기준 근무(19:00 출근 / 04:50 퇴근)는 2공수", () => {
+    const effInMin = resolveEffInMin(19 * 60, false, defaultTeamConfig, true);
+    const effOutMin = resolveEffOutMin("04:50", ""); // 50분 기준 반올림 → 05:00
+
+    const result = calcGongsuForWorkDate(
+      "2026-10-20",
+      effInMin,
+      effOutMin,
+      false,
+      defaultTeamConfig,
+      false,
+      true,
+    );
+
+    expect(result).toBe(2);
+  });
+
+  it("19:00보다 일찍 출근해도 조기 출근분은 철야 공수에 더하지 않는다", () => {
+    const effInMin = resolveEffInMin(18 * 60, false, defaultTeamConfig, true);
+
+    const result = calcGongsuForWorkDate(
+      "2026-10-20",
+      effInMin,
+      resolveEffOutMin("04:50", ""),
+      false,
+      defaultTeamConfig,
+      false,
+      true,
+    );
+
+    expect(result).toBe(2);
+  });
+
+  it("타각이 모두 있으면 철야 근무시간을 사유로 쓴다", () => {
+    const reason = inferGasanReason({
+      xerpIn: "19:00",
+      xerpOut: "04:50",
+      pmisIn: "18:55",
+      pmisOut: "04:52",
+      rawInMin: 19 * 60,
+      rawOutMin: 5 * 60,
+      isLate: false,
+      standardStart: 19 * 60,
+      xerpGongsuA: "0",
+      calcGongsuVal: 2,
+      diff: 2,
+      isCheolya: true,
+    });
+
+    expect(reason).toBe("8h 철야근무");
+  });
+
+  it("XERP 퇴근 타각이 없으면 퇴근미타각(철야)으로 쓴다", () => {
+    const reason = inferGasanReason({
+      xerpIn: "19:00",
+      xerpOut: "",
+      pmisIn: "18:55",
+      pmisOut: "04:52",
+      rawInMin: 19 * 60,
+      rawOutMin: 5 * 60,
+      isLate: false,
+      standardStart: 19 * 60,
+      xerpGongsuA: "0",
+      calcGongsuVal: 2,
+      diff: 2,
+      isCheolya: true,
+    });
+
+    expect(reason).toBe("퇴근미타각(철야)");
+  });
+
+  it("XERP 출근·출퇴근 타각이 없는 철야도 빠진 타각을 사유로 쓴다", () => {
+    const base = {
+      pmisIn: "18:55",
+      pmisOut: "04:52",
+      rawInMin: 19 * 60,
+      rawOutMin: 5 * 60,
+      isLate: false,
+      standardStart: 19 * 60,
+      xerpGongsuA: "0",
+      calcGongsuVal: 2,
+      diff: 2,
+      isCheolya: true,
+    };
+
+    expect(inferGasanReason({ ...base, xerpIn: "", xerpOut: "04:50" })).toBe("출근미타각(철야)");
+    expect(inferGasanReason({ ...base, xerpIn: "", xerpOut: "" })).toBe("출퇴근미타각(철야)");
+  });
+
+  it("기준 퇴근보다 늦게 끝나면 실근무 1시간당 0.25공이 더 붙는다", () => {
+    const result = calcGongsuForWorkDate(
+      "2026-10-20",
+      resolveEffInMin(19 * 60, false, defaultTeamConfig, true),
+      resolveEffOutMin("06:50", ""),
+      false,
+      defaultTeamConfig,
+      false,
+      true,
+    );
+
+    expect(result).toBe(2.5);
+  });
+
+  it("주간 출근이 자정을 넘겨 퇴근하면 0공이 아니라 표준 1공 + 초과분 연장으로 계산한다", () => {
+    const result = calcGongsuForWorkDate(
+      "2026-10-20",
+      7 * 60,
+      1 * 60,
+      false,
+      defaultTeamConfig,
+    );
+
+    expect(result).toBe(1 + 8 * 0.25);
   });
 });
 

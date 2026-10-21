@@ -15,6 +15,7 @@ import {
   calcGongsuForWorkDate,
   canBuildDownloadWorkbook,
   cleanGasanReason,
+  detectCheolya,
   excelSerialToDateStr,
   getSpecialListLabels,
   getTeamConfig,
@@ -28,12 +29,15 @@ import {
   parseMin,
   resolveEffInMin,
   resolveEffOutMin,
+  resolveIsLate,
+  resolveStandardStart,
   resolveLoadedAdjustment,
   syncManualCalcGongsu,
   resolveWritableGasanAdjustment,
   shouldShowDownloadActions,
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
+  hasNoCalcGongsu,
 } from "@/lib/xerpWorkReflectionEngine";
 
 // ── 신규자 정보 타입 ──────────────────────────────────
@@ -78,6 +82,7 @@ interface ProcessedRow {
   isJochul: boolean;
   isLunchOt: boolean;
   isCheolya: boolean;
+  cheolyaManual?: boolean;
   effIn: string; effOut: string;
   xerpGongsuA: string;
   calcGongsuVal: number | null;
@@ -309,14 +314,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         return syncManualCalcGongsu({ ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) });
       }
       const cfg = getTeamConfig(r.팀명);
-      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
       const isLunchOt = Boolean(r.isLunchOt);
-      const isCheolya = Boolean(r.isCheolya);
+      // 철야는 출퇴근 기록으로 자동 판정 — 수기로 체크/해제한 행만 저장값을 그대로 둔다
+      const isCheolya = r.cheolyaManual ? Boolean(r.isCheolya) : detectCheolya(r.rawInMin, r.rawOutMin);
+      const standardStart = resolveStandardStart(cfg, isCheolya);
+      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg, isCheolya);
+      const effIn = effInMin !== null ? minToStr(effInMin) : "";
+      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya });
       const calcVal = calcGongsuForWorkDate(date, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const 가산사유 = needsUpdate ? inferGasanReason({ ...r, calcGongsuVal: calcVal, isLunchOt, isCheolya }) : "";
       const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
-      return syncManualCalcGongsu({ ...r, isNewEmployee: false, isLunchOt, calcGongsuVal: calcVal, ...adjustment });
+      return syncManualCalcGongsu({ ...r, isNewEmployee: false, isLunchOt, isCheolya, standardStart, effIn, isLate, calcGongsuVal: calcVal, ...adjustment });
     });
 
   const deleteNewEmp = (name: string) => {
@@ -459,13 +468,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isWaeju) return r; // 외주는 조출 무시
       const newJochul = !r.isJochul;
       const cfg       = getTeamConfig(r.팀명);
-      const effInMin  = resolveEffInMin(r.rawInMin, newJochul, cfg);
+      const isCheolya = Boolean(r.isCheolya);
+      const effInMin  = resolveEffInMin(r.rawInMin, newJochul, cfg, isCheolya);
       const effIn     = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt = Boolean(r.isLunchOt);
-      const isCheolya = Boolean(r.isCheolya);
       const calcVal   = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, newJochul, cfg, isLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const isLate    = effInMin !== null && effInMin > cfg.standardStart;
+      const isLate    = resolveIsLate({ effInMin, standardStart: r.standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya });
       const 가산사유 = needsUpdate
         ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }), inferGasanReasonTags(r))
         : "";
@@ -480,8 +489,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isWaeju) return r; // 외주는 무시
       const newLunchOt = !r.isLunchOt;
       const cfg         = getTeamConfig(r.팀명);
-      const effInMin     = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
       const isCheolya    = Boolean(r.isCheolya);
+      const effInMin     = resolveEffInMin(r.rawInMin, r.isJochul, cfg, isCheolya);
       const calcVal      = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, newLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const 가산사유 = needsUpdate
@@ -498,14 +507,17 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isWaeju) return r; // 외주는 무시
       const newCheolya = !r.isCheolya;
       const cfg        = getTeamConfig(r.팀명);
-      const effInMin    = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+      const standardStart = resolveStandardStart(cfg, newCheolya);
+      const effInMin    = resolveEffInMin(r.rawInMin, r.isJochul, cfg, newCheolya);
+      const effIn       = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt   = Boolean(r.isLunchOt);
       const calcVal     = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, newCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya: newCheolya });
       const 가산사유 = needsUpdate
         ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya: newCheolya })
         : "";
-      return { ...r, isCheolya: newCheolya, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+      return { ...r, isCheolya: newCheolya, cheolyaManual: true, standardStart, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     }));
   };
 
@@ -515,13 +527,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setRows((prev) => prev.map((r) => {
       if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isJochul === value) return r;
       const cfg = getTeamConfig(r.팀명);
-      const effInMin = resolveEffInMin(r.rawInMin, value, cfg);
+      const isCheolya = Boolean(r.isCheolya);
+      const effInMin = resolveEffInMin(r.rawInMin, value, cfg, isCheolya);
       const effIn = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt = Boolean(r.isLunchOt);
-      const isCheolya = Boolean(r.isCheolya);
       const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, value, cfg, isLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const isLate = effInMin !== null && effInMin > cfg.standardStart;
+      const isLate = resolveIsLate({ effInMin, standardStart: r.standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya });
       const 가산사유 = needsUpdate
         ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }), inferGasanReasonTags(r))
         : "";
@@ -536,8 +548,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setRows((prev) => prev.map((r) => {
       if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isLunchOt === value) return r;
       const cfg = getTeamConfig(r.팀명);
-      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
       const isCheolya = Boolean(r.isCheolya);
+      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg, isCheolya);
       const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, value, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
       const 가산사유 = needsUpdate
@@ -554,14 +566,17 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setRows((prev) => prev.map((r) => {
       if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isCheolya === value) return r;
       const cfg = getTeamConfig(r.팀명);
-      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
+      const standardStart = resolveStandardStart(cfg, value);
+      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg, value);
+      const effIn = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt = Boolean(r.isLunchOt);
       const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, value);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
+      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya: value });
       const 가산사유 = needsUpdate
         ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya: value })
         : "";
-      return { ...r, isCheolya: value, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+      return { ...r, isCheolya: value, cheolyaManual: true, standardStart, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     }));
     toast.success(`${selectedIdxes.size}명 철야 ${value ? "ON" : "OFF"} 일괄 적용됨`);
   };
@@ -670,13 +685,15 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       const isJochul      = false;
       const cfg           = getTeamConfig(팀명);
-      const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg);
-      const effIn         = effInMin !== null ? minToStr(effInMin) : "";
       const isWaeju       = isWaejuTeam(팀명);
+      const isCheolya     = !isWaeju && detectCheolya(rawInMin, rawOutMin);
+      const standardStart = resolveStandardStart(cfg, isCheolya);
+      const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg, isCheolya);
+      const effIn         = effInMin !== null ? minToStr(effInMin) : "";
       const isNewEmployee = !isWaeju && newEmpData.has(성명);
       const hasClockValue = hasClockCellValue(xerpInRaw, xerpOutRaw, pmisInRaw, pmisOutRaw, xerpInStr, xerpOutStr, pmisInStr, pmisOutStr);
       const isNoRecord    = !hasClockValue && rawInMin === null && rawOutMin === null;
-      const isLate        = !isWaeju && !isNoRecord && effInMin !== null && effInMin > cfg.standardStart;
+      const isLate        = resolveIsLate({ effInMin, standardStart, isWaeju, isNoRecord, isCheolya });
 
       let calcGongsuVal: number | null;
       let diff: number | null;
@@ -693,7 +710,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         diff = d > 0 ? d : null;
         needsUpdate = d > 0;
       } else {
-        calcGongsuVal = calcGongsuForWorkDate(calcWorkDate, effInMin, rawOutMin, isJochul, cfg);
+        calcGongsuVal = calcGongsuForWorkDate(calcWorkDate, effInMin, rawOutMin, isJochul, cfg, false, isCheolya);
         ({ diff, needsUpdate } = calcDiff(calcGongsuVal, xerpGongsuA));
       }
 
@@ -706,10 +723,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         rawInMin,
         rawOutMin,
         isLate,
-        standardStart: cfg.standardStart,
+        standardStart,
         xerpGongsuA,
         calcGongsuVal,
         diff,
+        isCheolya,
         isNewEmployee,
       });
 
@@ -717,15 +735,15 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         rowIndex: i, 팀명, 성명,
         xerpIn: xerpInStr, xerpOut: xerpOutStr,
         pmisIn: pmisInStr, pmisOut: pmisOutStr,
-        rawInMin, rawOutMin, isJochul, isLunchOt: false, isCheolya: false,
+        rawInMin, rawOutMin, isJochul, isLunchOt: false, isCheolya,
         effIn, effOut, xerpGongsuA,
         calcGongsuVal, diff,
         가산사유: normalizeGasanReasonParentheses(
           storedReason || (needsUpdate ? inferredReason : ""),
-          inferGasanReasonTags({ rawOutMin }),
+          inferGasanReasonTags({ rawOutMin, isCheolya }),
         ),
         needsUpdate, isNoRecord, isLate,
-        standardStart: cfg.standardStart,
+        standardStart,
         isNewEmployee, isWaeju,
       });
     }
@@ -810,13 +828,15 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
         const isJochul      = false;
         const cfg           = getTeamConfig(팀명);
-        const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg);
-        const effIn         = effInMin !== null ? minToStr(effInMin) : "";
         const isWaeju       = isWaejuTeam(팀명);
+        const isCheolya     = !isWaeju && detectCheolya(rawInMin, rawOutMin);
+        const standardStart = resolveStandardStart(cfg, isCheolya);
+        const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg, isCheolya);
+        const effIn         = effInMin !== null ? minToStr(effInMin) : "";
         const isNewEmployee = !isWaeju && newEmpData.has(성명);
         const hasClockValue = hasClockCellValue(xerpInRaw, xerpOutRaw, pmisInRaw, pmisOutRaw, xerpInStr, xerpOutStr, pmisInStr, pmisOutStr);
         const isNoRecord    = !hasClockValue && rawInMin === null && rawOutMin === null;
-        const isLate        = !isWaeju && !isNoRecord && effInMin !== null && effInMin > cfg.standardStart;
+        const isLate        = resolveIsLate({ effInMin, standardStart, isWaeju, isNoRecord, isCheolya });
 
         let calcGongsuVal: number | null;
         let diff: number | null;
@@ -833,7 +853,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           diff = d > 0 ? d : null;
           needsUpdate = d > 0;
         } else {
-          calcGongsuVal = calcGongsuForWorkDate(calcWorkDate, effInMin, rawOutMin, isJochul, cfg);
+          calcGongsuVal = calcGongsuForWorkDate(calcWorkDate, effInMin, rawOutMin, isJochul, cfg, false, isCheolya);
           ({ diff, needsUpdate } = calcDiff(calcGongsuVal, xerpGongsuA));
         }
 
@@ -846,10 +866,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           rawInMin,
           rawOutMin,
           isLate,
-          standardStart: cfg.standardStart,
+          standardStart,
           xerpGongsuA,
           calcGongsuVal,
           diff,
+          isCheolya,
           isNewEmployee,
         });
 
@@ -857,15 +878,15 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           rowIndex: i, 팀명, 성명,
           xerpIn: xerpInStr, xerpOut: xerpOutStr,
           pmisIn: pmisInStr, pmisOut: pmisOutStr,
-          rawInMin, rawOutMin, isJochul, isLunchOt: false, isCheolya: false,
+          rawInMin, rawOutMin, isJochul, isLunchOt: false, isCheolya,
           effIn, effOut, xerpGongsuA,
           calcGongsuVal, diff,
           가산사유: normalizeGasanReasonParentheses(
             storedReason || (needsUpdate ? inferredReason : ""),
-            inferGasanReasonTags({ rawOutMin }),
+            inferGasanReasonTags({ rawOutMin, isCheolya }),
           ),
           needsUpdate, isNoRecord, isLate,
-          standardStart: cfg.standardStart,
+          standardStart,
           isNewEmployee, isWaeju,
         });
       }
@@ -904,11 +925,16 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   // (저장된 날짜를 불러오면 예전 계산 규칙으로 저장된 diff가 그대로 남아있을 수 있어서 필요)
   const recalcAllRows = () => {
     setRows((prev) => prev.map((r) => {
-      if (r.isWaeju || r.manualAdjustment) return r;
+      if (r.isWaeju) return r;
       const cfg = getTeamConfig(r.팀명);
-      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
       const isLunchOt = Boolean(r.isLunchOt);
-      const isCheolya = Boolean(r.isCheolya);
+      const isCheolya = r.cheolyaManual ? Boolean(r.isCheolya) : detectCheolya(r.rawInMin, r.rawOutMin);
+      const standardStart = resolveStandardStart(cfg, isCheolya);
+      const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg, isCheolya);
+      const effIn = effInMin !== null ? minToStr(effInMin) : "";
+      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya });
+      // 수기 입력(가산B·사유)한 행은 금액은 그대로 두고 철야·지각 판정만 최신 규칙으로 맞춘다
+      if (r.manualAdjustment) return { ...r, isCheolya, standardStart, effIn, isLate };
 
       let calcVal: number | null;
       let diff: number | null;
@@ -924,7 +950,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         ({ diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA));
       }
       const 가산사유 = needsUpdate ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }) : "";
-      return { ...r, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+      return { ...r, isCheolya, standardStart, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     }));
     toast.success("전체 공수를 최신 계산 규칙으로 재계산했습니다 (수기 입력 항목 제외)");
   };
@@ -1302,6 +1328,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const needCount     = rows.filter((r) => r.needsUpdate).length;
   const noRecCount    = rows.filter((r) => r.isNoRecord).length;
   const lateCount     = rows.filter((r) => r.isLate).length;
+  const noCalcCount   = rows.filter(hasNoCalcGongsu).length;
   const earlyLeaveCount = rows.filter(shouldShowInEarlyLeaveList).length;
 
   const cell = "px-2 py-1.5 text-xs text-center whitespace-nowrap border-r border-border/40 last:border-r-0";
@@ -1578,6 +1605,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                 <UserX className="h-3.5 w-3.5" /> 기록없음 {noRecCount}명
               </span>
             )}
+            {noCalcCount > 0 && (
+              <span className="flex items-center gap-1 text-xs font-bold text-white bg-fuchsia-600 border border-fuchsia-700 px-2.5 py-1.5 rounded-lg shadow-sm">
+                <AlertTriangle className="h-3.5 w-3.5" /> 데이터없음 {noCalcCount}명
+              </span>
+            )}
             {lateCount > 0 && (
               <span className="flex items-center gap-1 text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200 px-2.5 py-1.5 rounded-lg">
                 <Clock className="h-3.5 w-3.5" /> 지각 {lateCount}명
@@ -1598,7 +1630,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               </span>
             )}
 
-            {(lateCount > 0 || needCount > 0) && (
+            {(lateCount > 0 || needCount > 0 || noCalcCount > 0) && (
               <button
                 onClick={() => setShowSpecialList((v) => !v)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
@@ -1741,6 +1773,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                   {noRecCount > 0 && <span className="text-rose-500 mr-2">기록없음 {noRecCount}명</span>}
                   {lateCount > 0 && <span className="text-orange-500 mr-2">지각 {lateCount}명</span>}
                   {needCount > 0 && <span className="text-amber-500 mr-2">가산공수 {needCount}명</span>}
+                  {noCalcCount > 0 && <span className="text-fuchsia-600 font-bold mr-2">데이터없음 {noCalcCount}명</span>}
                 </span>
               </span>
               <button onClick={() => setShowSpecialList(false)} className="text-muted-foreground hover:text-foreground">
@@ -1771,7 +1804,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                     const tags: React.ReactNode[] = [];
                     if (r.isLate)     tags.push(<span key="lt" className="inline-flex items-center gap-0.5 text-orange-600 font-bold"><Clock className="h-3 w-3" /> 지각</span>);
                     if (r.needsUpdate) tags.push(<span key="gs" className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><AlertTriangle className="h-3 w-3" /> 가산</span>);
-                    const rowBg = r.isLate ? "bg-orange-50/60" : "bg-amber-50/40";
+                    if (hasNoCalcGongsu(r)) tags.push(<span key="nc" className="inline-flex items-center gap-0.5 rounded-full bg-fuchsia-600 px-1.5 py-0.5 text-[10px] font-bold text-white"><AlertTriangle className="h-3 w-3" /> 데이터없음</span>);
+                    const rowBg = hasNoCalcGongsu(r) ? "bg-fuchsia-50/70" : r.isLate ? "bg-orange-50/60" : "bg-amber-50/40";
                     return (
                       <tr key={r.rowIndex} className={`border-b border-slate-100 last:border-0 ${rowBg}`}>
                         <td className={stc}>
@@ -2164,7 +2198,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-300 inline-block" /> 가산필요</span>
             {isSafetyEduDate && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-400 inline-block" /> 정기안전교육(16:20~17:00)</span>}
             <span className="text-[11px] text-muted-foreground">· 가산B 셀 클릭 시 수기 입력 가능</span>
-            <span className="text-[11px] text-muted-foreground">· 철야 체크 시 자정 넘긴 퇴근을 익일로 보정</span>
+            <span className="text-[11px] text-muted-foreground">· 철야는 15:00 이후 출근이면 자동 체크(19:00 기준)</span>
           </div>
         </div>
       )}
@@ -2184,7 +2218,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           <p>· <b>연장공수</b>: 17:00 초과 시간당 <b>+0.25공</b> (50분 미만 미인정)</p>
           <p>· <b>조출공수</b>: 체크 시 07:00 이전 시간당 <b>+0.25공</b></p>
           <p>· <b>중식OT</b>: 체크 시 가산사유 "중식OT" 고정, 공수 <b>1.0공</b> 확정 (P5-PH1 등)</p>
-          <p>· <b>철야</b>: 19:00~05:00 야간 전담 근무 — 경과시간에서 휴게 2시간 제외 실근무시간 × <b>0.25공/h</b> (예: 8시간 근무 = 2.0공)</p>
+          <p>· <b>철야</b>: 야간 전담 근무 — 기준 <b>19:00 출근 / 04:50 퇴근 = 2공수</b> (경과 10h - 휴게 2h = 실근무 8h × 0.25공/h). <b>15:00 이후 출근이면 자동 판정</b>되고, 지각은 07:00이 아닌 <b>19:00 기준</b>(19:10까지 정시 인정) · 새벽 퇴근은 조퇴에서 제외</p>
+          <p>· <span className="rounded-full bg-fuchsia-600 px-1.5 py-0.5 text-[10px] font-bold text-white">데이터없음</span> 타각은 있는데 한쪽만 찍혀 공수를 계산할 수 없는 행 — 특이자 명단에 함께 나오니 직접 확인해 가산B를 입력해야 합니다</p>
         </div>
       )}
 
@@ -2237,6 +2272,10 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       ? "bg-sky-50/70 hover:bg-sky-50"
                       : row.isNoRecord
                         ? "bg-rose-50/60 hover:bg-rose-50"
+                        : hasNoCalcGongsu(row)
+                        ? "bg-fuchsia-50/70 hover:bg-fuchsia-100/70"
+                        : row.isCheolya
+                        ? "bg-indigo-50/50 hover:bg-indigo-50"
                         : row.isLate
                           ? "bg-orange-50/60 hover:bg-orange-50"
                           : row.needsUpdate
@@ -2283,7 +2322,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       <td className={`${cell} bg-indigo-50/30`}>
                         <label className="flex items-center justify-center cursor-pointer">
                           <input type="checkbox" checked={row.isCheolya} onChange={() => toggleCheolya(row.rowIndex)}
-                            title="자정을 넘긴 퇴근(철야) → 퇴근시각을 익일로 보정해 연장 공수 계산"
+                            title="철야(야간 전담) — 15:00 이후 출근이면 자동 체크. 기준 19:00 출근 / 04:50 퇴근 = 2공수, 지각도 19:00 기준으로 판정"
                             className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer" />
                         </label>
                       </td>
@@ -2295,13 +2334,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
                       <td className={`${cell} bg-blue-50/40 font-semibold tabular-nums
                         ${row.isLate ? "text-orange-600" :
-                          row.isJochul && row.rawInMin !== null && row.rawInMin < row.standardStart ? "text-violet-700" : "text-blue-700"}`}>
+                          !row.isCheolya && row.isJochul && row.rawInMin !== null && row.rawInMin < row.standardStart ? "text-violet-700" : "text-blue-700"}`}>
                         {row.effIn || "—"}
                         {row.isLate && <span className="ml-1 text-[9px] font-bold text-orange-500">지각</span>}
+                        {row.isCheolya && <span className="ml-1 text-[9px] font-bold text-indigo-500">철야</span>}
                         {row.standardStart !== 7 * 60 && (
                           <span className="ml-1 text-[9px] font-semibold text-slate-400">({minToStr(row.standardStart)}기준)</span>
                         )}
-                        {row.isJochul && row.rawInMin !== null && row.rawInMin < row.standardStart && (
+                        {!row.isCheolya && row.isJochul && row.rawInMin !== null && row.rawInMin < row.standardStart && (
                           <span className="ml-1 text-[9px] font-bold text-violet-500">조출</span>
                         )}
                       </td>
@@ -2345,8 +2385,8 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         )}
                       </td>
 
-                      <td className={`${cell} bg-emerald-50/40 font-bold text-emerald-700 tabular-nums`}>
-                        {row.calcGongsuVal !== null ? row.calcGongsuVal.toFixed(2) : "—"}
+                      <td className={`${cell} tabular-nums font-bold ${row.calcGongsuVal === null ? "bg-fuchsia-100/80 text-fuchsia-700" : "bg-emerald-50/40 text-emerald-700"}`}>
+                        {row.calcGongsuVal !== null ? row.calcGongsuVal.toFixed(2) : "계산불가"}
                       </td>
 
                       {/* 가산사유 */}
@@ -2382,10 +2422,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                           {row.isWaeju && <span className="inline-flex items-center gap-1 text-slate-500 font-semibold"><MinusCircle className="h-3 w-3" /> 외주(0)</span>}
                           {!row.isWaeju && row.isNewEmployee && <span className="inline-flex items-center gap-1 text-sky-600 font-semibold"><CheckCircle className="h-3 w-3" /> 신규(1.0)</span>}
                           {!row.isWaeju && row.isNoRecord && <span className="inline-flex items-center gap-1 text-rose-600 font-semibold"><UserX className="h-3 w-3" /> 기록없음</span>}
+                          {!row.isWaeju && row.isCheolya && <span className="inline-flex items-center gap-1 text-indigo-600 font-semibold"><Clock className="h-3 w-3" /> 철야</span>}
                           {!row.isWaeju && row.isLate && <span className="inline-flex items-center gap-1 text-orange-600 font-semibold"><Clock className="h-3 w-3" /> 지각</span>}
                           {!row.isWaeju && !row.isNewEmployee && !row.isNoRecord && row.needsUpdate && <span className="inline-flex items-center gap-1 text-amber-600 font-semibold"><AlertTriangle className="h-3 w-3" /> 가산필요</span>}
                           {!row.isWaeju && !row.isNewEmployee && !row.isNoRecord && !row.isLate && !row.needsUpdate && row.calcGongsuVal !== null && <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold"><CheckCircle className="h-3 w-3" /> 정상</span>}
-                          {!row.isWaeju && row.calcGongsuVal === null && !row.isNoRecord && <span className="inline-flex items-center gap-1 text-muted-foreground"><MinusCircle className="h-3 w-3" /> 데이터없음</span>}
+                          {hasNoCalcGongsu(row) && <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-600 px-1.5 py-0.5 text-[10px] font-bold text-white"><AlertTriangle className="h-3 w-3" /> 데이터없음</span>}
                         </div>
                       </td>
                     </tr>
