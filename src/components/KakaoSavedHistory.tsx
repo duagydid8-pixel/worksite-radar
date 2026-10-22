@@ -3,6 +3,7 @@ import { CalendarRange, Copy, History, Loader2, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import {
   loadKakaoEventsFS,
+  saveKakaoEventsFS,
   loadKakaoUploadLogFS,
   loadEmployeesPH4FS, saveEmployeesPH4FS,
   loadEmployeesPH2FS, saveEmployeesPH2FS,
@@ -47,6 +48,42 @@ const ROSTER_SITES = [
 ] as const;
 type RosterSiteKey = (typeof ROSTER_SITES)[number]["key"];
 
+/** 이 기록이 어떤 카톡 공지에서 나왔는지 — 날짜·요일·오전오후 시각·보낸사람·원문 */
+function Evidence({ event: e }: { event: KakaoEvent }) {
+  return (
+    <div className="mt-1.5 rounded-md border border-slate-100 bg-slate-50 p-2">
+      <p className="text-[10px] font-bold text-slate-500">
+        카톡 근거 · {dayLabel(e.msgDate)} {kakaoTimeLabel(e.time)} · {e.sender}
+        {e.chat && <span className="ml-1 text-slate-400">· {e.chat}</span>}
+        {e.date !== e.msgDate && <span className="ml-1 text-violet-600">→ 대상일 {e.date}</span>}
+      </p>
+      <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-700">{e.text}</p>
+    </div>
+  );
+}
+
+/** 이름을 못 찾은(또는 잘못 잡힌) 기록의 이름을 직접 적는 칸. 명단 이름 자동완성, 칸을 벗어나거나 Enter를 누르면 저장. */
+function NameInput({ value, missing, saving, onChange, onCommit }: {
+  value: string; missing: boolean; saving: boolean;
+  onChange: (v: string) => void; onCommit: (v: string) => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <input
+        list="kakao-saved-roster-names"
+        value={value}
+        onChange={(ev) => onChange(ev.target.value)}
+        onBlur={(ev) => onCommit(ev.target.value)}
+        onKeyDown={(ev) => { if (ev.key === "Enter") ev.currentTarget.blur(); }}
+        placeholder="이름 입력"
+        disabled={saving}
+        className={`w-20 rounded border px-1.5 py-1 text-xs font-bold ${missing ? "border-amber-300 bg-amber-50 text-slate-800" : "border-slate-200 text-slate-800"}`}
+      />
+      {saving && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+    </span>
+  );
+}
+
 function categoryBadge(category: string) {
   const tone = category === "punch" ? "bg-red-100 text-red-700"
     : category === "resign" || category === "newbie" ? "bg-violet-100 text-violet-700"
@@ -64,6 +101,8 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [roster, setRoster] = useState<Record<RosterSiteKey, RosterRow[]>>({ PH4: [], PH2: [], P5PH1: [] });
   const [applying, setApplying] = useState("");
+  const [nameEdits, setNameEdits] = useState<Record<string, string>>({}); // 기록 id → 직접 적은 이름
+  const [savingName, setSavingName] = useState("");
 
   useEffect(() => { if (defaultMonth) setMonth(defaultMonth); }, [defaultMonth]);
   useEffect(() => { if (room) setRoomFilter(room); }, [room]);
@@ -102,9 +141,12 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
     for (const e of shownEvents) counts[e.category] = (counts[e.category] ?? 0) + 1;
     return counts;
   }, [shownEvents]);
+  const unnamedEvents = useMemo(() => shownEvents.filter((e) => !e.name), [shownEvents]);
   const listEvents = useMemo(
-    () => (categoryFilter === "all" ? shownEvents : shownEvents.filter((e) => e.category === categoryFilter)),
-    [shownEvents, categoryFilter],
+    () => categoryFilter === "all" ? shownEvents
+      : categoryFilter === "noname" ? unnamedEvents
+      : shownEvents.filter((e) => e.category === categoryFilter),
+    [shownEvents, unnamedEvents, categoryFilter],
   );
 
   // 기술인 및 관리자 명단 — 퇴사일이 반영됐는지 보여주고, 여기서 바로 넣을 수 있게
@@ -134,6 +176,15 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
     return null;
   };
 
+  /** 자동완성용 — 세 현장 명단의 이름 전부 */
+  const rosterNames = useMemo(
+    () => [...new Set(ROSTER_SITES.flatMap((s) => roster[s.key].map((r) => normalizeName(r.이름 ?? ""))).filter(Boolean))].sort(),
+    [roster],
+  );
+
+  /** 이름을 못 찾은 퇴사 공지 — 이름만 적어 주면 위 명단으로 올라간다 */
+  const unnamedResign = useMemo(() => shownEvents.filter((e) => e.category === "resign" && !e.name), [shownEvents]);
+
   /** 그 달 퇴사 공지를 사람별로 묶는다 — 퇴사일은 가장 늦게 공지된 대상일로 본다 */
   const resignPeople = useMemo(() => {
     const map = new Map<string, { name: string; date: string; events: KakaoEvent[] }>();
@@ -162,6 +213,28 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
       toast.success(date ? `${name} 퇴사일을 ${date}로 입력했습니다 (${hit.site.label}).` : `${name} 퇴사일을 지웠습니다 (${hit.site.label}).`);
     } finally {
       setApplying("");
+    }
+  };
+
+  /** 카톡이 못 찾은 이름을 직접 적어 그 달 저장 기록에 반영한다 (이름이 들어가면 사람별·퇴사자 집계에도 바로 잡힌다) */
+  const saveEventName = async (id: string, raw: string) => {
+    const name = normalizeName(raw);
+    const all = events ?? [];
+    const target = all.find((e) => e.id === id);
+    const clear = () => setNameEdits((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    if (!target || target.name === name) { clear(); return; }
+    setSavingName(id);
+    try {
+      const next = all.map((e) => (e.id === id ? { ...e, name } : e));
+      if (!(await saveKakaoEventsFS(month, next))) { toast.error("이름 저장에 실패했습니다."); return; }
+      setEvents(next);
+      clear();
+      window.dispatchEvent(new CustomEvent("kakao-events-updated"));
+      if (!name) toast.success("이름을 지웠습니다.");
+      else if (findRosterRow(name)) toast.success(`${name} 으로 저장했습니다. 명단에서 찾았습니다.`);
+      else toast.warning(`${name} 으로 저장했지만 기술인 및 관리자 명단에는 없는 이름입니다. 이름을 다시 확인하거나 명단에 추가하세요.`);
+    } finally {
+      setSavingName("");
     }
   };
 
@@ -250,9 +323,13 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
             </button>
           </div>
         </div>
-        {view === "list" && categories.length > 1 && (
-          <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-4 py-2">
-            {[["all", `전체 ${shownEvents.length}`] as const, ...categories.map((c) => [c, `${EVENT_CATEGORY_LABELS[c] ?? c} ${categoryCounts[c]}`] as const)].map(([key, label]) => (
+        {view === "list" && (categories.length > 1 || unnamedEvents.length > 0) && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 px-4 py-2">
+            {[
+              ["all", `전체 ${shownEvents.length}`] as const,
+              ...categories.map((c) => [c, `${EVENT_CATEGORY_LABELS[c] ?? c} ${categoryCounts[c]}`] as const),
+              ...(unnamedEvents.length ? [["noname", `이름 미확인 ${unnamedEvents.length}`] as const] : []),
+            ].map(([key, label]) => (
               <button
                 key={key}
                 type="button"
@@ -262,8 +339,12 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
                 {label}
               </button>
             ))}
+            {categoryFilter === "noname" && (
+              <span className="text-[11px] text-slate-500">이름 칸에 직접 적으면(명단 이름 자동완성) 그 달 기록에 바로 저장되고 사람별·퇴사자 집계에도 들어갑니다.</span>
+            )}
           </div>
         )}
+        <datalist id="kakao-saved-roster-names">{rosterNames.map((n) => <option key={n} value={n} />)}</datalist>
         <div className="max-h-[480px] overflow-y-auto">
           {events === null ? (
             <p className="flex items-center justify-center gap-2 py-8 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 불러오는 중</p>
@@ -314,20 +395,34 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
                             </button>
                           )}
                         </div>
-                        {p.events.map((e) => (
-                          <div key={e.id} className="mt-1.5 rounded-md border border-slate-100 bg-slate-50 p-2">
-                            <p className="text-[10px] font-bold text-slate-500">
-                              카톡 근거 · {dayLabel(e.msgDate)} {kakaoTimeLabel(e.time)} · {e.sender}
-                              {e.chat && <span className="ml-1 text-slate-400">· {e.chat}</span>}
-                              {e.date !== e.msgDate && <span className="ml-1 text-violet-600">→ 대상일 {e.date}</span>}
-                            </p>
-                            <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] text-slate-700">{e.text}</p>
-                          </div>
-                        ))}
+                        {p.events.map((e) => <Evidence key={e.id} event={e} />)}
                       </li>
                     );
                   })}
                 </ul>
+              )}
+              {unnamedResign.length > 0 && (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-2.5">
+                  <p className="text-xs font-extrabold text-amber-800">이름을 못 찾은 퇴사 공지 {unnamedResign.length}건</p>
+                  <p className="mt-0.5 text-[11px] text-amber-700">명단에 없는 이름이거나 문장이 길어 못 집어낸 경우입니다. 근거를 보고 이름을 적으면 바로 위 퇴사자 명단으로 올라갑니다.</p>
+                  <ul className="mt-2 space-y-2">
+                    {unnamedResign.map((e) => (
+                      <li key={e.id} className="rounded-lg border border-amber-200 bg-white p-2">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <NameInput
+                            value={nameEdits[e.id] ?? ""}
+                            missing
+                            saving={savingName === e.id}
+                            onChange={(v) => setNameEdits((prev) => ({ ...prev, [e.id]: v }))}
+                            onCommit={(v) => saveEventName(e.id, v)}
+                          />
+                          <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-bold text-violet-700">퇴사일 {e.date}</span>
+                        </div>
+                        <Evidence event={e} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           ) : view === "list" ? (
@@ -341,7 +436,15 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
                   <tr key={e.id} className="align-top">
                     <td className="whitespace-nowrap px-3 py-2 font-bold text-slate-700">{e.date.slice(5)}</td>
                     <td className="max-w-[160px] truncate px-3 py-2 text-slate-500" title={e.chat ?? e.room ?? ""}>{e.chat ?? e.room ?? "-"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 font-bold text-slate-800">{e.name || "이름?"}</td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <NameInput
+                        value={nameEdits[e.id] ?? e.name}
+                        missing={!e.name}
+                        saving={savingName === e.id}
+                        onChange={(v) => setNameEdits((prev) => ({ ...prev, [e.id]: v }))}
+                        onCommit={(v) => saveEventName(e.id, v)}
+                      />
+                    </td>
                     <td className="whitespace-nowrap px-3 py-2">{categoryBadge(e.category)}{e.cause && <span className="ml-1 text-[11px] text-slate-500">{e.cause}</span>}</td>
                     <td className="px-3 py-2 text-slate-600"><span className="mr-1 text-[10px] text-slate-400">{e.msgDate.slice(5)} {e.time} {e.sender}</span>{e.text.replace(/\n/g, " ")}</td>
                   </tr>
