@@ -10,6 +10,7 @@ import {
   guessLeadingNames,
   isBroadcastNotice,
   makeEvent,
+  reExtractSavedEvents,
   isNotPersonnelChange,
   mergeKakaoEvents,
   messageMonths,
@@ -112,14 +113,36 @@ describe("kakao events", () => {
       date: "2026-10-20", msgDate: "2026-10-20", time: "19:02", sender: "송성준",
       name: "금일부로", category: "resign", cause: "", text: "금일부로 퇴사합니다 공사 마무리까지 안전작업 하세요~", source: "rule",
     });
-    const mine = makeEvent({ ...old, name: "정영택", edited: true });
     const fresh = makeEvent({ ...old, name: "송성준" });
-    const merged = mergeKakaoEvents([old, mine], [fresh]);
     // 같은 메시지에서 새로 뽑은 기록이 옛 기록을 대신한다
-    expect(merged.map((e) => e.name)).toContain("송성준");
-    expect(merged.map((e) => e.name)).not.toContain("금일부로");
-    // 직접 고친 기록은 남는다
-    expect(merged.map((e) => e.name)).toContain("정영택");
+    const merged = mergeKakaoEvents([old], [fresh]);
+    expect(merged.map((e) => e.name)).toEqual(["송성준"]);
+
+    // 사람이 이름을 적은 메시지는 다시 올려도 그대로 둔다
+    const mine = makeEvent({ ...old, time: "19:05", name: "정영택", edited: true });
+    const again = makeEvent({ ...old, time: "19:05", name: "이경원" });
+    expect(mergeKakaoEvents([mine], [again]).map((e) => e.name)).toEqual(["정영택"]);
+  });
+
+  it("저장된 기록을 파일 없이 지금 규칙으로 다시 정리한다", () => {
+    const row = (sender: string, name: string, text: string, time: string) => makeEvent({
+      date: "2026-10-20", msgDate: "2026-10-20", time, sender, name,
+      category: "resign", cause: "", text, source: "rule", room: "P4", chat: "P4 PH4 공지방",
+    });
+    const saved = [
+      row("송성준", "금일부로", "금일부로 퇴사합니다 공사 마무리까지 안전작업 하세요~", "19:02"),
+      row("정영택", "", "퇴사합니다 공사 마무리까지 안전작업 하세요~", "19:03"),
+      row("김요건", "이국희", "금일부로 퇴사합니다 남은공사 안전작업 하세요~ 이국희님이 나갔습니다.", "19:04"),
+      { ...row("이경원", "홍길동", "금일부로 퇴사합니다. 남은 공정 안전 작업하세요", "19:05"), edited: true },
+    ];
+    const cleaned = reExtractSavedEvents(saved, ["이국희", "김요건"]);
+    // 보낸 사람이 당사자로 채워지고, 입퇴장 줄 이름(이국희)은 당사자가 되지 않는다
+    expect(cleaned.map((e) => e.name)).toEqual(["송성준", "정영택", "김요건", "홍길동"]);
+    // 방·대화방 구분은 그대로 둔다
+    expect(cleaned[0].room).toBe("P4");
+    expect(cleaned[0].chat).toBe("P4 PH4 공지방");
+    // 직접 고친 기록은 건드리지 않는다
+    expect(cleaned[3].edited).toBe(true);
   });
 
   it("대화방 키는 방 이름을 쓰고, 이름이 없으면 파일명에서 꾸밈을 뗀다", () => {

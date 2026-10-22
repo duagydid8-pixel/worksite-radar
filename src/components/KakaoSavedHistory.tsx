@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarRange, Copy, History, Loader2, Trash2, UserMinus } from "lucide-react";
+import { CalendarRange, Copy, History, Loader2, RefreshCw, Trash2, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import {
   loadKakaoEventsFS,
@@ -10,7 +10,7 @@ import {
   loadEmployeesP5PH1FS, saveEmployeesP5PH1FS,
   type KakaoUploadLogEntry,
 } from "@/lib/firestoreService";
-import { EVENT_CATEGORY_LABELS, KAKAO_ROOMS, normalizeName, summarizeEventsByPerson, type KakaoEvent } from "@/lib/kakaoEvents";
+import { EVENT_CATEGORY_LABELS, KAKAO_ROOMS, normalizeName, reExtractSavedEvents, summarizeEventsByPerson, type KakaoEvent } from "@/lib/kakaoEvents";
 
 interface Props {
   isAdmin: boolean;
@@ -103,6 +103,7 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
   const [applying, setApplying] = useState("");
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({}); // 기록 id → 직접 적은 이름
   const [savingName, setSavingName] = useState("");
+  const [recleaning, setRecleaning] = useState(false);
 
   useEffect(() => { if (defaultMonth) setMonth(defaultMonth); }, [defaultMonth]);
   useEffect(() => { if (room) setRoomFilter(room); }, [room]);
@@ -255,6 +256,32 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
     }
   };
 
+  /** 저장된 기록을 지금 규칙으로 다시 뽑는다 — 카톡 파일을 다시 올리지 않고 이름·구분을 바로잡는 용도 */
+  const recleanMonth = async () => {
+    const all = events ?? [];
+    if (!all.length) return;
+    if (!rosterNames.length) { toast.error("기술인 및 관리자 명단을 불러오는 중입니다. 잠시 뒤 다시 눌러 주세요."); return; }
+    const next = reExtractSavedEvents(all, rosterNames);
+    const before = new Set(all.map((e) => e.id));
+    const after = new Set(next.map((e) => e.id));
+    const added = next.filter((e) => !before.has(e.id)).length;
+    const removed = all.filter((e) => !after.has(e.id)).length;
+    if (!added && !removed) { toast.success("이미 지금 규칙으로 정리돼 있습니다."); return; }
+    const ok = window.confirm(`${month} 저장 기록 ${all.length}건을 지금 규칙으로 다시 정리합니다.
+새로 잡히는 기록 ${added}건, 빠지는 기록 ${removed}건 (원문 300자 뒤에만 있던 키워드는 다시 잡히지 않아 빠집니다).
+직접 적은 이름은 그대로 둡니다.`);
+    if (!ok) return;
+    setRecleaning(true);
+    try {
+      if (!(await saveKakaoEventsFS(month, next))) { toast.error("저장에 실패했습니다."); return; }
+      setEvents(next);
+      window.dispatchEvent(new CustomEvent("kakao-events-updated"));
+      toast.success(`다시 정리했습니다. ${all.length}건 → ${next.length}건`);
+    } finally {
+      setRecleaning(false);
+    }
+  };
+
   const copyResignList = async () => {
     const text = resignPeople
       .map((p) => {
@@ -332,6 +359,15 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
             <CalendarRange className="h-4 w-4" /> 저장된 근태 기록{room ? ` · ${roomLabel(room)}` : roomFilter !== "all" ? ` · ${roomLabel(roomFilter)}` : ""}
           </p>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-md border border-slate-200 px-2 py-1 text-sm" />
+          <button
+            type="button"
+            onClick={recleanMonth}
+            disabled={recleaning || !events?.length}
+            title="카톡 파일을 다시 올리지 않고, 저장된 기록의 이름·구분을 지금 규칙으로 다시 뽑습니다"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {recleaning ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} 다시 정리
+          </button>
           <div className="ml-auto flex overflow-hidden rounded-lg border border-slate-200 text-xs font-bold">
             <button type="button" onClick={() => setView("list")} className={`px-2.5 py-1 ${view === "list" ? "bg-slate-800 text-white" : "bg-white text-slate-500"}`}>목록</button>
             <button type="button" onClick={() => setView("person")} className={`px-2.5 py-1 ${view === "person" ? "bg-slate-800 text-white" : "bg-white text-slate-500"}`}>사람별</button>

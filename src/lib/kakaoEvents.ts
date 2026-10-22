@@ -218,6 +218,30 @@ export function extractKakaoEvents(messages: KakaoMessage[], roster: string[]): 
   return events;
 }
 
+/**
+ * 저장된 기록을 지금 규칙으로 다시 정리한다. 카톡 파일 없이도 이름·분류를 바로잡기 위한 것.
+ * 메시지 단위로 묶어 다시 뽑고, 사람이 직접 고친 기록(edited)은 그대로 둔다.
+ * 원문은 300자까지만 저장돼 있어 그 뒤에만 있던 키워드는 다시 잡히지 않는다(= 그 기록은 빠진다).
+ */
+export function reExtractSavedEvents(saved: KakaoEvent[], roster: string[]): KakaoEvent[] {
+  const groups = new Map<string, KakaoEvent[]>();
+  for (const e of saved) {
+    const key = messageKeyOf(e);
+    const list = groups.get(key);
+    if (list) list.push(e);
+    else groups.set(key, [e]);
+  }
+  const out: KakaoEvent[] = [];
+  for (const group of groups.values()) {
+    // 사람이 이름을 적은 메시지는 손대지 않는다
+    if (group.some((e) => e.edited)) { out.push(...group); continue; }
+    const src = group[0];
+    const fresh = extractKakaoEvents([{ date: src.msgDate, time: src.time, sender: src.sender, text: src.text }], roster);
+    for (const e of fresh) out.push({ ...e, ...(src.room ? { room: src.room } : {}), ...(src.chat ? { chat: src.chat } : {}) });
+  }
+  return out.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+}
+
 /** 어느 카톡 메시지에서 나온 기록인지 — 같은 메시지를 다시 정리하면 옛 기록을 갈아끼우기 위한 키 */
 export function messageKeyOf(e: Pick<KakaoEvent, "msgDate" | "time" | "sender" | "text">): string {
   return `${e.msgDate}|${e.time}|${e.sender}|${e.text.slice(0, 40)}`;
@@ -229,9 +253,12 @@ export function messageKeyOf(e: Pick<KakaoEvent, "msgDate" | "time" | "sender" |
  * 사람이 직접 이름을 고친 기록(edited)은 그대로 둔다.
  */
 export function mergeKakaoEvents(existing: KakaoEvent[], incoming: KakaoEvent[]): KakaoEvent[] {
+  const edited = new Set(existing.filter((e) => e.edited).map(messageKeyOf));
   const redone = new Set(incoming.map(messageKeyOf));
-  const map = new Map(existing.filter((e) => e.edited || !redone.has(messageKeyOf(e))).map((e) => [e.id, e]));
-  for (const e of incoming) if (!map.get(e.id)?.edited) map.set(e.id, e);
+  const map = new Map(
+    existing.filter((e) => edited.has(messageKeyOf(e)) || !redone.has(messageKeyOf(e))).map((e) => [e.id, e]),
+  );
+  for (const e of incoming) if (!edited.has(messageKeyOf(e))) map.set(e.id, e);
   return [...map.values()].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }
 
