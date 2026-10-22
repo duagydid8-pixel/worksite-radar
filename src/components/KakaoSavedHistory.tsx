@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarRange, Copy, History, Loader2, UserMinus } from "lucide-react";
+import { CalendarRange, Copy, History, Loader2, Trash2, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import {
   loadKakaoEventsFS,
@@ -225,7 +225,7 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
     if (!target || target.name === name) { clear(); return; }
     setSavingName(id);
     try {
-      const next = all.map((e) => (e.id === id ? { ...e, name } : e));
+      const next = all.map((e) => (e.id === id ? { ...e, name, edited: true } : e));
       if (!(await saveKakaoEventsFS(month, next))) { toast.error("이름 저장에 실패했습니다."); return; }
       setEvents(next);
       clear();
@@ -233,6 +233,23 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
       if (!name) toast.success("이름을 지웠습니다.");
       else if (findRosterRow(name)) toast.success(`${name} 으로 저장했습니다. 명단에서 찾았습니다.`);
       else toast.warning(`${name} 으로 저장했지만 기술인 및 관리자 명단에는 없는 이름입니다. 이름을 다시 확인하거나 명단에 추가하세요.`);
+    } finally {
+      setSavingName("");
+    }
+  };
+
+  /** 잘못 잡힌 기록(사람 근태가 아닌데 잡힌 공지)을 그 달 저장본에서 뺀다 */
+  const deleteEvent = async (e: KakaoEvent) => {
+    const what = `${e.date} ${e.name || "이름 없음"} · ${EVENT_CATEGORY_LABELS[e.category] ?? e.category}`;
+    if (!window.confirm(`${what} 기록을 지울까요?
+카톡 원문은 그대로이고 저장된 근태 기록에서만 빠집니다.`)) return;
+    setSavingName(e.id);
+    try {
+      const next = (events ?? []).filter((x) => x.id !== e.id);
+      if (!(await saveKakaoEventsFS(month, next))) { toast.error("저장에 실패했습니다."); return; }
+      setEvents(next);
+      window.dispatchEvent(new CustomEvent("kakao-events-updated"));
+      toast.success("기록을 지웠습니다.");
     } finally {
       setSavingName("");
     }
@@ -428,10 +445,10 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
           ) : view === "list" ? (
             <table className="w-full text-left text-xs">
               <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-500">
-                <tr><th className="px-3 py-2">대상일</th><th className="px-3 py-2">대화방</th><th className="px-3 py-2">이름</th><th className="px-3 py-2">구분</th><th className="px-3 py-2">카톡 원문</th></tr>
+                <tr><th className="px-3 py-2">대상일</th><th className="px-3 py-2">대화방</th><th className="px-3 py-2">이름</th><th className="px-3 py-2">구분</th><th className="px-3 py-2">카톡 원문</th><th /></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {listEvents.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-xs text-slate-400">고른 구분에 해당하는 기록이 없습니다.</td></tr>}
+                {listEvents.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-xs text-slate-400">고른 구분에 해당하는 기록이 없습니다.</td></tr>}
                 {listEvents.map((e) => (
                   <tr key={e.id} className="align-top">
                     <td className="whitespace-nowrap px-3 py-2 font-bold text-slate-700">{e.date.slice(5)}</td>
@@ -447,6 +464,11 @@ export default function KakaoSavedHistory({ isAdmin, room, defaultMonth, showUpl
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">{categoryBadge(e.category)}{e.cause && <span className="ml-1 text-[11px] text-slate-500">{e.cause}</span>}</td>
                     <td className="px-3 py-2 text-slate-600"><span className="mr-1 text-[10px] text-slate-400">{e.msgDate.slice(5)} {e.time} {e.sender}</span>{e.text.replace(/\n/g, " ")}</td>
+                    <td className="px-2 py-2">
+                      <button type="button" title="이 기록 지우기" disabled={savingName === e.id} onClick={() => deleteEvent(e)} className="rounded p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-500 disabled:opacity-40">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

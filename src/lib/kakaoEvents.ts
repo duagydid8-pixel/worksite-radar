@@ -17,6 +17,7 @@ export interface KakaoEvent {
   source: "rule" | "ai";
   room?: string; // 어느 현장 그룹인지: "P4" | "P5" (예전 기록엔 없음)
   chat?: string; // 어느 카톡 대화방에서 왔는지 (P4 공지방이 여러 개라 방마다 구분, 예전 기록엔 없음)
+  edited?: boolean; // 사람이 직접 이름을 적어 고친 기록 — 같은 파일을 다시 올려도 덮어쓰지 않는다
 }
 
 /**
@@ -109,10 +110,22 @@ const NOT_HAPPENING_RE = /(퇴사|퇴직|사직|입사|신규자|신입|투입)\
 const ASKING_RE = /\?|어떻게|무엇|언제까지|방법|절차|문의|여쭤|되나요|될까요|인가요|있나요|없나요|맞나요|할까요|하나요|가능한가|알려\s*주/;
 const PAPERWORK_RE = /(퇴사|입사)\s*(자\s*)?(명단|서류|신고|관련\s*문의|처리\s*(방법|절차))|퇴사율|정산\s*방법/;
 
+/** @멘션으로 여러 명을 부르는 단체 공지인지 (건강검진 대상자 공지 등) — 사람별 근태가 아니다 */
+export function isBroadcastNotice(text: string): boolean {
+  const mentions = text.match(/@[가-힣A-Za-z]/g)?.length ?? 0;
+  return mentions >= 5 || (mentions >= 3 && text.length > 120);
+}
+
 /** 명단에 반영하는 분류(퇴사·입사)인데 실제 변동이 아닌 말인지 */
 export function isNotPersonnelChange(text: string, category: string): boolean {
   if (category !== "resign" && category !== "newbie") return false;
-  return NOT_HAPPENING_RE.test(text) || ASKING_RE.test(text) || PAPERWORK_RE.test(text);
+  return NOT_HAPPENING_RE.test(text) || ASKING_RE.test(text) || PAPERWORK_RE.test(text) || isBroadcastNotice(text);
+}
+
+/** 카톡이 자동으로 붙이는 입·퇴장 줄. 이름 추정에서 빼야 본인 공지와 섞이지 않는다. */
+const SYSTEM_LINE_RE = /[가-힣A-Za-z0-9._-]{2,14}님(이|을)\s*(나갔습니다|들어왔습니다|초대했습니다|내보냈습니다|입장했습니다|퇴장했습니다)\.?/g;
+export function stripSystemLines(text: string): string {
+  return text.replace(SYSTEM_LINE_RE, " ").replace(/\s+/g, " ").trim();
 }
 
 /** 문장 속에서 명단에 있는 이름을 찾는다(긴 이름 우선, 중복 제거). */
@@ -132,14 +145,37 @@ export function findRosterNames(text: string, roster: string[]): string[] {
 
 const NOT_NAMES = new Set(["내일", "오늘", "금일", "명일", "모레", "어제", "전원", "현장", "공지", "필독", "알림", "안내", "오전", "오후", "금주", "이번", "다음", "전체", "작업", "신규", "교육", "안전", "연차", "반차", "조퇴", "퇴사", "결근", "지각", "출근", "퇴근", "타각", "확인", "부탁", "네", "넵"]);
 
+// "금일부로", "내일자로"처럼 때를 가리키는 말은 이름이 아니다
+const WHEN_WORD_RE = /^(금일|오늘|명일|내일|모레|어제|익일|당일|전일|전날|금주|차주|이번|다음|주말|월말|월초)/;
+const WHEN_TAIL_RE = /(부로|자로|부터|까지|이후|이전|현재|기준|경에|께)$/;
+/** 문장 앞의 "금일부로", "내일 " 같은 때 표현을 떼어 낸다. */
+const LEADING_WHEN_RE = /^(금일|오늘|명일|내일|모레|어제|익일|당일|전일|전날|금주|차주)\s*(부로|자로|부터|까지|에|은|는)?[\s,]*/;
+
 /** 명단에서 못 찾았을 때: "홍길동 조퇴합니다", "이영희, 박민수 타각 안됨"처럼 문장 앞에 나온 이름을 추정한다. */
 export function guessLeadingNames(text: string): string[] {
-  const m = text.trim().match(/^((?:[가-힣]{2,4}\s*(?:님|씨|반장|기사|조장)?\s*[,·/]\s*)*[가-힣]{2,4})(?:\s*(?:님|씨|반장|기사|조장))?(?:은|는|이|가)?\s/);
+  const m = text.trim().replace(LEADING_WHEN_RE, "").match(/^((?:[가-힣]{2,4}\s*(?:님|씨|반장|기사|조장)?\s*[,·/]\s*)*[가-힣]{2,4})(?:\s*(?:님|씨|반장|기사|조장))?(?:은|는|이|가)?\s/);
   if (!m) return [];
   return m[1]
     .split(/[,·/]/)
     .map((n) => n.replace(/(님|씨|반장|기사|조장)$/, "").trim())
-    .filter((n) => n.length >= 2 && n.length <= 4 && !NOT_NAMES.has(n));
+    .filter((n) => n.length >= 2 && n.length <= 4 && !NOT_NAMES.has(n) && !WHEN_WORD_RE.test(n) && !WHEN_TAIL_RE.test(n));
+}
+
+// "퇴사합니다"처럼 본인이 직접 알리는 말 — 문장에 다른 이름이 없으면 보낸 사람이 당사자다
+const SELF_REPORT_RE = /(퇴사|퇴직|사직|조퇴|연차|반차|휴가|결근|지각|외출|입사|출근|복귀)\s*(하겠습니다|하겠음|하려고|합니다|했습니다|하였습니다|할게요|할께요|드립니다|입니다|이요|예정입니다|예정이요)/;
+export function isSelfReport(text: string): boolean {
+  return SELF_REPORT_RE.test(text);
+}
+
+/** 보낸 사람 표시에서 이름만 뽑는다. "구서윤8408-2775" → "구서윤", "홍길동 반장" → "홍길동" */
+export function senderPersonName(sender: string, roster: string[] = []): string {
+  const compact = normalizeName(sender);
+  const hit = [...new Set(roster.map(normalizeName).filter((n) => n.length >= 2))]
+    .sort((a, b) => b.length - a.length)
+    .find((n) => compact.includes(n));
+  if (hit) return hit;
+  const lead = compact.match(/^[가-힣]{2,4}/)?.[0] ?? "";
+  return lead && !NOT_NAMES.has(lead) && !WHEN_WORD_RE.test(lead) ? lead : "";
 }
 
 function eventId(e: Omit<KakaoEvent, "id">): string {
@@ -162,8 +198,17 @@ export function extractKakaoEvents(messages: KakaoMessage[], roster: string[]): 
     // (예: "조퇴합니다. 퇴사자는 없습니다" → 조퇴로만 잡는다)
     const category = CATEGORY_PRIORITY.filter((k) => m.keys.includes(k)).find((k) => !isNotPersonnelChange(m.text, k));
     if (!category) continue;
-    const rosterHits = findRosterNames(m.text, roster);
-    const names = rosterHits.length ? rosterHits : guessLeadingNames(m.text);
+    // 카톡 자동 입퇴장 줄("○○님이 나갔습니다")은 빼고 본문으로만 이름을 찾는다
+    const body = stripSystemLines(m.text);
+    const rosterHits = findRosterNames(body, roster);
+    let names = rosterHits.length ? rosterHits : guessLeadingNames(body);
+    // 본문에 이름이 없고 "퇴사합니다"처럼 본인이 알리는 말이면 보낸 사람이 당사자
+    if (!names.length && isSelfReport(body)) {
+      const self = senderPersonName(m.sender, roster);
+      if (self) names = [self];
+    }
+    // 여러 명을 부르는 단체 공지는 사람별 근태가 아니라 공지 — 한 줄로만 남긴다
+    if (names.length >= 4 && isBroadcastNotice(m.text)) names = [];
     const date = resolveTargetDate(m.text, m.date);
     const cause = category === "punch" ? detectPunchCause(m.text) : "";
     const base = { date, msgDate: m.date, time: m.time, sender: m.sender, category, cause, text: m.text.slice(0, 300), source: "rule" as const };
@@ -173,10 +218,20 @@ export function extractKakaoEvents(messages: KakaoMessage[], roster: string[]): 
   return events;
 }
 
-/** 저장된 이벤트와 새 이벤트를 id 기준으로 합친다(새 것이 우선). */
+/** 어느 카톡 메시지에서 나온 기록인지 — 같은 메시지를 다시 정리하면 옛 기록을 갈아끼우기 위한 키 */
+export function messageKeyOf(e: Pick<KakaoEvent, "msgDate" | "time" | "sender" | "text">): string {
+  return `${e.msgDate}|${e.time}|${e.sender}|${e.text.slice(0, 40)}`;
+}
+
+/**
+ * 저장된 이벤트와 새 이벤트를 합친다.
+ * 같은 메시지에서 다시 뽑은 기록은 새 것으로 갈아끼운다(정리 규칙이 좋아지면 옛 결과가 남지 않게).
+ * 사람이 직접 이름을 고친 기록(edited)은 그대로 둔다.
+ */
 export function mergeKakaoEvents(existing: KakaoEvent[], incoming: KakaoEvent[]): KakaoEvent[] {
-  const map = new Map(existing.map((e) => [e.id, e]));
-  for (const e of incoming) map.set(e.id, e);
+  const redone = new Set(incoming.map(messageKeyOf));
+  const map = new Map(existing.filter((e) => e.edited || !redone.has(messageKeyOf(e))).map((e) => [e.id, e]));
+  for (const e of incoming) if (!map.get(e.id)?.edited) map.set(e.id, e);
   return [...map.values()].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }
 

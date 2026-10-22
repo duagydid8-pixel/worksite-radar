@@ -8,6 +8,8 @@ import {
   findRosterNames,
   guessKakaoRoom,
   guessLeadingNames,
+  isBroadcastNotice,
+  makeEvent,
   isNotPersonnelChange,
   mergeKakaoEvents,
   messageMonths,
@@ -105,6 +107,21 @@ describe("kakao events", () => {
     expect(summary.find((s) => s.name === "홍길동")?.counts).toEqual({ early: 1 });
   });
 
+  it("같은 메시지를 다시 정리하면 옛 기록을 갈아끼우되 직접 고친 이름은 지킨다", () => {
+    const old = makeEvent({
+      date: "2026-10-20", msgDate: "2026-10-20", time: "19:02", sender: "송성준",
+      name: "금일부로", category: "resign", cause: "", text: "금일부로 퇴사합니다 공사 마무리까지 안전작업 하세요~", source: "rule",
+    });
+    const mine = makeEvent({ ...old, name: "정영택", edited: true });
+    const fresh = makeEvent({ ...old, name: "송성준" });
+    const merged = mergeKakaoEvents([old, mine], [fresh]);
+    // 같은 메시지에서 새로 뽑은 기록이 옛 기록을 대신한다
+    expect(merged.map((e) => e.name)).toContain("송성준");
+    expect(merged.map((e) => e.name)).not.toContain("금일부로");
+    // 직접 고친 기록은 남는다
+    expect(merged.map((e) => e.name)).toContain("정영택");
+  });
+
   it("대화방 키는 방 이름을 쓰고, 이름이 없으면 파일명에서 꾸밈을 뗀다", () => {
     expect(chatKeyOf("P4 PH4  공지방", "KakaoTalk_Chat_아무개.txt")).toBe("P4 PH4 공지방");
     expect(chatKeyOf("", "KakaoTalk_Chat_P4 PH2 공지방.txt")).toBe("P4 PH2 공지방");
@@ -143,5 +160,37 @@ describe("kakao events", () => {
     const events = extractKakaoEvents(parseKakaoChat(chat).messages, ROSTER);
     expect(events.find((e) => e.name === "홍길동")?.category).toBe("early");
     expect(events.find((e) => e.name === "김철수")?.category).toBe("resign");
+  });
+  it("본인이 알리는 퇴사 공지는 보낸 사람을 당사자로 본다", () => {
+    const chat = `--------------- 2026년 10월 20일 화요일 ---------------
+[송성준] [오후 7:02] 금일부로 퇴사합니다 공사 마무리까지 안전작업 하세요~`;
+    const events = extractKakaoEvents(parseKakaoChat(chat).messages, ROSTER);
+    expect(events).toHaveLength(1);
+    expect(events[0].name).toBe("송성준");
+    expect(events[0].category).toBe("resign");
+  });
+
+  it("'금일부로' 같은 때 표현은 이름으로 잡지 않는다", () => {
+    expect(guessLeadingNames("금일부로 퇴사합니다 공사 마무리까지 안전작업 하세요~")).toEqual([]);
+    expect(guessLeadingNames("금일부로 홍길동 조퇴합니다 ")).toEqual(["홍길동"]);
+  });
+
+  it("카톡 입퇴장 줄에 나온 이름은 공지 당사자로 보지 않는다", () => {
+    const chat = `--------------- 2026년 10월 20일 화요일 ---------------
+[김요건] [오후 7:02] 금일부로 퇴사합니다 남은공사 안전작업 하세요~ 이국희님이 나갔습니다.`;
+    const events = extractKakaoEvents(parseKakaoChat(chat).messages, [...ROSTER, "이국희", "김요건"]);
+    expect(events.map((e) => e.name)).toEqual(["김요건"]);
+  });
+
+  it("여러 명을 부르는 긴 단체 공지는 퇴사로 잡지 않고 한 건으로만 남긴다", () => {
+    const notice = "특수(야간) 건강검진 결과에 따른 2차 재검진 공지드립니다. 대상 하시는 기술인 분들께서는 아래 일정 및 안내사항을 반드시 확인해 주시기 바랍니다. 집합 시간 및 장소 일시: 10월 19일 오전 07:00 이전까지 장소: 신규교육장 2F B교육장 미수검 시 퇴사 처리 등 불이익이 있을 수 있습니다. 대상: @홍길동 @김철수 @이영희 @박민수 @최지훈";
+    expect(isBroadcastNotice(notice)).toBe(true);
+    expect(isNotPersonnelChange(notice, "resign")).toBe(true);
+    const chat = `--------------- 2026년 10월 16일 금요일 ---------------
+[구서윤8408-2775] [오후 2:00] ${notice}`;
+    const events = extractKakaoEvents(parseKakaoChat(chat).messages, ROSTER);
+    expect(events.map((e) => e.category)).not.toContain("resign");
+    expect(events).toHaveLength(1);
+    expect(events[0].name).toBe("");
   });
 });
