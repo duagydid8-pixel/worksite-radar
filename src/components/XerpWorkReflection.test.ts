@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   calcGongsuForWorkDate,
+  getFullDayGongsu,
   getSpecialListLabels,
+  getTeamConfig,
   inferGasanReason,
+  isCheolgolTeam,
   inferNewEmployeeGasanReason,
   normalizeGasanReasonParentheses,
   canBuildDownloadWorkbook,
@@ -12,6 +15,11 @@ import {
   resolveEffInMin,
   resolveEffOutMin,
   resolveIsLate,
+  resolveStandardStart,
+  getSiteShiftMin,
+  isSafetyEduEarlyOut,
+  inferGasanReasonTags,
+  isShopTeam,
   resolveLoadedAdjustment,
   resolveSyncedGasanReason,
   resolveWritableGasanAdjustment,
@@ -26,6 +34,9 @@ const defaultTeamConfig = {
   jochulCutoff: 7 * 60 + 10,
   breakStart: 11 * 60,
   breakEnd: 13 * 60,
+  standardEnd: 17 * 60,
+  shiftMin: 0,
+  dayGongsu: 1,
 };
 
 describe("XERP work reflection gongsu rules", () => {
@@ -604,5 +615,281 @@ describe("syncManualCalcGongsu", () => {
   });
   it("leaves auto-calculated rows alone", () => {
     expect(syncManualCalcGongsu({ manualAdjustment: false, diff: 0.25, xerpGongsuA: "1", calcGongsuVal: 1.5 }).calcGongsuVal).toBe(1.5);
+  });
+});
+
+describe("철골공 팀 공수 (주간 만근 2공 · 연장 단가는 기본과 동일)", () => {
+  const WEEKDAY = "2026-04-27";
+  const CHEOLGOL = "PH2_기술인(철골공)";
+  const cheolgolCfg = getTeamConfig(CHEOLGOL);
+
+  it("팀명에 철골이 들어간 팀만 철골공으로 본다", () => {
+    expect(isCheolgolTeam(CHEOLGOL)).toBe(true);
+    expect(isCheolgolTeam("PH4_기술인(배관)")).toBe(false);
+    expect(cheolgolCfg.dayGongsu).toBe(2);
+    expect(getFullDayGongsu(CHEOLGOL)).toBe(2);
+    expect(getFullDayGongsu("PH4_기술인(배관)")).toBe(1);
+  });
+
+  it("출퇴근 기준 시간은 기본 팀과 같다", () => {
+    expect(cheolgolCfg.standardStart).toBe(defaultTeamConfig.standardStart);
+    expect(cheolgolCfg.jochulCutoff).toBe(defaultTeamConfig.jochulCutoff);
+    expect(cheolgolCfg.breakStart).toBe(defaultTeamConfig.breakStart);
+    expect(cheolgolCfg.breakEnd).toBe(defaultTeamConfig.breakEnd);
+  });
+
+  it("07:00~17:00 만근은 2공수", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 17 * 60, false, cheolgolCfg)).toBe(2);
+  });
+
+  it("연장은 기본과 같이 시간당 0.25공 — 2시간이면 만근 2.0에 0.5가 붙어 2.5공", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 18 * 60, false, cheolgolCfg)).toBe(2.25);
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 19 * 60, false, cheolgolCfg)).toBe(2.5);
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 21 * 60, false, cheolgolCfg)).toBe(3);
+  });
+
+  it("연장 50분 미만은 기본 팀과 같이 미인정", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 17 * 60 + 40, false, cheolgolCfg)).toBe(2);
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 17 * 60 + 50, false, cheolgolCfg)).toBe(2.25);
+  });
+
+  it("표준 8시간을 못 채우면 2공수를 비례 감산한다", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 16 * 60, false, cheolgolCfg)).toBe(1.75);
+  });
+
+  it("중식OT는 기본 1.0 대신 팀 만근 2.0으로 확정한다", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 17 * 60, false, cheolgolCfg, true)).toBe(2);
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 17 * 60, false, defaultTeamConfig, true)).toBe(1);
+  });
+
+  it("기본 팀 공수는 그대로 둔다", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 17 * 60, false, defaultTeamConfig)).toBe(1);
+    expect(calcGongsuForWorkDate(WEEKDAY, 7 * 60, 19 * 60, false, defaultTeamConfig)).toBe(1.5);
+  });
+
+  it("공수A 2.0(만근)은 야간근무로 오판하지 않고 퇴근 시각 기준 연장 문구를 쓴다", () => {
+    const reason = inferGasanReason({
+      팀명: CHEOLGOL,
+      xerpIn: "07:00",
+      xerpOut: "19:00",
+      pmisIn: "",
+      pmisOut: "",
+      rawInMin: 7 * 60,
+      rawOutMin: 19 * 60,
+      isLate: false,
+      standardStart: 7 * 60,
+      xerpGongsuA: "2",
+      calcGongsuVal: 2.5,
+      diff: 0.5,
+    });
+
+    expect(reason).toBe("2h 연장근무");
+  });
+
+  it("야간근무 기준이 팀 만근 공수에 맞춰 올라간다 — 철골공은 공수A 2.5부터", () => {
+    const reason = inferGasanReason({
+      팀명: CHEOLGOL,
+      xerpIn: "06:43",
+      xerpOut: "20:03",
+      pmisIn: "",
+      pmisOut: "",
+      rawInMin: 6 * 60 + 43,
+      rawOutMin: 20 * 60,
+      isLate: false,
+      standardStart: 7 * 60,
+      xerpGongsuA: "2.5",
+      calcGongsuVal: 2.75,
+      diff: 0.25,
+    });
+
+    expect(reason).toBe("1h 야간근무");
+  });
+});
+
+// ── P5 현장: 근무시간이 전체적으로 5분 앞당겨짐 (06:55~16:55) ──
+describe("P5 현장 근무시간 5분 앞당김", () => {
+  const P5 = "P5PH1";
+  const p5Cfg = getTeamConfig("", P5);
+  const p4Cfg = getTeamConfig("", "PH4");
+  const WEEKDAY = "2026-11-10"; // 화요일
+  const SATURDAY = "2026-11-14";
+
+  it("현장 시프트는 P5만 -5분이고 P4는 0분", () => {
+    expect(getSiteShiftMin(P5)).toBe(-5);
+    expect(getSiteShiftMin("PH4")).toBe(0);
+    expect(getSiteShiftMin("PH2")).toBe(0);
+    expect(getSiteShiftMin(undefined)).toBe(0);
+  });
+
+  it("P5 팀 기준 시각이 모두 5분 앞당겨진다", () => {
+    expect(p5Cfg.standardStart).toBe(6 * 60 + 55);
+    expect(p5Cfg.jochulCutoff).toBe(7 * 60 + 5);
+    expect(p5Cfg.breakStart).toBe(10 * 60 + 55);
+    expect(p5Cfg.breakEnd).toBe(12 * 60 + 55);
+    expect(p5Cfg.standardEnd).toBe(16 * 60 + 55);
+    expect(p5Cfg.shiftMin).toBe(-5);
+  });
+
+  it("P4 현장 기준은 그대로 07:00~17:00", () => {
+    expect(p4Cfg.standardStart).toBe(7 * 60);
+    expect(p4Cfg.jochulCutoff).toBe(7 * 60 + 10);
+    expect(p4Cfg.standardEnd).toBe(17 * 60);
+    expect(p4Cfg.shiftMin).toBe(0);
+  });
+
+  it("샵장(_S) 팀은 현장 시간 변경과 무관하게 기존 기준 그대로", () => {
+    expect(isShopTeam("태화_S")).toBe(true);
+    expect(isShopTeam("태화_F")).toBe(false);
+    expect(isShopTeam("PH1_기술인")).toBe(false);
+    const cfg = getTeamConfig("태화_S", P5);
+    expect(cfg.shiftMin).toBe(0);
+    expect(cfg.standardStart).toBe(7 * 60 + 30);
+    expect(cfg.jochulCutoff).toBe(7 * 60 + 40);
+    expect(cfg.breakStart).toBe(11 * 60 + 30);
+    expect(cfg.standardEnd).toBe(17 * 60);
+  });
+
+  it("P5 현장(_F·기술인) 팀만 5분 앞당겨진다", () => {
+    expect(getTeamConfig("태화_F", P5).standardStart).toBe(6 * 60 + 55);
+    expect(getTeamConfig("PH1_기술인", P5).standardStart).toBe(6 * 60 + 55);
+  });
+
+  it("퇴근 50분 반올림 기준선도 5분 앞당겨진다", () => {
+    expect(resolveEffOutMin("16:55", "", -5)).toBe(16 * 60 + 55);
+    expect(resolveEffOutMin("16:50", "", -5)).toBe(16 * 60 + 55);
+    expect(resolveEffOutMin("16:40", "", -5)).toBe(15 * 60 + 55);
+    expect(resolveEffOutMin("04:45", "", -5)).toBe(4 * 60 + 55);
+    expect(resolveEffOutMin("17:45", "", -5)).toBe(17 * 60 + 55);
+    // 기준 현장은 그대로 정시 기준
+    expect(resolveEffOutMin("16:55", "")).toBe(17 * 60);
+    expect(resolveEffOutMin("04:45", "")).toBe(4 * 60);
+  });
+
+  it("P5 철야 기준(18:55 출근 / 04:45 퇴근)은 정확히 2.0공수", () => {
+    const effInMin = resolveEffInMin(18 * 60 + 55, false, p5Cfg, true);
+    const effOutMin = resolveEffOutMin("04:45", "", p5Cfg.shiftMin);
+    expect(calcGongsuForWorkDate(WEEKDAY, effInMin, effOutMin, false, p5Cfg, false, true)).toBe(2);
+  });
+
+  it("P5 정시 퇴근(16:55)은 연장 0분 — 1.0공", () => {
+    const effOutMin = resolveEffOutMin("16:55", "16:55", p5Cfg.shiftMin);
+    expect(effOutMin).toBe(16 * 60 + 55);
+    expect(calcGongsuForWorkDate(WEEKDAY, 6 * 60 + 55, effOutMin, false, p5Cfg)).toBe(1);
+  });
+
+  it("P5 철골공 팀은 만근 2공수 + 5분 앞당긴 기준", () => {
+    const cfg = getTeamConfig("PH1_기술인(철골공)", P5);
+    expect(cfg.dayGongsu).toBe(2);
+    expect(cfg.standardStart).toBe(6 * 60 + 55);
+    expect(cfg.standardEnd).toBe(16 * 60 + 55);
+  });
+
+  it("06:55 출근 ~ 17:00 퇴근(16:55 반올림)은 1.0공", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 6 * 60 + 55, 17 * 60, false, p5Cfg)).toBe(1);
+  });
+
+  it("07:00 출근은 유예(07:05) 안이라 06:55로 인정 — 지각 아님, 1.0공", () => {
+    const effInMin = resolveEffInMin(7 * 60, false, p5Cfg);
+    expect(effInMin).toBe(6 * 60 + 55);
+    expect(resolveIsLate({ effInMin, standardStart: p5Cfg.standardStart, shiftMin: p5Cfg.shiftMin })).toBe(false);
+    expect(calcGongsuForWorkDate(WEEKDAY, effInMin, 17 * 60, false, p5Cfg)).toBe(1);
+  });
+
+  it("07:10 출근은 P5에서 지각 (P4에서는 유예 인정)", () => {
+    const p5In = resolveEffInMin(7 * 60 + 10, false, p5Cfg);
+    expect(p5In).toBe(7 * 60 + 10);
+    expect(resolveIsLate({ effInMin: p5In, standardStart: p5Cfg.standardStart, shiftMin: p5Cfg.shiftMin })).toBe(true);
+    const p4In = resolveEffInMin(7 * 60 + 5, false, p4Cfg);
+    expect(p4In).toBe(7 * 60);
+  });
+
+  it("17:00 퇴근은 P5에서 연장이 아니다 (초과 5분)", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 6 * 60 + 55, 17 * 60, false, p5Cfg)).toBe(1);
+    expect(inferGasanReasonTags({ rawOutMin: 17 * 60, shiftMin: -5 })).toEqual(["주간"]);
+  });
+
+  it("18:00 퇴근은 연장 1시간 → 1.25공", () => {
+    expect(calcGongsuForWorkDate(WEEKDAY, 6 * 60 + 55, 18 * 60, false, p5Cfg)).toBe(1.25);
+    expect(inferGasanReasonTags({ rawOutMin: 18 * 60, shiftMin: -5 })).toEqual(["주간", "연장"]);
+  });
+
+  it("P5 연장 사유 문구는 시간 수를 반올림해 적는다", () => {
+    const reason = inferGasanReason({
+      팀명: "PH1_기술인",
+      xerpIn: "06:50",
+      xerpOut: "18:00",
+      pmisIn: "06:50",
+      pmisOut: "18:00",
+      rawInMin: 6 * 60 + 50,
+      rawOutMin: 18 * 60,
+      isLate: false,
+      standardStart: p5Cfg.standardStart,
+      shiftMin: -5,
+      xerpGongsuA: "1",
+      calcGongsuVal: 1.25,
+      diff: 0.25,
+    });
+    expect(reason).toBe("1h 연장근무");
+  });
+
+  it("조출은 06:55 이전 1시간마다 +0.25공", () => {
+    const effInMin = resolveEffInMin(5 * 60 + 55, true, p5Cfg);
+    expect(effInMin).toBe(5 * 60 + 55);
+    expect(calcGongsuForWorkDate(WEEKDAY, effInMin, 17 * 60, true, p5Cfg)).toBe(1.25);
+  });
+
+  it("철야 자동 판정·기준 출근도 5분 앞당겨진다", () => {
+    expect(detectCheolya(14 * 60 + 55, null, -5)).toBe(true);
+    expect(detectCheolya(14 * 60 + 50, null, -5)).toBe(false);
+    expect(detectCheolya(null, 6 * 60 + 50, -5)).toBe(true);
+    expect(resolveStandardStart(p5Cfg, true)).toBe(18 * 60 + 55);
+    expect(resolveEffInMin(18 * 60 + 50, false, p5Cfg, true)).toBe(18 * 60 + 55);
+    expect(resolveEffInMin(19 * 60 + 10, false, p5Cfg, true)).toBe(19 * 60 + 10);
+  });
+
+  it("철야 기준 근무(18:55~04:55 반올림)는 2공수", () => {
+    const effInMin = resolveEffInMin(18 * 60 + 55, false, p5Cfg, true);
+    expect(calcGongsuForWorkDate(WEEKDAY, effInMin, 4 * 60 + 55, false, p5Cfg, false, true)).toBe(2);
+  });
+
+  it("주말 근무도 06:55~13:55 기준 7시간 = 1공", () => {
+    expect(calcGongsuForWorkDate(SATURDAY, 6 * 60 + 55, 13 * 60 + 55, false, p5Cfg)).toBe(1);
+  });
+
+  it("정기안전교육 빠른 퇴근 구간은 16:15~16:55", () => {
+    expect(isSafetyEduEarlyOut(16 * 60 + 15, p5Cfg.standardEnd)).toBe(true);
+    expect(isSafetyEduEarlyOut(16 * 60 + 55, p5Cfg.standardEnd)).toBe(true);
+    expect(isSafetyEduEarlyOut(17 * 60, p5Cfg.standardEnd)).toBe(false);
+    expect(isSafetyEduEarlyOut(16 * 60 + 20, p4Cfg.standardEnd)).toBe(true);
+    expect(isSafetyEduEarlyOut(16 * 60 + 15, p4Cfg.standardEnd)).toBe(false);
+  });
+
+  it("정기안전교육 가산도 앞당긴 구간으로 반영한다", () => {
+    const row = {
+      diff: null,
+      가산사유: "",
+      xerpGongsuA: "0.5",
+      xerpIn: "06:55",
+      xerpOut: "16:20",
+      pmisIn: "06:55",
+      pmisOut: "16:20",
+      rawInMin: 6 * 60 + 55,
+      rawOutMin: 16 * 60,
+      isLate: false,
+      standardStart: p5Cfg.standardStart,
+      shiftMin: -5,
+    };
+    expect(resolveWritableGasanAdjustment(row, true)).toEqual({ diff: 0.5, reason: "정기안전교육으로 빠른퇴근타각" });
+  });
+
+  it("조퇴 기준 퇴근도 12:55로 앞당겨진다", () => {
+    expect(shouldShowInEarlyLeaveList({ isWaeju: false, effOut: "12:50", shiftMin: -5 })).toBe(true);
+    expect(shouldShowInEarlyLeaveList({ isWaeju: false, effOut: "12:55", shiftMin: -5 })).toBe(false);
+    expect(shouldShowInEarlyLeaveList({ isWaeju: false, effOut: "12:55" })).toBe(true);
+  });
+
+  it("예전 저장본(시프트 없음)은 기준 현장 규칙 그대로 본다", () => {
+    expect(inferGasanReasonTags({ rawOutMin: 18 * 60 })).toEqual(["주간", "연장"]);
+    expect(inferGasanReasonTags({ rawOutMin: 17 * 60 })).toEqual(["주간"]);
   });
 });

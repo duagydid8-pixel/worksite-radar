@@ -24,7 +24,10 @@ import {
   detectCheolya,
   excelSerialToDateStr,
   getSpecialListLabels,
+  getFullDayGongsu,
+  getSiteShiftMin,
   getTeamConfig,
+  isSafetyEduEarlyOut,
   hasClockCellValue,
   inferGasanReason,
   inferGasanReasonTags,
@@ -35,6 +38,7 @@ import {
   parseMin,
   resolveEffInMin,
   resolveEffOutMin,
+  resolveStandardEnd,
   resolveIsLate,
   resolveStandardStart,
   resolveLoadedAdjustment,
@@ -106,6 +110,8 @@ interface ProcessedRow {
   isNoRecord: boolean;
   isLate: boolean;
   standardStart: number;
+  /** 현장 근무시간 시프트(분) — 기준 현장 0, P5-PH1 -5 (예전 저장본은 없어서 0으로 본다) */
+  shiftMin?: number;
   isNewEmployee: boolean;
   isWaeju: boolean;
 }
@@ -223,6 +229,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   // XERP&PMIS 연동 설정 (사이트는 외출 명단 조회에도 쓰임)
   const [syncSite, setSyncSite] = useState<XerpSyncSite>("PH4");
 
+  // 현장별 근무시간 시프트 — P5-PH1은 전체 근무시간이 5분 앞당겨짐(06:55~16:55)
+  const siteShiftMin = getSiteShiftMin(syncSite);
+  /** 안내 문구용 — 기준 현장 시각에 현장 시프트를 적용한 표시 문자열 */
+  const siteTime = (min: number) => minToStr(min + siteShiftMin);
+
   // 기술인 및 관리자 명단 대조 (공수 반영에 새로 나타난 사람 / 개인정보 빈 사람)
   const [rosterRows, setRosterRows] = useState<RosterPersonLite[]>([]);
   const [rosterLoaded, setRosterLoaded] = useState(false);
@@ -317,7 +328,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   // 예전 가산B(예: 지각 기준 0.44)는 버리고 1.0 - 공수A로 다시 계산한다.
   const resolveNewEmpAdjustment = (r: ProcessedRow) => {
     const gongsuA = parseFloat(r.xerpGongsuA) || 0;
-    const d = 1.0 - gongsuA;
+    const d = getFullDayGongsu(r.팀명) - gongsuA;
     const 가산사유 = d > 0 ? inferNewEmployeeGasanReason(r) : "";
     const calculated = { diff: d > 0 ? d : null, needsUpdate: d > 0, 가산사유 };
     return r.manualAdjustment
@@ -331,21 +342,24 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isWaeju) return r;
       const isNew = empData.has(r.성명);
       if (isNew) {
-        return syncManualCalcGongsu({ ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) });
+        return syncManualCalcGongsu({ ...r, isNewEmployee: true, calcGongsuVal: getFullDayGongsu(r.팀명), ...resolveNewEmpAdjustment(r) });
       }
-      const cfg = getTeamConfig(r.팀명);
+      const cfg = getTeamConfig(r.팀명, syncSite);
       const isLunchOt = Boolean(r.isLunchOt);
+      // 퇴근 반올림 기준선이 현장마다 다르므로(P5는 x:55) 저장된 값을 현장 기준으로 다시 구한다
+      const rawOutMin = resolveEffOutMin(r.xerpOut, r.pmisOut, cfg.shiftMin) ?? r.rawOutMin;
+      const effOut = rawOutMin !== null ? minToStr(rawOutMin) : "";
       // 철야는 출퇴근 기록으로 자동 판정 — 수기로 체크/해제한 행만 저장값을 그대로 둔다
-      const isCheolya = r.cheolyaManual ? Boolean(r.isCheolya) : detectCheolya(r.rawInMin, r.rawOutMin);
+      const isCheolya = r.cheolyaManual ? Boolean(r.isCheolya) : detectCheolya(r.rawInMin, rawOutMin, cfg.shiftMin);
       const standardStart = resolveStandardStart(cfg, isCheolya);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg, isCheolya);
       const effIn = effInMin !== null ? minToStr(effInMin) : "";
-      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya });
-      const calcVal = calcGongsuForWorkDate(date, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, isCheolya);
+      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya, shiftMin: cfg.shiftMin });
+      const calcVal = calcGongsuForWorkDate(date, effInMin, rawOutMin, r.isJochul, cfg, isLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const 가산사유 = needsUpdate ? inferGasanReason({ ...r, calcGongsuVal: calcVal, isLunchOt, isCheolya }) : "";
+      const 가산사유 = needsUpdate ? inferGasanReason({ ...r, rawOutMin, shiftMin: cfg.shiftMin, calcGongsuVal: calcVal, isLunchOt, isCheolya }) : "";
       const adjustment = resolveLoadedAdjustment(r, { diff, needsUpdate, 가산사유 });
-      return syncManualCalcGongsu({ ...r, isNewEmployee: false, isLunchOt, isCheolya, standardStart, effIn, isLate, calcGongsuVal: calcVal, ...adjustment });
+      return syncManualCalcGongsu({ ...r, isNewEmployee: false, isLunchOt, isCheolya, standardStart, shiftMin: cfg.shiftMin, rawOutMin, effOut, effIn, isLate, calcGongsuVal: calcVal, ...adjustment });
     });
 
   const deleteNewEmp = (name: string) => {
@@ -459,11 +473,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.isWaeju) return r; // 외주는 항상 0 유지
       const isNew = newEmpData.has(r.성명);
       if (isNew) {
-        return syncManualCalcGongsu({ ...r, isNewEmployee: true, calcGongsuVal: 1.0, ...resolveNewEmpAdjustment(r) });
+        return syncManualCalcGongsu({ ...r, isNewEmployee: true, calcGongsuVal: getFullDayGongsu(r.팀명), ...resolveNewEmpAdjustment(r) });
       }
       // 신규자 해제 시 원래 값으로 재계산
       if (r.isNewEmployee) {
-        const cfg = getTeamConfig(r.팀명);
+        const cfg = getTeamConfig(r.팀명, syncSite);
         const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg);
         const isLunchOt = Boolean(r.isLunchOt);
         const isCheolya = Boolean(r.isCheolya);
@@ -551,14 +565,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.rowIndex !== rowIndex) return r;
       if (r.isWaeju) return r; // 외주는 조출 무시
       const newJochul = !r.isJochul;
-      const cfg       = getTeamConfig(r.팀명);
+      const cfg       = getTeamConfig(r.팀명, syncSite);
       const isCheolya = Boolean(r.isCheolya);
       const effInMin  = resolveEffInMin(r.rawInMin, newJochul, cfg, isCheolya);
       const effIn     = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt = Boolean(r.isLunchOt);
       const calcVal   = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, newJochul, cfg, isLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const isLate    = resolveIsLate({ effInMin, standardStart: r.standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya });
+      const isLate    = resolveIsLate({ effInMin, standardStart: r.standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya, shiftMin: cfg.shiftMin });
       const 가산사유 = needsUpdate
         ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }), inferGasanReasonTags(r))
         : "";
@@ -566,13 +580,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     }));
   };
 
-  // 중식OT 토글 (P5-PH1: 07시 이전 출근 + 13:50 이후 퇴근 시 수동 체크 → 가산사유 중식OT, 1공수 확정)
+  // 중식OT 토글 (P5-PH1: 표준 출근 이전 출근 + 13:45 이후 퇴근 시 수동 체크 → 가산사유 중식OT, 1공수 확정)
   const toggleLunchOt = (rowIndex: number) => {
     setRows((prev) => prev.map((r) => {
       if (r.rowIndex !== rowIndex) return r;
       if (r.isWaeju) return r; // 외주는 무시
       const newLunchOt = !r.isLunchOt;
-      const cfg         = getTeamConfig(r.팀명);
+      const cfg         = getTeamConfig(r.팀명, syncSite);
       const isCheolya    = Boolean(r.isCheolya);
       const effInMin     = resolveEffInMin(r.rawInMin, r.isJochul, cfg, isCheolya);
       const calcVal      = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, newLunchOt, isCheolya);
@@ -590,18 +604,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (r.rowIndex !== rowIndex) return r;
       if (r.isWaeju) return r; // 외주는 무시
       const newCheolya = !r.isCheolya;
-      const cfg        = getTeamConfig(r.팀명);
+      const cfg        = getTeamConfig(r.팀명, syncSite);
       const standardStart = resolveStandardStart(cfg, newCheolya);
       const effInMin    = resolveEffInMin(r.rawInMin, r.isJochul, cfg, newCheolya);
       const effIn       = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt   = Boolean(r.isLunchOt);
       const calcVal     = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, newCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya: newCheolya });
+      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya: newCheolya, shiftMin: cfg.shiftMin });
       const 가산사유 = needsUpdate
         ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya: newCheolya })
         : "";
-      return { ...r, isCheolya: newCheolya, cheolyaManual: true, standardStart, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+      return { ...r, isCheolya: newCheolya, cheolyaManual: true, standardStart, shiftMin: cfg.shiftMin, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     }));
   };
 
@@ -610,14 +624,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     if (!selectedIdxes.size) return;
     setRows((prev) => prev.map((r) => {
       if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isJochul === value) return r;
-      const cfg = getTeamConfig(r.팀명);
+      const cfg = getTeamConfig(r.팀명, syncSite);
       const isCheolya = Boolean(r.isCheolya);
       const effInMin = resolveEffInMin(r.rawInMin, value, cfg, isCheolya);
       const effIn = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt = Boolean(r.isLunchOt);
       const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, value, cfg, isLunchOt, isCheolya);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const isLate = resolveIsLate({ effInMin, standardStart: r.standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya });
+      const isLate = resolveIsLate({ effInMin, standardStart: r.standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya, shiftMin: cfg.shiftMin });
       const 가산사유 = needsUpdate
         ? normalizeGasanReasonParentheses(r.가산사유 || inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }), inferGasanReasonTags(r))
         : "";
@@ -631,7 +645,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     if (!selectedIdxes.size) return;
     setRows((prev) => prev.map((r) => {
       if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isLunchOt === value) return r;
-      const cfg = getTeamConfig(r.팀명);
+      const cfg = getTeamConfig(r.팀명, syncSite);
       const isCheolya = Boolean(r.isCheolya);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg, isCheolya);
       const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, value, isCheolya);
@@ -649,18 +663,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     if (!selectedIdxes.size) return;
     setRows((prev) => prev.map((r) => {
       if (!selectedIdxes.has(r.rowIndex) || r.isWaeju || r.isCheolya === value) return r;
-      const cfg = getTeamConfig(r.팀명);
+      const cfg = getTeamConfig(r.팀명, syncSite);
       const standardStart = resolveStandardStart(cfg, value);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg, value);
       const effIn = effInMin !== null ? minToStr(effInMin) : "";
       const isLunchOt = Boolean(r.isLunchOt);
       const calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, value);
       const { diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA);
-      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya: value });
+      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya: value, shiftMin: cfg.shiftMin });
       const 가산사유 = needsUpdate
         ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya: value })
         : "";
-      return { ...r, isCheolya: value, cheolyaManual: true, standardStart, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+      return { ...r, isCheolya: value, cheolyaManual: true, standardStart, shiftMin: cfg.shiftMin, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     }));
     toast.success(`${selectedIdxes.size}명 철야 ${value ? "ON" : "OFF"} 일괄 적용됨`);
   };
@@ -764,20 +778,20 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const rawInMin  = xerpInMin !== null && pmisInMin !== null
         ? Math.min(xerpInMin, pmisInMin)
         : xerpInMin ?? pmisInMin;
-      const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw);
+      const cfg           = getTeamConfig(팀명, resolvedSite);
+      const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw, cfg.shiftMin);
       const effOut    = rawOutMin !== null ? minToStr(rawOutMin) : "";
 
       const isJochul      = false;
-      const cfg           = getTeamConfig(팀명);
       const isWaeju       = isWaejuTeam(팀명);
-      const isCheolya     = !isWaeju && detectCheolya(rawInMin, rawOutMin);
+      const isCheolya     = !isWaeju && detectCheolya(rawInMin, rawOutMin, cfg.shiftMin);
       const standardStart = resolveStandardStart(cfg, isCheolya);
       const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg, isCheolya);
       const effIn         = effInMin !== null ? minToStr(effInMin) : "";
       const isNewEmployee = !isWaeju && newEmpData.has(성명);
       const hasClockValue = hasClockCellValue(xerpInRaw, xerpOutRaw, pmisInRaw, pmisOutRaw, xerpInStr, xerpOutStr, pmisInStr, pmisOutStr);
       const isNoRecord    = !hasClockValue && rawInMin === null && rawOutMin === null;
-      const isLate        = resolveIsLate({ effInMin, standardStart, isWaeju, isNoRecord, isCheolya });
+      const isLate        = resolveIsLate({ effInMin, standardStart, isWaeju, isNoRecord, isCheolya, shiftMin: cfg.shiftMin });
 
       let calcGongsuVal: number | null;
       let diff: number | null;
@@ -788,9 +802,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         diff = null;
         needsUpdate = false;
       } else if (isNewEmployee) {
-        calcGongsuVal = 1.0;
+        calcGongsuVal = getFullDayGongsu(팀명);
         const gongsuA = parseFloat(xerpGongsuA) || 0;
-        const d = 1.0 - gongsuA;
+        const d = calcGongsuVal - gongsuA;
         diff = d > 0 ? d : null;
         needsUpdate = d > 0;
       } else {
@@ -800,6 +814,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
       const storedReason = cleanGasanReason(row[25]);
       const inferredReason = inferGasanReason({
+        팀명,
         xerpIn: xerpInStr,
         xerpOut: xerpOutStr,
         pmisIn: pmisInStr,
@@ -813,6 +828,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         diff,
         isCheolya,
         isNewEmployee,
+        shiftMin: cfg.shiftMin,
       });
 
       processed.push({
@@ -824,10 +840,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         calcGongsuVal, diff,
         가산사유: normalizeGasanReasonParentheses(
           storedReason || (needsUpdate ? inferredReason : ""),
-          inferGasanReasonTags({ rawOutMin, isCheolya }),
+          inferGasanReasonTags({ rawOutMin, isCheolya, shiftMin: cfg.shiftMin }),
         ),
         needsUpdate, isNoRecord, isLate,
         standardStart,
+        shiftMin: cfg.shiftMin,
         isNewEmployee, isWaeju,
       });
     }
@@ -907,20 +924,20 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         const rawInMin  = xerpInMin !== null && pmisInMin !== null
           ? Math.min(xerpInMin, pmisInMin)
           : xerpInMin ?? pmisInMin;
-        const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw);
+        const cfg           = getTeamConfig(팀명, detectedSite);
+        const rawOutMin = resolveEffOutMin(xerpOutRaw, pmisOutRaw, cfg.shiftMin);
         const effOut    = rawOutMin !== null ? minToStr(rawOutMin) : "";
 
         const isJochul      = false;
-        const cfg           = getTeamConfig(팀명);
         const isWaeju       = isWaejuTeam(팀명);
-        const isCheolya     = !isWaeju && detectCheolya(rawInMin, rawOutMin);
+        const isCheolya     = !isWaeju && detectCheolya(rawInMin, rawOutMin, cfg.shiftMin);
         const standardStart = resolveStandardStart(cfg, isCheolya);
         const effInMin      = resolveEffInMin(rawInMin, isJochul, cfg, isCheolya);
         const effIn         = effInMin !== null ? minToStr(effInMin) : "";
         const isNewEmployee = !isWaeju && newEmpData.has(성명);
         const hasClockValue = hasClockCellValue(xerpInRaw, xerpOutRaw, pmisInRaw, pmisOutRaw, xerpInStr, xerpOutStr, pmisInStr, pmisOutStr);
         const isNoRecord    = !hasClockValue && rawInMin === null && rawOutMin === null;
-        const isLate        = resolveIsLate({ effInMin, standardStart, isWaeju, isNoRecord, isCheolya });
+        const isLate        = resolveIsLate({ effInMin, standardStart, isWaeju, isNoRecord, isCheolya, shiftMin: cfg.shiftMin });
 
         let calcGongsuVal: number | null;
         let diff: number | null;
@@ -931,9 +948,9 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           diff = null;
           needsUpdate = false;
         } else if (isNewEmployee) {
-          calcGongsuVal = 1.0;
+          calcGongsuVal = getFullDayGongsu(팀명);
           const gongsuA = parseFloat(xerpGongsuA) || 0;
-          const d = 1.0 - gongsuA;
+          const d = calcGongsuVal - gongsuA;
           diff = d > 0 ? d : null;
           needsUpdate = d > 0;
         } else {
@@ -943,6 +960,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
         const storedReason = cleanGasanReason(row[25]);
         const inferredReason = inferGasanReason({
+          팀명,
           xerpIn: xerpInStr,
           xerpOut: xerpOutStr,
           pmisIn: pmisInStr,
@@ -956,6 +974,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           diff,
           isCheolya,
           isNewEmployee,
+          shiftMin: cfg.shiftMin,
         });
 
         processed.push({
@@ -967,10 +986,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           calcGongsuVal, diff,
           가산사유: normalizeGasanReasonParentheses(
             storedReason || (needsUpdate ? inferredReason : ""),
-            inferGasanReasonTags({ rawOutMin, isCheolya }),
+            inferGasanReasonTags({ rawOutMin, isCheolya, shiftMin: cfg.shiftMin }),
           ),
           needsUpdate, isNoRecord, isLate,
           standardStart,
+          shiftMin: cfg.shiftMin,
           isNewEmployee, isWaeju,
         });
       }
@@ -1010,15 +1030,18 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   const recalcAllRows = () => {
     setRows((prev) => prev.map((r) => {
       if (r.isWaeju) return r;
-      const cfg = getTeamConfig(r.팀명);
+      const cfg = getTeamConfig(r.팀명, syncSite);
       const isLunchOt = Boolean(r.isLunchOt);
-      const isCheolya = r.cheolyaManual ? Boolean(r.isCheolya) : detectCheolya(r.rawInMin, r.rawOutMin);
+      // 퇴근 반올림 기준선이 현장마다 다르므로(P5는 x:55) 저장된 값을 현장 기준으로 다시 구한다
+      const rawOutMin = resolveEffOutMin(r.xerpOut, r.pmisOut, cfg.shiftMin) ?? r.rawOutMin;
+      const effOut = rawOutMin !== null ? minToStr(rawOutMin) : "";
+      const isCheolya = r.cheolyaManual ? Boolean(r.isCheolya) : detectCheolya(r.rawInMin, rawOutMin, cfg.shiftMin);
       const standardStart = resolveStandardStart(cfg, isCheolya);
       const effInMin = resolveEffInMin(r.rawInMin, r.isJochul, cfg, isCheolya);
       const effIn = effInMin !== null ? minToStr(effInMin) : "";
-      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya });
+      const isLate = resolveIsLate({ effInMin, standardStart, isWaeju: r.isWaeju, isNoRecord: r.isNoRecord, isCheolya, shiftMin: cfg.shiftMin });
       // 수기 입력(가산B·사유)한 행은 금액은 그대로 두고 철야·지각 판정만 최신 규칙으로 맞춘다
-      if (r.manualAdjustment) return { ...r, isCheolya, standardStart, effIn, isLate };
+      if (r.manualAdjustment) return { ...r, isCheolya, standardStart, shiftMin: cfg.shiftMin, rawOutMin, effOut, effIn, isLate };
 
       let calcVal: number | null;
       let diff: number | null;
@@ -1030,11 +1053,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
         diff = d > 0 ? d : null;
         needsUpdate = d > 0;
       } else {
-        calcVal = calcGongsuForWorkDate(workDate, effInMin, r.rawOutMin, r.isJochul, cfg, isLunchOt, isCheolya);
+        calcVal = calcGongsuForWorkDate(workDate, effInMin, rawOutMin, r.isJochul, cfg, isLunchOt, isCheolya);
         ({ diff, needsUpdate } = calcDiff(calcVal, r.xerpGongsuA));
       }
-      const 가산사유 = needsUpdate ? inferGasanReason({ ...r, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }) : "";
-      return { ...r, isCheolya, standardStart, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
+      const 가산사유 = needsUpdate ? inferGasanReason({ ...r, rawOutMin, shiftMin: cfg.shiftMin, calcGongsuVal: calcVal, diff, isLunchOt, isCheolya }) : "";
+      return { ...r, isCheolya, standardStart, shiftMin: cfg.shiftMin, rawOutMin, effOut, effIn, isLate, calcGongsuVal: calcVal, diff, needsUpdate, 가산사유 };
     }));
     toast.success("전체 공수를 최신 계산 규칙으로 재계산했습니다 (수기 입력 항목 제외)");
   };
@@ -1317,16 +1340,17 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       filtered = filtered.filter((r) => r.팀명 === teamFilter);
     }
 
-    // 정기안전교육: 16:20~17:00 퇴근 → 계산공수 1, 가산사유 자동 설정
+    // 정기안전교육: 표준 퇴근 40분 전~표준 퇴근(기준 현장 16:20~17:00, P5 16:15~16:55) → 계산공수 1, 가산사유 자동 설정
     if (isSafetyEduDate) {
       filtered = filtered.map((r) => {
         const outMin = parseMin(r.xerpOut);
-        if (outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60) {
+        if (isSafetyEduEarlyOut(outMin, resolveStandardEnd(r.shiftMin ?? siteShiftMin))) {
+          const fullDay = getFullDayGongsu(r.팀명);
           const xerpA = parseFloat(r.xerpGongsuA) || 0;
-          const newDiff = parseFloat(Math.max(0, 1.0 - xerpA).toFixed(2));
+          const newDiff = parseFloat(Math.max(0, fullDay - xerpA).toFixed(2));
           return {
             ...r,
-            calcGongsuVal: 1.0,
+            calcGongsuVal: fullDay,
             가산사유: "정기안전교육으로 빠른퇴근타각",
             diff: newDiff > 0 ? newDiff : r.diff,
             needsUpdate: newDiff > 0 || r.needsUpdate,
@@ -1347,7 +1371,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     }
 
     return filtered;
-  }, [rows, search, teamFilter, isSafetyEduDate, sortColWR, sortDirWR]);
+  }, [rows, search, teamFilter, isSafetyEduDate, sortColWR, sortDirWR, siteShiftMin]);
 
   // 일괄 선택
   const allSelected = displayRows.length > 0 && displayRows.every((r) => selectedIdxes.has(r.rowIndex));
@@ -2234,7 +2258,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
               />
               <span className="text-xs font-semibold whitespace-nowrap">정기안전교육</span>
               {isSafetyEduDate && (
-                <span className="text-[10px] font-normal opacity-70">· 16:20~17:00 퇴근 = 1공수</span>
+                <span className="text-[10px] font-normal opacity-70">· {siteTime(16 * 60 + 20)}~{siteTime(17 * 60)} 퇴근 = 1공수</span>
               )}
             </label>
 
@@ -2385,9 +2409,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-rose-100 border border-rose-300 inline-block" /> 기록없음</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 border border-orange-300 inline-block" /> 지각</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-50 border border-amber-300 inline-block" /> 가산필요</span>
-            {isSafetyEduDate && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-400 inline-block" /> 정기안전교육(16:20~17:00)</span>}
+            {isSafetyEduDate && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-400 inline-block" /> 정기안전교육({siteTime(16 * 60 + 20)}~{siteTime(17 * 60)})</span>}
             <span className="text-[11px] text-muted-foreground">· 가산B 셀 클릭 시 수기 입력 가능</span>
-            <span className="text-[11px] text-muted-foreground">· 철야는 15:00 이후 출근이면 자동 체크(19:00 기준)</span>
+            <span className="text-[11px] text-muted-foreground">· 철야는 {siteTime(15 * 60)} 이후 출근이면 자동 체크({siteTime(19 * 60)} 기준)</span>
+            {siteShiftMin !== 0 && (
+              <span className="text-[11px] font-semibold text-indigo-600">· {ROSTER_FS[syncSite].label} 근무시간 {Math.abs(siteShiftMin)}분 {siteShiftMin < 0 ? "앞당김" : "늦춤"} 기준({siteTime(7 * 60)}~{siteTime(17 * 60)}) · 샵장(_S)은 기존 기준</span>
+            )}
           </div>
         </div>
       )}
@@ -2400,14 +2427,21 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       {/* 계산 규칙 안내 */}
       {rows.length === 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 text-sm text-blue-700 space-y-1.5 shrink-0">
-          <p className="font-bold text-blue-800 mb-2">공수 계산 규칙</p>
-          <p>· <b>출근</b>: X-ERP·PMIS 중 더 이른 시간 / 07:10 이전은 07:00 고정 (조출 미체크)</p>
-          <p>· <b>퇴근</b>: X-ERP·PMIS 각각 50분 기준 반올림 후 최대값</p>
-          <p>· <b>기본공수</b>: 07:00 ~ 17:00 = <b>1.0공</b></p>
-          <p>· <b>연장공수</b>: 17:00 초과 시간당 <b>+0.25공</b> (50분 미만 미인정)</p>
-          <p>· <b>조출공수</b>: 체크 시 07:00 이전 시간당 <b>+0.25공</b></p>
-          <p>· <b>중식OT</b>: 체크 시 가산사유 "중식OT" 고정, 공수 <b>1.0공</b> 확정 (P5-PH1 등)</p>
-          <p>· <b>철야</b>: 야간 전담 근무 — 기준 <b>19:00 출근 / 04:50 퇴근 = 2공수</b> (경과 10h - 휴게 2h = 실근무 8h × 0.25공/h). <b>15:00 이후 출근이면 자동 판정</b>되고, 지각은 07:00이 아닌 <b>19:00 기준</b>(19:10까지 정시 인정) · 새벽 퇴근은 조퇴에서 제외</p>
+          <p className="font-bold text-blue-800 mb-2">공수 계산 규칙 — {ROSTER_FS[syncSite].label}</p>
+          {siteShiftMin !== 0 && (
+            <>
+              <p className="font-semibold text-indigo-700">· <b>{ROSTER_FS[syncSite].label} 현장은 근무시간이 전체적으로 {Math.abs(siteShiftMin)}분 {siteShiftMin < 0 ? "앞당겨져" : "늦춰져"}</b> 아래 기준({siteTime(7 * 60)}~{siteTime(17 * 60)} · 점심 {siteTime(11 * 60)}~{siteTime(13 * 60)})으로 계산합니다</p>
+              <p className="font-semibold text-indigo-700">· <b>샵장(팀명 _S) 인원은 기존 기준 그대로</b> — 현장 시간 변경을 적용하지 않습니다 (예: 태화_S 07:30~17:00)</p>
+            </>
+          )}
+          <p>· <b>출근</b>: X-ERP·PMIS 중 더 이른 시간 / {siteTime(7 * 60 + 10)} 이전은 {siteTime(7 * 60)} 고정 (조출 미체크)</p>
+          <p>· <b>퇴근</b>: X-ERP·PMIS 각각 50분 기준 반올림 후 최대값 (기준선 {siteTime(17 * 60)}·{siteTime(18 * 60)}…)</p>
+          <p>· <b>기본공수</b>: {siteTime(7 * 60)} ~ {siteTime(17 * 60)} = <b>1.0공</b></p>
+          <p>· <b>연장공수</b>: {siteTime(17 * 60)} 초과 시간당 <b>+0.25공</b> (50분 미만 미인정)</p>
+          <p>· <b>조출공수</b>: 체크 시 {siteTime(7 * 60)} 이전 시간당 <b>+0.25공</b></p>
+          <p>· <b>중식OT</b>: 체크 시 가산사유 "중식OT" 고정, 공수 <b>1.0공</b> 확정 (P5-PH1 등 · 철골공 팀은 2.0공)</p>
+          <p>· <b>철골공 팀</b>(팀명에 "철골" 포함 — 예: PH2_기술인(철골공)): <b>주간 만근이 2.0공</b>이고 연장·조출 단가는 기본과 같음 (예: 만근 2.0 + 연장 2시간 0.5 = <b>2.5공</b>)</p>
+          <p>· <b>철야</b>: 야간 전담 근무 — 기준 <b>{siteTime(19 * 60)} 출근 / {siteTime(4 * 60 + 50)} 퇴근 = 2공수</b> (경과 10h - 휴게 2h = 실근무 8h × 0.25공/h). <b>{siteTime(15 * 60)} 이후 출근이면 자동 판정</b>되고, 지각은 {siteTime(7 * 60)}이 아닌 <b>{siteTime(19 * 60)} 기준</b>({siteTime(19 * 60 + 10)}까지 정시 인정) · 새벽 퇴근은 조퇴에서 제외</p>
           <p>· <span className="rounded-full bg-fuchsia-600 px-1.5 py-0.5 text-[10px] font-bold text-white">데이터없음</span> 타각은 있는데 한쪽만 찍혀 공수를 계산할 수 없는 행 — 특이자 명단에 함께 나오니 직접 확인해 가산B를 입력해야 합니다</p>
         </div>
       )}
@@ -2472,7 +2506,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                             : "hover:bg-muted/20";
 
                   const outMin = parseMin(row.xerpOut);
-                  const isEarlyOutHighlight = isSafetyEduDate && outMin !== null && outMin >= 16 * 60 + 20 && outMin <= 17 * 60;
+                  const isEarlyOutHighlight = isSafetyEduDate && isSafetyEduEarlyOut(outMin, resolveStandardEnd(row.shiftMin ?? siteShiftMin));
                   const finalRowBg = isEarlyOutHighlight ? "bg-amber-50/60 hover:bg-amber-50/80" : rowBg;
                   return (
                     <tr key={`${row.rowIndex}-${row.성명}`} className={`border-b border-border/60 last:border-0 transition-colors ${finalRowBg}`}>
@@ -2503,7 +2537,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       <td className={`${cell} bg-amber-50/30`}>
                         <label className="flex items-center justify-center cursor-pointer">
                           <input type="checkbox" checked={row.isLunchOt} onChange={() => toggleLunchOt(row.rowIndex)}
-                            title="P5-PH1: 07시 이전 출근 + 13:50 이후 퇴근 → 가산사유 중식OT / 1공수"
+                            title={`P5-PH1: ${siteTime(7 * 60)} 이전 출근 + ${siteTime(13 * 60 + 50)} 이후 퇴근 → 가산사유 중식OT / 1공수`}
                             className="w-3.5 h-3.5 accent-amber-600 cursor-pointer" />
                         </label>
                       </td>
@@ -2511,7 +2545,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                       <td className={`${cell} bg-indigo-50/30`}>
                         <label className="flex items-center justify-center cursor-pointer">
                           <input type="checkbox" checked={row.isCheolya} onChange={() => toggleCheolya(row.rowIndex)}
-                            title="철야(야간 전담) — 15:00 이후 출근이면 자동 체크. 기준 19:00 출근 / 04:50 퇴근 = 2공수, 지각도 19:00 기준으로 판정"
+                            title={`철야(야간 전담) — ${siteTime(15 * 60)} 이후 출근이면 자동 체크. 기준 ${siteTime(19 * 60)} 출근 / ${siteTime(4 * 60 + 50)} 퇴근 = 2공수, 지각도 ${siteTime(19 * 60)} 기준으로 판정`}
                             className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer" />
                         </label>
                       </td>
@@ -2527,7 +2561,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         {row.effIn || "—"}
                         {row.isLate && <span className="ml-1 text-[9px] font-bold text-orange-500">지각</span>}
                         {row.isCheolya && <span className="ml-1 text-[9px] font-bold text-indigo-500">철야</span>}
-                        {row.standardStart !== 7 * 60 && (
+                        {row.standardStart !== 7 * 60 + (row.shiftMin ?? siteShiftMin) && (
                           <span className="ml-1 text-[9px] font-semibold text-slate-400">({minToStr(row.standardStart)}기준)</span>
                         )}
                         {!row.isCheolya && row.isJochul && row.rawInMin !== null && row.rawInMin < row.standardStart && (
