@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { MAIL_REQUEST_MENU_OPTIONS, type MailRequestMenu } from "@/lib/headOfficeMail";
-import { getLocalDateKey, getMonday } from "@/lib/attendanceDateUtils";
+import { getLocalDateKey } from "@/lib/attendanceDateUtils";
 import type { AttendanceRosterEmployee } from "@/lib/attendanceSources";
 import {
   applyManualAttendanceOverrides,
@@ -15,11 +15,10 @@ import {
 } from "@/lib/localAttendanceWatchClient";
 import type { ParsedData } from "@/lib/parseExcel";
 import type { ParsedPmisData } from "@/components/PmisInOutLogTab";
-import { fetchAttendanceFS, fetchRowOrderFS } from "@/lib/firestoreAttendance";
 import { loadXerpFS, loadXerpPH2FS, loadXerpP5PH1FS } from "@/lib/firestoreService";
 import { getAdminMenuButtonLabel, shouldShowAdminMenuPanel } from "@/lib/navigationDisplay";
 import { toast } from "sonner";
-import { Loader2, Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, Calculator, Scissors, Mail, ListChecks, Trash2, ChevronDown, BarChart2, LogIn, BellRing, MessageSquare } from "lucide-react";
+import { Users, ClipboardList, GitBranch, Database, Home, LogOut, KeyRound, Calculator, Scissors, Mail, ListChecks, Trash2, ChevronDown, BarChart2, LogIn, BellRing, MessageSquare } from "lucide-react";
 import { useAdminAuth } from "@/components/AdminLoginDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Lock } from "lucide-react";
@@ -192,8 +191,6 @@ function KeepAlivePane({ active, children }: { active: boolean; children: React.
   return <div style={active ? undefined : { display: "none" }}>{children}</div>;
 }
 
-const ROW_ORDER_CONTEXTS = ["attendance_한성_F", "attendance_태화_F", "attendance_현채", "leave"];
-
 interface NavItem {
   key: ActiveTab;
   label: string;
@@ -329,9 +326,6 @@ const Index = () => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   });
-  const [lastUploadedAt, setLastUploadedAt] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [, setPendingBuffer] = useState<ArrayBuffer | null>(null);
   const [, setFingerprintBuffer] = useState<ArrayBuffer | null>(null);
   const [, setXerpSourceBuffer] = useState<ArrayBuffer | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>(readTabFromHash);
@@ -350,7 +344,6 @@ const Index = () => {
   const isTabMounted = (tab: ActiveTab) => tab === activeTab || visitedTabs.has(tab);
   const [mailSubTab, setMailSubTab] = useState<MailRequestMenu>("certificate");
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
-  const [, setRowOrders] = useState<Record<string, string[]>>({});
   const [, setSearchQuery] = useState("");
   const { isAdmin, login, logout, authReady } = useAdminAuth();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
@@ -384,38 +377,6 @@ const Index = () => {
     }
   };
 
-
-  useEffect(() => {
-    const timeout = setTimeout(() => setIsLoading(false), 8000);
-    (async () => {
-      try {
-        const [result, ...orders] = await Promise.all([
-          fetchAttendanceFS(),
-          ...ROW_ORDER_CONTEXTS.map((ctx) => fetchRowOrderFS(ctx).then((names) => ({ ctx, names }))),
-        ]);
-        if (result) {
-          const roster = readAttendanceRoster();
-          setData(applyAttendancePresentationRules(
-            applyManualAttendanceOverrides(result.data, readManualAttendanceOverrides(), roster),
-            roster
-          ));
-          setLastUploadedAt(result.uploadedAt);
-        }
-        const orderMap: Record<string, string[]> = {};
-        for (const o of orders as { ctx: string; names: string[] }[]) {
-          orderMap[o.ctx] = o.names;
-        }
-        setRowOrders(orderMap);
-      } catch {
-        // silently fail
-      } finally {
-        clearTimeout(timeout);
-        setIsLoading(false);
-      }
-    })();
-  }, []);
-
-  const monday = useMemo(() => getMonday(new Date(selectedDate)), [selectedDate]);
 
   const saveManualAttendanceOverrides = useCallback((nextOverrides: ManualAttendanceOverride[]) => {
     setManualAttendanceOverrides(nextOverrides);
@@ -519,7 +480,6 @@ const Index = () => {
           nextRoster
         ));
         setFileName(`${payload.fingerprint.name} + ${payload.xerp.name}`);
-        setPendingBuffer(null);
         const rosterAppliedStatus = payload.roster?.name ? ` / ${payload.roster.name}` : "";
         setLocalWatchStatus(`자동 반영됨: ${payload.fingerprint.name} / ${payload.xerp.name}${rosterAppliedStatus}`);
         toast.success("로컬 폴더 변경을 자동 반영했습니다.");
@@ -639,17 +599,6 @@ const Index = () => {
       resizeObserver?.disconnect();
     };
   }, [updateSubnavOffsets, isAdmin]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">데이터 로딩 중...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="ops-shell flex flex-col h-[100dvh]">
