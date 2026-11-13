@@ -48,7 +48,42 @@ import {
   shouldShowInEarlyLeaveList,
   shouldShowInSpecialList,
   hasNoCalcGongsu,
+  classifyGasanDivision,
+  shortGasanDivision,
+  gasanDivisionCellValue,
 } from "@/lib/xerpWorkReflectionEngine";
+
+// 수정 파일 다운로드 시 Y열(구분)도 자동으로 채울지. XERP 업로드에서 문제가 생기면 false로 바꾸면 예전 방식으로 돌아간다.
+const WRITE_GASAN_DIVISION = true;
+
+const GASAN_DIVISION_TONE: Record<string, string> = {
+  "출퇴근 미체크": "bg-rose-100 text-rose-700",
+  "근무시간부족": "bg-orange-100 text-orange-700",
+  "기타": "bg-slate-200 text-slate-700",
+};
+
+/** 가산사유 앞에 붙는 XERP 구분 배지. 사유가 길어도 배지는 안 잘리게 shrink-0. */
+function GasanDivisionBadge({ reason }: { reason: string }) {
+  const { division, certain } = classifyGasanDivision(reason);
+  if (!division) return null;
+  return (
+    <span
+      className={`shrink-0 rounded px-1 text-[10px] font-semibold ${GASAN_DIVISION_TONE[division] ?? GASAN_DIVISION_TONE["기타"]}`}
+      title={`구분: ${division}${certain ? "" : " (규칙에 없는 문구, 확인 필요)"}`}
+    >
+      {shortGasanDivision(division)}{certain ? "" : "?"}
+    </span>
+  );
+}
+
+/** 셀 전체에 거는 툴팁 — 잘린 사유 전문과 자동 분류된 구분을 같이 보여 준다. */
+function gasanReasonTitle(reason: string): string {
+  if (!reason) return "클릭하여 사유 입력";
+  const { division, certain } = classifyGasanDivision(reason);
+  if (!division) return reason;
+  return `${reason}
+구분: ${division}${certain ? "" : " (규칙에 없는 문구, 확인 필요)"}`;
+}
 
 // ── 신규자 정보 타입 ──────────────────────────────────
 interface NewEmpInfo { 생년월일: string; 단가: string; }
@@ -1218,6 +1253,11 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       // Z열 (col 26, 0-based 25): 가산사유 (X열은 작업내용 컬럼이므로 건드리지 않음)
       if (effectiveReason) {
         ws.getCell(excelRow, 26).value = effectiveReason;
+        // Y열 (col 25): 구분 — 가산사유 문구로 자동 분류
+        if (WRITE_GASAN_DIVISION) {
+          const cellValue = gasanDivisionCellValue(classifyGasanDivision(effectiveReason).division);
+          if (cellValue) ws.getCell(excelRow, 25).value = cellValue;
+        }
       }
 
       if (effectiveDiff === null) continue;
@@ -2632,10 +2672,15 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
                         ) : (
                           <button
                             onClick={() => startEdit(row)}
-                            className="w-full px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-amber-100 transition-colors truncate max-w-[140px]"
-                            title={row.가산사유 || "클릭하여 사유 입력"}
+                            className="flex w-full max-w-[200px] items-center gap-1 px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-amber-100 transition-colors"
+                            title={gasanReasonTitle(row.가산사유)}
                           >
-                            {row.가산사유 || <span className="text-muted-foreground/40">—</span>}
+                            {row.가산사유 ? (
+                              <>
+                                <GasanDivisionBadge reason={row.가산사유} />
+                                <span className="truncate">{row.가산사유}</span>
+                              </>
+                            ) : <span className="text-muted-foreground/40">—</span>}
                           </button>
                         )}
                       </td>

@@ -261,6 +261,61 @@ export function resolveWritableGasanAdjustment(
   return { diff, reason };
 }
 
+/**
+ * XERP 가산사유 "구분" 자동 분류 (일일출력 엑셀 Y열 = 구분, Z열 = 내용)
+ * XERP 가산공수업로드는 구분이 비어 있으면 전원 "기타"로 넣어서, 매번 손으로 다시 지정해야 했다.
+ * 규칙(현장 실사례로 확정):
+ *  - "xerp 승인대기" 문구 → 기타 (시스템 지연, 작업자 타각 문제 아님)
+ *  - 미타각 / 타각지연 → 출퇴근 미체크
+ *  - 6h·7H 근무, 주간근무, 야간근무 (의도된 단축·변경 근무) → 기타
+ *  - 빠른퇴근 / 지각N분인정 / 조퇴 → 근무시간부족
+ *  - 그 외(정기안전교육, 중식OT, 처음 보는 문구) → 기타 + certain=false (화면에 "?" 표시, 사람이 확인)
+ */
+export type GasanDivision = "출퇴근 미체크" | "근무시간부족" | "기타";
+
+export function classifyGasanDivision(reason: unknown): { division: GasanDivision | ""; certain: boolean } {
+  const text = cleanGasanReason(reason);
+  if (!text) return { division: "", certain: true };
+  const c = text.replace(/\s+/g, "").toLowerCase();
+
+  if (c.includes("xerp승인대기")) return { division: "기타", certain: true };
+  if (c.includes("미타각") || c.includes("타각지연")) return { division: "출퇴근 미체크", certain: true };
+  if (/\d+(\.\d+)?h근무/.test(c) || c.includes("주간근무") || c.includes("야간근무")) return { division: "기타", certain: true };
+  if (c.includes("정기안전교육") || c.includes("중식ot")) return { division: "기타", certain: false };
+  if (c.includes("빠른퇴근") || c.includes("지각") || c.includes("조퇴")) return { division: "근무시간부족", certain: true };
+  return { division: "기타", certain: false };
+}
+
+/** 화면 배지용 짧은 이름 */
+export function shortGasanDivision(division: GasanDivision | ""): string {
+  if (division === "출퇴근 미체크") return "미체크";
+  if (division === "근무시간부족") return "시간부족";
+  return division;
+}
+
+/**
+ * XERP 가산공수업로드가 Y열에서 한글 라벨을 받는지 드롭다운 코드값을 받는지 아직 확인 안 됨.
+ * 실제 업로드로 확인한 뒤 GASAN_DIVISION_CELL_FORMAT 한 줄만 "code"로 바꾸면 코드값으로 나간다.
+ */
+export const GASAN_DIVISION_CODES: Record<GasanDivision, string> = {
+  "출퇴근 미체크": "100",
+  "근무시간부족": "200",
+  "기타": "900",
+};
+
+export type GasanDivisionCellFormat = "label" | "code";
+
+export const GASAN_DIVISION_CELL_FORMAT: GasanDivisionCellFormat = "label";
+
+/** 엑셀 Y열(구분)에 실제로 적을 값 */
+export function gasanDivisionCellValue(
+  division: GasanDivision | "",
+  format: GasanDivisionCellFormat = GASAN_DIVISION_CELL_FORMAT,
+): string {
+  if (!division) return "";
+  return format === "code" ? GASAN_DIVISION_CODES[division] : division;
+}
+
 export function excelSerialToDateStr(serial: unknown): string {
   const n = typeof serial === "number" ? serial : parseFloat(String(serial));
   if (isNaN(n) || n <= 0) return "";
