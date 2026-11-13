@@ -18,22 +18,22 @@ service cloud.firestore {
     }
 
     match /worksite_data/{docId} {
-      allow read: if signedIn();
+      allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
     }
 
     match /attendance/{docId} {
-      allow read: if signedIn();
+      allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
     }
 
     match /upload_meta/{docId} {
-      allow read: if signedIn();
+      allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
     }
 
     match /row_order/{docId} {
-      allow read: if signedIn();
+      allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
     }
 

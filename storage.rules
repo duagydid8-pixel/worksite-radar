@@ -12,7 +12,7 @@ service firebase.storage {
     }
 
     match /contracts/{fileName} {
-      allow read: if signedIn();
+      allow read: if isAdmin();
       allow write: if isAdmin()
         && request.resource != null
         && request.resource.size < 20 * 1024 * 1024
@@ -20,7 +20,7 @@ service firebase.storage {
     }
 
     match /org-photos/{docId}/{fileName} {
-      allow read: if signedIn();
+      allow read: if isAdmin();
       allow write: if isAdmin()
         && request.resource != null
         && request.resource.size < 5 * 1024 * 1024
@@ -29,7 +29,7 @@ service firebase.storage {
 
     // 본사 송부용 조직도 원본 PPT (현장별)
     match /org-ppt/{docId}/{fileName} {
-      allow read: if signedIn();
+      allow read: if isAdmin();
       allow write: if isAdmin()
         && request.resource != null
         && request.resource.size < 50 * 1024 * 1024
