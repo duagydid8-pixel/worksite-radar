@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod/v4";
 import { isMediaMessage, type KakaoMessage } from "./kakaoChat";
+import { redactSensitiveInfo, type SensitiveInfoFinding } from "./sensitiveInfoGuard";
 import { makeEvent, normalizeName, type KakaoEvent } from "./kakaoEvents";
 
 export const KAKAO_AI_MODELS = [
@@ -60,14 +61,50 @@ export interface KakaoAiOptions {
   model: KakaoAiModel;
   roster: string[];
   onProgress?: (done: number, total: number) => void;
+  /** 전송 직전, 가린 민감정보를 알려 준다 (가린 게 있을 때만 1회) */
+  onRedact?: (info: { count: number; findings: SensitiveInfoFinding[] }) => void;
+}
+
+/** 보낼 한 줄 — text는 민감정보를 가린 전송본, msg는 근거로 남길 원문 */
+interface PreparedMessage {
+  msg: KakaoMessage;
+  text: string;
+}
+
+/**
+ * 외부(Anthropic)로 나갈 본문에서 주민번호·전화번호·계좌번호를 가린다.
+ * 근거로 저장하는 원문(msg.text)은 건드리지 않고 전송본만 바꾼다.
+ */
+export function prepareMessagesForAi(messages: KakaoMessage[]): {
+  prepared: PreparedMessage[];
+  count: number;
+  findings: SensitiveInfoFinding[];
+} {
+  const prepared: PreparedMessage[] = [];
+  const byType = new Map<SensitiveInfoFinding["type"], SensitiveInfoFinding>();
+  let count = 0;
+
+  for (const msg of messages) {
+    const { text, findings, redactedCount } = redactSensitiveInfo(msg.text);
+    prepared.push({ msg, text });
+    count += redactedCount;
+    for (const finding of findings) if (!byType.has(finding.type)) byType.set(finding.type, finding);
+  }
+
+  return { prepared, count, findings: [...byType.values()] };
 }
 
 /** 카톡 메시지를 Claude에 보내 근태 이벤트를 추출한다. 메시지 원문이 Anthropic으로 전송된다. */
 export async function extractKakaoEventsWithAi(messages: KakaoMessage[], opts: KakaoAiOptions): Promise<KakaoEvent[]> {
   const client = new Anthropic({ apiKey: opts.apiKey, dangerouslyAllowBrowser: true });
   const textMessages = messages.filter((m) => !isMediaMessage(m.text));
-  const chunks: KakaoMessage[][] = [];
-  for (let i = 0; i < textMessages.length; i += CHUNK_SIZE) chunks.push(textMessages.slice(i, i + CHUNK_SIZE));
+
+  // 보내기 전에 민감정보를 가린다 (주민번호·전화번호·계좌번호)
+  const { prepared, count: redactedCount, findings } = prepareMessagesForAi(textMessages);
+  if (redactedCount > 0) opts.onRedact?.({ count: redactedCount, findings });
+
+  const chunks: PreparedMessage[][] = [];
+  for (let i = 0; i < prepared.length; i += CHUNK_SIZE) chunks.push(prepared.slice(i, i + CHUNK_SIZE));
 
   const rosterLine = opts.roster.length ? [...new Set(opts.roster.map(normalizeName))].join(", ") : "(명단 없음)";
   const events: KakaoEvent[] = [];
@@ -77,7 +114,7 @@ export async function extractKakaoEventsWithAi(messages: KakaoMessage[], opts: K
     opts.onProgress?.(c, chunks.length);
     const chunk = chunks[c];
     const listing = chunk
-      .map((m, i) => `[${i}] ${m.date} ${m.time} ${m.sender}: ${m.text.replace(/\n/g, " / ")}`)
+      .map((p, i) => `[${i}] ${p.msg.date} ${p.msg.time} ${p.msg.sender}: ${p.text.replace(/\n/g, " / ")}`)
       .join("\n");
 
     const response = await client.beta.messages.parse({
@@ -95,7 +132,7 @@ export async function extractKakaoEventsWithAi(messages: KakaoMessage[], opts: K
     if (!parsed) throw new Error("AI 응답을 해석하지 못했습니다.");
 
     for (const e of parsed.events) {
-      const m = chunk[e.msg_index];
+      const m = chunk[e.msg_index]?.msg;
       if (!m) continue;
       const date = /^\d{4}-\d{2}-\d{2}$/.test(e.date) ? e.date : m.date;
       events.push(

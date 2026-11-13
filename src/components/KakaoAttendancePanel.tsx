@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight, Loader2, Save, Sparkles, Trash2, UserCheck } from "lucide-react";
 import KakaoSavedHistory from "@/components/KakaoSavedHistory";
 import { toast } from "sonner";
+import { clearStoredApiKey, readStoredApiKey, writeStoredApiKey } from "@/lib/kakaoAiKeyStorage";
 import type { KakaoMessage } from "@/lib/kakaoChat";
 import {
   EVENT_CATEGORY_LABELS,
@@ -35,7 +36,6 @@ import {
   saveKakaoEventsFS,
 } from "@/lib/firestoreService";
 
-const AI_KEY_STORAGE = "kakao_ai_api_key";
 const AI_MODEL_STORAGE = "kakao_ai_model";
 
 type EmployeeRow = Record<string, string> & { id: string; 이름: string; 입사일: string; 퇴사일: string };
@@ -168,7 +168,8 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
   const [employeesBySite, setEmployeesBySite] = useState<Record<SiteKey, EmployeeRow[]>>({ PH4: [], PH2: [], P5PH1: [] });
   const [method, setMethod] = useState<"rule" | "ai">("rule");
   const [aiModel, setAiModel] = useState(() => readStorage(AI_MODEL_STORAGE, "claude-opus-5-5"));
-  const [apiKey, setApiKey] = useState(() => readStorage(AI_KEY_STORAGE));
+  const [apiKey, setApiKey] = useState(() => readStoredApiKey().key);
+  const [rememberKey, setRememberKey] = useState(() => readStoredApiKey().remember);
   const [aiRunning, setAiRunning] = useState(false);
   const [aiProgress, setAiProgress] = useState("");
   const [aiEvents, setAiEvents] = useState<KakaoEvent[] | null>(null);
@@ -264,6 +265,11 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
         model: aiModel as "claude-opus-5-5",
         roster,
         onProgress: (done, total) => setAiProgress(`${done}/${total} 묶음 분석 중...`),
+        onRedact: ({ count, findings }) => {
+          toast.info(`민감정보 ${count}건을 가리고 보냅니다`, {
+            description: summarizeSensitiveInfoFindings(findings),
+          });
+        },
       });
       setAiEvents(result);
       setEdits({});
@@ -482,13 +488,37 @@ export default function KakaoAttendancePanel({ messages: allMessages, isAdmin, c
                 <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (균형)</option>
                 <option value="claude-haiku-5-5">Claude Haiku 5.5 (가장 저렴)</option>
               </select>
-              <input type="password" value={apiKey} onChange={(e) => { setApiKey(e.target.value); writeStorage(AI_KEY_STORAGE, e.target.value); }} placeholder="Anthropic API 키 (sk-ant-...)" className="min-w-[220px] flex-1 rounded-md border border-violet-200 bg-white px-2 py-1.5 text-sm" />
+              <input type="password" value={apiKey} onChange={(e) => { setApiKey(e.target.value); writeStoredApiKey(e.target.value, rememberKey); }} placeholder="Anthropic API 키 (sk-ant-...)" className="min-w-[220px] flex-1 rounded-md border border-violet-200 bg-white px-2 py-1.5 text-sm" />
               <button type="button" disabled={aiRunning || !messages.length} onClick={runAi} className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50">
                 {aiRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {aiRunning ? aiProgress : "AI로 분석"}
               </button>
             </div>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-violet-800">
+              <label className="inline-flex items-center gap-1.5 font-semibold">
+                <input
+                  type="checkbox"
+                  checked={rememberKey}
+                  onChange={(e) => { setRememberKey(e.target.checked); writeStoredApiKey(apiKey, e.target.checked); }}
+                  className="h-3.5 w-3.5 accent-violet-600"
+                />
+                이 브라우저에 키 저장
+              </label>
+              <span className="text-violet-500">
+                {rememberKey ? "끄면 탭을 닫을 때 사라집니다. 공용 PC면 끄세요." : "탭을 닫으면 지워집니다."}
+              </span>
+              {apiKey && (
+                <button
+                  type="button"
+                  onClick={() => { setApiKey(""); setRememberKey(false); clearStoredApiKey(); toast.success("저장된 API 키를 지웠습니다."); }}
+                  className="rounded border border-violet-300 bg-white px-2 py-0.5 font-bold text-violet-700 hover:bg-violet-100"
+                >
+                  키 지우기
+                </button>
+              )}
+            </div>
             <p className="text-[11px] text-violet-800">
-              ⚠ AI 분석을 누르면 이 대화의 텍스트 메시지(사진 제외)가 Anthropic으로 전송됩니다. API 키는 이 브라우저에만 저장됩니다.
+              ⚠ AI 분석을 누르면 이 대화의 텍스트 메시지(사진 제외)가 Anthropic으로 전송됩니다.
+              주민번호·전화번호·계좌번호는 보내기 전에 가립니다(이름·날짜·근태 문구는 그대로 전송).
               {aiEvents ? ` · 현재 AI 결과 ${aiEvents.length}건 표시 중` : " · 아직 AI 분석 전이라 기본 결과를 보여줍니다."}
             </p>
           </div>
