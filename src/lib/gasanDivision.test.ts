@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   GASAN_DIVISIONS,
   classifyGasanDivision,
-  GASAN_DIVISION_BLANK_MARK,
   gasanDivisionCellValue,
   gasanDivisionCellValueForReason,
   isGasanDivision,
@@ -131,16 +130,16 @@ describe("XERP 드롭다운 목록과 완전 일치", () => {
   });
 });
 
-describe("구분 빈칸 표식 — XERP가 빈칸을 '기타'로 채우는 것 막기", () => {
-  it("사유가 없는 행은 빈칸이 아니라 공장지원", () => {
-    expect(gasanDivisionCellValueForReason("")).toBe("공장지원");
-    expect(gasanDivisionCellValueForReason(undefined)).toBe("공장지원");
-    expect(gasanDivisionCellValueForReason("—")).toBe("공장지원");
-    expect(GASAN_DIVISION_BLANK_MARK).toBe("공장지원");
+describe("구분은 가산사유가 있는 행만 — 표식 채우기 철회(2026-11-17)", () => {
+  it("사유가 없는 행은 빈 값(=Y열을 건드리지 않음)", () => {
+    expect(gasanDivisionCellValueForReason("")).toBe("");
+    expect(gasanDivisionCellValueForReason(undefined)).toBe("");
+    expect(gasanDivisionCellValueForReason("—")).toBe("");
   });
 
-  it("표식도 드롭다운 목록 안의 문구여야 한다", () => {
-    expect(isGasanDivision(GASAN_DIVISION_BLANK_MARK)).toBe(true);
+  it("안 쓰는 항목을 표식으로 넣지 않는다 — XERP가 '기타'로 바꿔 버린다", () => {
+    expect(gasanDivisionCellValueForReason("")).not.toBe("공장지원");
+    expect(gasanDivisionCellValueForReason("")).not.toBe("기타");
   });
 
   it("사유가 있으면 평소대로 분류된 구분", () => {
@@ -148,8 +147,9 @@ describe("구분 빈칸 표식 — XERP가 빈칸을 '기타'로 채우는 것 �
     expect(gasanDivisionCellValueForReason("퇴근미타각(주간)")).toBe("출퇴근 미체크");
   });
 
-  it("자동 분류 결과로 '기타'가 나온 건은 표식과 구분된다", () => {
-    expect(gasanDivisionCellValueForReason("xerp 승인대기로 인한 퇴근미타각(주간)")).not.toBe("공장지원");
+  it("적히는 값은 항상 드롭다운 목록 안의 문구", () => {
+    const value = gasanDivisionCellValueForReason("xerp 승인대기로 인한 퇴근미타각(주간)");
+    expect(isGasanDivision(value)).toBe(true);
   });
 });
 

@@ -277,6 +277,8 @@ export const GASAN_DIVISIONS = [
   "야간작업",
   "점심OT",
   "공장방문",
+  // "공장지원"은 화면에서 봤지만 업로드로는 안 받는다(2026-11-17: 이 값으로 올린 행이 전부 "기타"가 됐다).
+  // 자동 분류가 내보내는 값이 아니라 목록 자리만 지킨다.
   "공장지원",
   "본사출근",
   "프로그램사용미숙",
@@ -348,12 +350,12 @@ export type GasanDivisionCellFormat = "label" | "code";
 export const GASAN_DIVISION_CELL_FORMAT: GasanDivisionCellFormat = "label";
 
 /**
- * 구분이 비어 있는 행에 임시로 넣는 표식.
- * XERP는 업로드할 때 구분 빈칸을 전부 "기타"로 채우는데, 우리가 쓰는 진짜 "기타"와 섞여
- * 업로드 뒤에 일괄 수정을 할 수 없다. 그래서 사유가 없어 구분이 안 잡히는 인원은
- * 쓰지 않는 항목("공장지원")으로 표시해 두고, 업로드 뒤 그 값만 골라 한 번에 고친다.
+ * 2026-11-17 철회: 사유 없는 행에 표식("공장지원")을 넣던 방식.
+ * 실제 업로드에서 그 행들이 전부 "기타"로 뜨는 것을 확인했다 — XERP가 안 쓰는 항목을
+ * 받아 주지 않고 "기타"로 바꿔 버리므로 표식이 아무 구실을 못 한다.
+ * 그래서 사유가 없는 행은 Y열을 건드리지 않는다(기존 방식). 어차피 가산공수가 없는 행이라
+ * XERP가 "기타"로 채워도 손볼 게 없다.
  */
-export const GASAN_DIVISION_BLANK_MARK: GasanDivision = "공장지원";
 
 /** 엑셀 Y열(구분)에 실제로 적을 값 */
 export function gasanDivisionCellValue(
@@ -365,15 +367,16 @@ export function gasanDivisionCellValue(
 }
 
 /**
- * 가산사유 → Y열에 적을 값. 사유가 없거나 구분이 안 잡히면 빈칸 대신 표식("공장지원")을 넣는다.
- * Y열을 절대 비우지 않는 게 핵심 — 비우면 XERP가 "기타"로 채워 버려 나중에 구분이 안 된다.
+ * 가산사유 → Y열에 적을 값. 사유가 없으면 빈 문자열 — 그 행의 Y열은 건드리지 않는다.
+ * (가산사유가 있는 행만 구분을 적는다. 사유 없는 행까지 채우면 XERP가 안 쓰는 항목을
+ *  "기타"로 바꿔 버려 전원이 기타로 보인다 — 2026-11-17 업로드 확인.)
  */
 export function gasanDivisionCellValueForReason(
   reason: unknown,
   format: GasanDivisionCellFormat = GASAN_DIVISION_CELL_FORMAT,
 ): string {
   const { division } = classifyGasanDivision(reason);
-  return gasanDivisionCellValue(division || GASAN_DIVISION_BLANK_MARK, format);
+  return gasanDivisionCellValue(division, format);
 }
 
 export function excelSerialToDateStr(serial: unknown): string {

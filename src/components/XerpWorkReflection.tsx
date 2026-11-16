@@ -1301,11 +1301,13 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       if (effectiveReason) {
         ws.getCell(excelRow, 26).value = effectiveReason;
       }
-      // Y열 (col 25): 구분 — 가산사유 문구로 자동 분류.
-      // 사유가 없는 인원도 비워 두지 않고 표식("공장지원")을 넣는다. 비우면 XERP가 업로드할 때
-      // 전부 "기타"로 채워 우리가 쓴 진짜 "기타"와 섞여, 업로드 뒤 일괄 수정이 불가능해진다.
+      // Y열 (col 25): 구분 — 가산사유 문구로 자동 분류. 사유가 있는 행만 적는다.
+      // (사유 없는 행까지 표식으로 채워 봤지만 XERP가 안 쓰는 항목을 "기타"로 바꿔 버려
+      //  업로드 뒤 전원이 "기타"로 보였다 — 2026-11-17 확인. 가산공수가 없는 행은 손볼 게 없으니
+      //  XERP 기본값 "기타"로 남겨 둔다.)
       if (WRITE_GASAN_DIVISION) {
-        ws.getCell(excelRow, 25).value = gasanDivisionCellValueForReason(effectiveReason);
+        const divisionCell = gasanDivisionCellValueForReason(effectiveReason);
+        if (divisionCell) ws.getCell(excelRow, 25).value = divisionCell;
       }
 
       if (effectiveDiff === null) continue;
