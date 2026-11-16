@@ -174,26 +174,43 @@ function openOriginalWorkbookDb(): Promise<IDBDatabase | null> {
   });
 }
 
-async function saveOriginalWorkbookBuffer(date: string, buffer: ArrayBuffer): Promise<void> {
+/**
+ * 원본 엑셀 보관 키 — 현장|날짜.
+ * 예전엔 날짜만 키로 써서 같은 날 P4-PH4와 P5-PH1 파일이 서로 덮어썼고,
+ * 그 상태로 수정파일을 받으면 다른 현장 양식 위에 이 현장 행이 적혔다.
+ */
+function workbookKey(site: XerpSyncSite, date: string): string {
+  return `${site}|${date}`;
+}
+
+async function saveOriginalWorkbookBuffer(site: XerpSyncSite, date: string, buffer: ArrayBuffer): Promise<void> {
   const db = await openOriginalWorkbookDb();
   if (!db) return;
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(ORIGINAL_WORKBOOK_STORE, "readwrite");
-    tx.objectStore(ORIGINAL_WORKBOOK_STORE).put(buffer, date);
+    tx.objectStore(ORIGINAL_WORKBOOK_STORE).put(buffer, workbookKey(site, date));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
   db.close();
 }
 
-async function loadOriginalWorkbookBuffer(date: string): Promise<ArrayBuffer | null> {
+async function loadOriginalWorkbookBuffer(site: XerpSyncSite, date: string): Promise<ArrayBuffer | null> {
   const db = await openOriginalWorkbookDb();
   if (!db) return null;
   try {
     return await new Promise<ArrayBuffer | null>((resolve, reject) => {
       const tx = db.transaction(ORIGINAL_WORKBOOK_STORE, "readonly");
-      const req = tx.objectStore(ORIGINAL_WORKBOOK_STORE).get(date);
-      req.onsuccess = () => resolve((req.result as ArrayBuffer | undefined) ?? null);
+      const store = tx.objectStore(ORIGINAL_WORKBOOK_STORE);
+      // 현장별 키로 먼저 찾고, 없으면 예전(날짜만) 키로 한 번 더 — 기존 보관분 호환
+      const req = store.get(workbookKey(site, date));
+      req.onsuccess = () => {
+        const hit = req.result as ArrayBuffer | undefined;
+        if (hit) { resolve(hit); return; }
+        const legacy = store.get(date);
+        legacy.onsuccess = () => resolve((legacy.result as ArrayBuffer | undefined) ?? null);
+        legacy.onerror = () => reject(legacy.error);
+      };
       req.onerror = () => reject(req.error);
     });
   } finally {
@@ -201,12 +218,12 @@ async function loadOriginalWorkbookBuffer(date: string): Promise<ArrayBuffer | n
   }
 }
 
-async function deleteOriginalWorkbookBuffer(date: string): Promise<void> {
+async function deleteOriginalWorkbookBuffer(site: XerpSyncSite, date: string): Promise<void> {
   const db = await openOriginalWorkbookDb();
   if (!db) return;
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(ORIGINAL_WORKBOOK_STORE, "readwrite");
-    tx.objectStore(ORIGINAL_WORKBOOK_STORE).delete(date);
+    tx.objectStore(ORIGINAL_WORKBOOK_STORE).delete(workbookKey(site, date));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -421,7 +438,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
           setRows(applyNewEmpToRows(entry.rows as ProcessedRow[], empData, latest));
           setFileName(entry.fileName ?? null);
           setRawExcelRows((entry.rawExcelRows ?? []) as RawExcelRow[]);
-          setOriginalBuffer(await loadOriginalWorkbookBuffer(latest));
+          setOriginalBuffer(await loadOriginalWorkbookBuffer(syncSite, latest));
           toast.info(`저장된 데이터 불러옴 (${latest} / ${entry.fileName})`);
         }
       } else {
@@ -786,7 +803,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     const resolvedSite = forcedWorkDate ? syncSite : detectedSite;
     const detectedDate = extractDateFromFilename(sourceFileName);
     const calcWorkDate = forcedWorkDate ?? detectedDate ?? workDate;
-    saveOriginalWorkbookBuffer(calcWorkDate, buffer).catch((err) => {
+    saveOriginalWorkbookBuffer(resolvedSite, calcWorkDate, buffer).catch((err) => {
       console.warn("[saveOriginalWorkbookBuffer]", err);
     });
 
@@ -932,7 +949,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       const detectedSite = detectSite(file.name);
       const detectedDate = extractDateFromFilename(file.name);
       const calcWorkDate = detectedDate ?? workDate;
-      saveOriginalWorkbookBuffer(calcWorkDate, buffer).catch((err) => {
+      saveOriginalWorkbookBuffer(detectedSite, calcWorkDate, buffer).catch((err) => {
         console.warn("[saveOriginalWorkbookBuffer]", err);
       });
 
@@ -1150,7 +1167,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     setIsSaving(true);
     const ok = await saveXerpWorkDateFS(syncSite, workDate, fileName, rows, rawExcelRows);
     if (ok && originalBuffer) {
-      saveOriginalWorkbookBuffer(workDate, originalBuffer).catch((err) => {
+      saveOriginalWorkbookBuffer(syncSite, workDate, originalBuffer).catch((err) => {
         console.warn("[saveOriginalWorkbookBuffer]", err);
       });
     }
@@ -1179,14 +1196,14 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
   };
 
   // 날짜 선택 시 해당 날짜 데이터 로드
-  const handleWorkDateChange = async (date: string) => {
+  const handleWorkDateChange = async (date: string, site: XerpSyncSite = syncSite) => {
     setWorkDate(date);
     if (!date) return;
     setIsLoadingDate(true);
     const [dm, empData, savedOriginalBuffer] = await Promise.all([
-      loadXerpWorkDateMapFS(syncSite),
+      loadXerpWorkDateMapFS(site),
       loadNewEmpForDate(date),
-      loadOriginalWorkbookBuffer(date),
+      loadOriginalWorkbookBuffer(site, date),
     ]);
     setIsLoadingDate(false);
     if (dm?.[date]) {
@@ -1203,7 +1220,35 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       setOriginalBuffer(null);
       setWorkbook(null);
       setRawExcelRows([]);
-      toast.info(`${date} 저장된 데이터 없음`);
+      toast.info(`${ROSTER_FS[site].label} · ${date} 저장된 데이터 없음`);
+    }
+  };
+
+  /**
+   * 현장(프로젝트) 변경 — 화면 내용도 그 현장 것으로 바꾼다.
+   * 전엔 날짜 목록만 바뀌고 표·파일명·원본 엑셀은 이전 현장 것이 그대로 남아 있었다.
+   * 그 상태로 저장하면 바꾼 현장 문서에 이전 현장 인원이 들어가고,
+   * 근무시간 기준(P5-PH1은 5분 앞당김)도 이전 현장 기준 그대로였다.
+   */
+  const handleSyncSiteChange = async (site: XerpSyncSite) => {
+    if (site === syncSite) return;
+    setSyncSite(site);
+    setSelectedIdxes(new Set());
+    const dm = await loadXerpWorkDateMapFS(site);
+    const dates = dm ? Object.keys(dm).sort().reverse() : [];
+    setWorkDates(dates);
+    // 보던 날짜가 그 현장에도 있으면 그 날짜로, 없으면 그 현장의 가장 최근 날짜로
+    const nextDate = workDate && dates.includes(workDate) ? workDate : dates[0] ?? "";
+    if (nextDate) {
+      await handleWorkDateChange(nextDate, site);
+    } else {
+      setWorkDate("");
+      setRows([]);
+      setFileName(null);
+      setOriginalBuffer(null);
+      setWorkbook(null);
+      setRawExcelRows([]);
+      toast.info(`${ROSTER_FS[site].label} 저장된 데이터 없음 — 엑셀을 올려 주세요`);
     }
   };
 
@@ -1212,7 +1257,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
     if (!confirm(`${date} 데이터를 삭제하시겠습니까?`)) return;
     const ok = await deleteXerpWorkDateFS(syncSite, date);
     if (ok) {
-      deleteOriginalWorkbookBuffer(date).catch((err) => {
+      deleteOriginalWorkbookBuffer(syncSite, date).catch((err) => {
         console.warn("[deleteOriginalWorkbookBuffer]", err);
       });
       toast.success(`${date} 삭제됨`);
@@ -1813,7 +1858,7 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
 
         <select
           value={syncSite}
-          onChange={(e) => setSyncSite(e.target.value as XerpSyncSite)}
+          onChange={(e) => handleSyncSiteChange(e.target.value as XerpSyncSite)}
           aria-label="XERP 현장 선택"
           className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-emerald-300"
         >
