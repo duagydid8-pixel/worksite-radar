@@ -59,6 +59,8 @@ const WRITE_GASAN_DIVISION = true;
 const GASAN_DIVISION_TONE: Record<string, string> = {
   "출퇴근 미체크": "bg-rose-100 text-rose-700",
   "근무시간부족": "bg-orange-100 text-orange-700",
+  "기준공수변경": "bg-sky-100 text-sky-700",
+  "점심OT": "bg-amber-100 text-amber-700",
   "기타": "bg-slate-200 text-slate-700",
 };
 

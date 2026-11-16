@@ -262,17 +262,48 @@ export function resolveWritableGasanAdjustment(
 }
 
 /**
- * XERP 가산사유 "구분" 자동 분류 (일일출력 엑셀 Y열 = 구분, Z열 = 내용)
+ * XERP 가산사유 "구분" — 가산공수업로드 드롭다운 목록 그대로.
+ * 띄어쓰기까지 이 문자열과 똑같아야 XERP가 받아 준다(2026-11-16 실제 화면 확인).
+ * 순서도 드롭다운 순서 그대로 둔다.
+ */
+export const GASAN_DIVISIONS = [
+  "출퇴근 미체크",
+  "근무시간부족",
+  "OT 미신청 미승인",
+  "시스템 장애",
+  "리더기 오류",
+  "신규교육",
+  "야간작업",
+  "점심OT",
+  "공장방문",
+  "본사출근",
+  "프로그램사용미숙",
+  "기준공수변경",
+  "공휴일",
+  "주야간교대조",
+  "작업종료 조기퇴근",
+  "공장처리",
+  "기타",
+] as const;
+
+export type GasanDivision = (typeof GASAN_DIVISIONS)[number];
+
+/** 목록에 있는 문구인지 — 엑셀에 적기 전 마지막 확인용 */
+export function isGasanDivision(value: string): value is GasanDivision {
+  return (GASAN_DIVISIONS as readonly string[]).includes(value);
+}
+
+/**
+ * 가산사유 문구 → 구분 자동 분류 (일일출력 엑셀 Y열 = 구분, Z열 = 내용)
  * XERP 가산공수업로드는 구분이 비어 있으면 전원 "기타"로 넣어서, 매번 손으로 다시 지정해야 했다.
  * 규칙(현장 실사례로 확정):
- *  - "xerp 승인대기" 문구 → 기타 (시스템 지연, 작업자 타각 문제 아님)
  *  - 미타각 / 타각지연 → 출퇴근 미체크
- *  - 6h·7H 근무, 주간근무, 야간근무 (의도된 단축·변경 근무) → 기타
+ *  - Nh 연장근무 / Nh 야간근무 / Nh 철야근무 / 주간근무 → 기준공수변경 (기준 근무시간이 바뀐 건)
+ *  - 중식OT → 점심OT
  *  - 빠른퇴근 / 지각N분인정 / 조퇴 → 근무시간부족
- *  - 그 외(정기안전교육, 중식OT, 처음 보는 문구) → 기타 + certain=false (화면에 "?" 표시, 사람이 확인)
+ *  - "xerp 승인대기" 문구 → 기타 (시스템 지연, 작업자 타각 문제 아님)
+ *  - Nh 근무(단축)·정기안전교육·처음 보는 문구 → certain=false (화면에 "?" 표시, 사람이 확인)
  */
-export type GasanDivision = "출퇴근 미체크" | "근무시간부족" | "기타";
-
 export function classifyGasanDivision(reason: unknown): { division: GasanDivision | ""; certain: boolean } {
   const text = cleanGasanReason(reason);
   if (!text) return { division: "", certain: true };
@@ -280,9 +311,15 @@ export function classifyGasanDivision(reason: unknown): { division: GasanDivisio
 
   if (c.includes("xerp승인대기")) return { division: "기타", certain: true };
   if (c.includes("미타각") || c.includes("타각지연")) return { division: "출퇴근 미체크", certain: true };
-  if (/\d+(\.\d+)?h근무/.test(c) || c.includes("주간근무") || c.includes("야간근무")) return { division: "기타", certain: true };
-  if (c.includes("정기안전교육") || c.includes("중식ot")) return { division: "기타", certain: false };
+  // 근무시간이 기준과 달라진 건 — 1h 연장근무, 2h 야간근무, 10h 철야근무, 주간근무
+  if (c.includes("연장근무") || c.includes("야간근무") || c.includes("철야근무") || c.includes("주간근무")) {
+    return { division: "기준공수변경", certain: true };
+  }
+  if (c.includes("중식ot") || c.includes("점심ot")) return { division: "점심OT", certain: true };
+  if (c.includes("정기안전교육")) return { division: "기타", certain: false };
   if (c.includes("빠른퇴근") || c.includes("지각") || c.includes("조퇴")) return { division: "근무시간부족", certain: true };
+  // "6h 근무(주간)" 같은 단축근무 — 기준공수가 바뀐 건이지만 사례가 적어 확인 표시를 남긴다
+  if (/\d+(\.\d+)?h근무/.test(c)) return { division: "기준공수변경", certain: false };
   return { division: "기타", certain: false };
 }
 
@@ -290,18 +327,17 @@ export function classifyGasanDivision(reason: unknown): { division: GasanDivisio
 export function shortGasanDivision(division: GasanDivision | ""): string {
   if (division === "출퇴근 미체크") return "미체크";
   if (division === "근무시간부족") return "시간부족";
+  if (division === "기준공수변경") return "기준변경";
   return division;
 }
 
 /**
- * XERP 가산공수업로드가 Y열에서 한글 라벨을 받는지 드롭다운 코드값을 받는지 아직 확인 안 됨.
- * 실제 업로드로 확인한 뒤 GASAN_DIVISION_CELL_FORMAT 한 줄만 "code"로 바꾸면 코드값으로 나간다.
+ * 드롭다운 코드값이 필요할 때를 위한 자리 — 코드값은 아직 확인 안 됐다(목록 순번으로 둠).
+ * XERP가 라벨을 그대로 받으면 건드릴 일 없다. 실제 코드값을 알게 되면 여기만 고치면 된다.
  */
-export const GASAN_DIVISION_CODES: Record<GasanDivision, string> = {
-  "출퇴근 미체크": "100",
-  "근무시간부족": "200",
-  "기타": "900",
-};
+export const GASAN_DIVISION_CODES: Record<GasanDivision, string> = Object.fromEntries(
+  GASAN_DIVISIONS.map((d, i) => [d, String(i + 1)]),
+) as Record<GasanDivision, string>;
 
 export type GasanDivisionCellFormat = "label" | "code";
 
