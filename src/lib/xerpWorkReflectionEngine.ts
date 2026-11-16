@@ -265,7 +265,7 @@ export function resolveWritableGasanAdjustment(
  * XERP 가산사유 "구분" — 가산공수업로드 드롭다운 목록 그대로.
  * 띄어쓰기까지 이 문자열과 똑같아야 XERP가 받아 준다(2026-11-16 실제 화면 확인).
  * 순서는 드롭다운 순서 — "공장지원" 자리만 미확인이라 공장방문 옆에 뒀다.
- * (순서는 코드값 매핑에만 쓰이고 지금은 라벨을 그대로 보내므로 업로드에는 영향 없다.)
+ * (순서는 쓰지 않는 코드값 매핑에만 쓰인다. 2026-11-16 업로드 확인 — 라벨 그대로 들어간다.)
  */
 export const GASAN_DIVISIONS = [
   "출퇴근 미체크",
@@ -335,8 +335,9 @@ export function shortGasanDivision(division: GasanDivision | ""): string {
 }
 
 /**
- * 드롭다운 코드값이 필요할 때를 위한 자리 — 코드값은 아직 확인 안 됐다(목록 순번으로 둠).
- * XERP가 라벨을 그대로 받으면 건드릴 일 없다. 실제 코드값을 알게 되면 여기만 고치면 된다.
+ * 드롭다운 코드값이 필요할 때를 위한 자리 — 목록 순번으로 둔 더미값이다.
+ * 2026-11-16 실제 업로드에서 XERP가 한글 라벨을 그대로 받는 것을 확인해, 지금은 쓰지 않는다
+ * (`GASAN_DIVISION_CELL_FORMAT = "label"`). 나중에 코드값을 요구하게 되면 여기만 고치면 된다.
  */
 export const GASAN_DIVISION_CODES: Record<GasanDivision, string> = Object.fromEntries(
   GASAN_DIVISIONS.map((d, i) => [d, String(i + 1)]),
