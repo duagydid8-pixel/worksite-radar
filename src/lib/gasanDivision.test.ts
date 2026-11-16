@@ -56,8 +56,11 @@ describe("classifyGasanDivision (가산사유 → XERP 구분)", () => {
     expect(classifyGasanDivision("중식OT")).toEqual({ division: "점심OT", certain: true });
   });
 
+  it("정기안전교육은 기타 (확인 완료)", () => {
+    expect(classifyGasanDivision("정기안전교육으로 빠른퇴근타각")).toEqual({ division: "기타", certain: true });
+  });
+
   it("규칙에 없는 문구는 기타 + 확인 필요", () => {
-    expect(classifyGasanDivision("정기안전교육으로 빠른퇴근타각")).toEqual({ division: "기타", certain: false });
     expect(classifyGasanDivision("뭔가 새로운 사유")).toEqual({ division: "기타", certain: false });
   });
 
@@ -79,8 +82,8 @@ describe("gasanDivisionCellValue (엑셀 Y열에 적을 값)", () => {
   it("코드값이 필요하면 format만 바꾸면 된다 (목록 순번 — 실제 코드값 확인 전)", () => {
     expect(gasanDivisionCellValue("출퇴근 미체크", "code")).toBe("1");
     expect(gasanDivisionCellValue("근무시간부족", "code")).toBe("2");
-    expect(gasanDivisionCellValue("기준공수변경", "code")).toBe("12");
-    expect(gasanDivisionCellValue("기타", "code")).toBe("17");
+    expect(gasanDivisionCellValue("기준공수변경", "code")).toBe("13");
+    expect(gasanDivisionCellValue("기타", "code")).toBe("18");
   });
 
   it("구분이 없으면 빈 값 — Y열을 건드리지 않는다", () => {
@@ -101,13 +104,14 @@ describe("XERP 드롭다운 목록과 완전 일치", () => {
       "야간작업",
       "점심OT",
       "공장방문",
+      "공장지원",
       "본사출근",
       "프로그램사용미숙",
       "기준공수변경",
       "공휴일",
       "주야간교대조",
       "작업종료 조기퇴근",
-      "공장지원",
+      "공상처리",
       "기타",
     ]);
   });

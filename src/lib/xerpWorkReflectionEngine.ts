@@ -264,7 +264,8 @@ export function resolveWritableGasanAdjustment(
 /**
  * XERP 가산사유 "구분" — 가산공수업로드 드롭다운 목록 그대로.
  * 띄어쓰기까지 이 문자열과 똑같아야 XERP가 받아 준다(2026-11-16 실제 화면 확인).
- * 순서도 드롭다운 순서 그대로 둔다.
+ * 순서는 드롭다운 순서 — "공장지원" 자리만 미확인이라 공장방문 옆에 뒀다.
+ * (순서는 코드값 매핑에만 쓰이고 지금은 라벨을 그대로 보내므로 업로드에는 영향 없다.)
  */
 export const GASAN_DIVISIONS = [
   "출퇴근 미체크",
@@ -276,13 +277,14 @@ export const GASAN_DIVISIONS = [
   "야간작업",
   "점심OT",
   "공장방문",
+  "공장지원",
   "본사출근",
   "프로그램사용미숙",
   "기준공수변경",
   "공휴일",
   "주야간교대조",
   "작업종료 조기퇴근",
-  "공장지원",
+  "공상처리",
   "기타",
 ] as const;
 
@@ -302,7 +304,8 @@ export function isGasanDivision(value: string): value is GasanDivision {
  *  - 중식OT → 점심OT
  *  - 빠른퇴근 / 지각N분인정 / 조퇴 → 근무시간부족
  *  - "xerp 승인대기" 문구 → 기타 (시스템 지연, 작업자 타각 문제 아님)
- *  - Nh 근무(단축)·정기안전교육·처음 보는 문구 → certain=false (화면에 "?" 표시, 사람이 확인)
+ *  - 정기안전교육 → 기타 (2026-11-16 확인)
+ *  - Nh 근무(단축)·처음 보는 문구 → certain=false (화면에 "?" 표시, 사람이 확인)
  */
 export function classifyGasanDivision(reason: unknown): { division: GasanDivision | ""; certain: boolean } {
   const text = cleanGasanReason(reason);
@@ -316,7 +319,7 @@ export function classifyGasanDivision(reason: unknown): { division: GasanDivisio
     return { division: "기준공수변경", certain: true };
   }
   if (c.includes("중식ot") || c.includes("점심ot")) return { division: "점심OT", certain: true };
-  if (c.includes("정기안전교육")) return { division: "기타", certain: false };
+  if (c.includes("정기안전교육")) return { division: "기타", certain: true };
   if (c.includes("빠른퇴근") || c.includes("지각") || c.includes("조퇴")) return { division: "근무시간부족", certain: true };
   // "6h 근무(주간)" 같은 단축근무 — 기준공수가 바뀐 건이지만 사례가 적어 확인 표시를 남긴다
   if (/\d+(\.\d+)?h근무/.test(c)) return { division: "기준공수변경", certain: false };
