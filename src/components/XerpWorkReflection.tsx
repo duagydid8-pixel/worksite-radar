@@ -49,8 +49,8 @@ import {
   shouldShowInSpecialList,
   hasNoCalcGongsu,
   classifyGasanDivision,
+  gasanDivisionCellValueForReason,
   shortGasanDivision,
-  gasanDivisionCellValue,
 } from "@/lib/xerpWorkReflectionEngine";
 
 // 수정 파일 다운로드 시 Y열(구분)도 자동으로 채울지. XERP 업로드에서 문제가 생기면 false로 바꾸면 예전 방식으로 돌아간다.
@@ -1255,11 +1255,12 @@ export default function XerpWorkReflection({ isAdmin }: Props) {
       // Z열 (col 26, 0-based 25): 가산사유 (X열은 작업내용 컬럼이므로 건드리지 않음)
       if (effectiveReason) {
         ws.getCell(excelRow, 26).value = effectiveReason;
-        // Y열 (col 25): 구분 — 가산사유 문구로 자동 분류
-        if (WRITE_GASAN_DIVISION) {
-          const cellValue = gasanDivisionCellValue(classifyGasanDivision(effectiveReason).division);
-          if (cellValue) ws.getCell(excelRow, 25).value = cellValue;
-        }
+      }
+      // Y열 (col 25): 구분 — 가산사유 문구로 자동 분류.
+      // 사유가 없는 인원도 비워 두지 않고 표식("공장지원")을 넣는다. 비우면 XERP가 업로드할 때
+      // 전부 "기타"로 채워 우리가 쓴 진짜 "기타"와 섞여, 업로드 뒤 일괄 수정이 불가능해진다.
+      if (WRITE_GASAN_DIVISION) {
+        ws.getCell(excelRow, 25).value = gasanDivisionCellValueForReason(effectiveReason);
       }
 
       if (effectiveDiff === null) continue;

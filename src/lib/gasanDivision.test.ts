@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   GASAN_DIVISIONS,
   classifyGasanDivision,
+  GASAN_DIVISION_BLANK_MARK,
   gasanDivisionCellValue,
+  gasanDivisionCellValueForReason,
   isGasanDivision,
   shortGasanDivision,
 } from "@/lib/xerpWorkReflectionEngine";
@@ -105,7 +107,7 @@ describe("XERP 드롭다운 목록과 완전 일치", () => {
       "공휴일",
       "주야간교대조",
       "작업종료 조기퇴근",
-      "공장처리",
+      "공장지원",
       "기타",
     ]);
   });
@@ -122,6 +124,28 @@ describe("XERP 드롭다운 목록과 완전 일치", () => {
       const value = gasanDivisionCellValue(classifyGasanDivision(사유).division);
       expect(isGasanDivision(value), `${사유} → "${value}"`).toBe(true);
     }
+  });
+});
+
+describe("구분 빈칸 표식 — XERP가 빈칸을 '기타'로 채우는 것 막기", () => {
+  it("사유가 없는 행은 빈칸이 아니라 공장지원", () => {
+    expect(gasanDivisionCellValueForReason("")).toBe("공장지원");
+    expect(gasanDivisionCellValueForReason(undefined)).toBe("공장지원");
+    expect(gasanDivisionCellValueForReason("—")).toBe("공장지원");
+    expect(GASAN_DIVISION_BLANK_MARK).toBe("공장지원");
+  });
+
+  it("표식도 드롭다운 목록 안의 문구여야 한다", () => {
+    expect(isGasanDivision(GASAN_DIVISION_BLANK_MARK)).toBe(true);
+  });
+
+  it("사유가 있으면 평소대로 분류된 구분", () => {
+    expect(gasanDivisionCellValueForReason("2h 야간근무")).toBe("기준공수변경");
+    expect(gasanDivisionCellValueForReason("퇴근미타각(주간)")).toBe("출퇴근 미체크");
+  });
+
+  it("자동 분류 결과로 '기타'가 나온 건은 표식과 구분된다", () => {
+    expect(gasanDivisionCellValueForReason("xerp 승인대기로 인한 퇴근미타각(주간)")).not.toBe("공장지원");
   });
 });
 

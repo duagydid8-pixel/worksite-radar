@@ -282,7 +282,7 @@ export const GASAN_DIVISIONS = [
   "공휴일",
   "주야간교대조",
   "작업종료 조기퇴근",
-  "공장처리",
+  "공장지원",
   "기타",
 ] as const;
 
@@ -343,6 +343,14 @@ export type GasanDivisionCellFormat = "label" | "code";
 
 export const GASAN_DIVISION_CELL_FORMAT: GasanDivisionCellFormat = "label";
 
+/**
+ * 구분이 비어 있는 행에 임시로 넣는 표식.
+ * XERP는 업로드할 때 구분 빈칸을 전부 "기타"로 채우는데, 우리가 쓰는 진짜 "기타"와 섞여
+ * 업로드 뒤에 일괄 수정을 할 수 없다. 그래서 사유가 없어 구분이 안 잡히는 인원은
+ * 쓰지 않는 항목("공장지원")으로 표시해 두고, 업로드 뒤 그 값만 골라 한 번에 고친다.
+ */
+export const GASAN_DIVISION_BLANK_MARK: GasanDivision = "공장지원";
+
 /** 엑셀 Y열(구분)에 실제로 적을 값 */
 export function gasanDivisionCellValue(
   division: GasanDivision | "",
@@ -350,6 +358,18 @@ export function gasanDivisionCellValue(
 ): string {
   if (!division) return "";
   return format === "code" ? GASAN_DIVISION_CODES[division] : division;
+}
+
+/**
+ * 가산사유 → Y열에 적을 값. 사유가 없거나 구분이 안 잡히면 빈칸 대신 표식("공장지원")을 넣는다.
+ * Y열을 절대 비우지 않는 게 핵심 — 비우면 XERP가 "기타"로 채워 버려 나중에 구분이 안 된다.
+ */
+export function gasanDivisionCellValueForReason(
+  reason: unknown,
+  format: GasanDivisionCellFormat = GASAN_DIVISION_CELL_FORMAT,
+): string {
+  const { division } = classifyGasanDivision(reason);
+  return gasanDivisionCellValue(division || GASAN_DIVISION_BLANK_MARK, format);
 }
 
 export function excelSerialToDateStr(serial: unknown): string {
